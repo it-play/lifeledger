@@ -1575,6 +1575,7 @@ CREATE TABLE career_scheduled_action (
     employment_contract_id              BIGINT UNSIGNED     NULL,
     job_application_id                  BIGINT UNSIGNED     NULL,
     platform_catalog_id                 BIGINT UNSIGNED     NULL,
+    platform_key                        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
     invitation_generation_game_day      INT UNSIGNED        NULL,
     completed_game_day                  INT UNSIGNED        NULL,
     cancelled_game_day                  INT UNSIGNED        NULL,
@@ -1628,6 +1629,9 @@ CREATE TABLE career_scheduled_action (
     CONSTRAINT fk_career_scheduled_action_platform
         FOREIGN KEY (career_catalog_bundle_id, platform_catalog_id)
         REFERENCES platform_catalog (career_catalog_bundle_id, id),
+    CONSTRAINT fk_career_scheduled_action_platform_key
+        FOREIGN KEY (career_catalog_bundle_id, platform_key)
+        REFERENCES platform_catalog (career_catalog_bundle_id, platform_key),
     CONSTRAINT ck_career_scheduled_action_kind CHECK (
         action_kind IN (
             'employmentStart', 'documentReview', 'confirmationExpiry',
@@ -1650,6 +1654,7 @@ CREATE TABLE career_scheduled_action (
                 AND employment_contract_id IS NOT NULL
                 AND job_application_id IS NULL
                 AND platform_catalog_id IS NULL
+                AND platform_key IS NULL
                 AND invitation_generation_game_day IS NULL
             )
             OR (
@@ -1661,6 +1666,7 @@ CREATE TABLE career_scheduled_action (
                 AND employment_contract_id IS NULL
                 AND job_application_id IS NOT NULL
                 AND platform_catalog_id IS NULL
+                AND platform_key IS NULL
                 AND invitation_generation_game_day IS NULL
             )
             OR (
@@ -1672,6 +1678,7 @@ CREATE TABLE career_scheduled_action (
                 AND employment_contract_id IS NULL
                 AND job_application_id IS NOT NULL
                 AND platform_catalog_id IS NULL
+                AND platform_key IS NULL
                 AND invitation_generation_game_day IS NULL
             )
             OR (
@@ -1683,6 +1690,7 @@ CREATE TABLE career_scheduled_action (
                 AND employment_contract_id IS NULL
                 AND job_application_id IS NOT NULL
                 AND platform_catalog_id IS NULL
+                AND platform_key IS NULL
                 AND invitation_generation_game_day IS NULL
             )
             OR (
@@ -1694,6 +1702,7 @@ CREATE TABLE career_scheduled_action (
                 AND employment_contract_id IS NULL
                 AND job_application_id IS NOT NULL
                 AND platform_catalog_id IS NULL
+                AND platform_key IS NULL
                 AND invitation_generation_game_day IS NULL
             )
             OR (
@@ -1705,6 +1714,7 @@ CREATE TABLE career_scheduled_action (
                 AND employment_contract_id IS NULL
                 AND job_application_id IS NULL
                 AND platform_catalog_id IS NOT NULL
+                AND platform_key IS NOT NULL
                 AND invitation_generation_game_day = due_game_day
             )
         )
@@ -2190,6 +2200,8 @@ SET NEW.save_id = IF(
         AND EXISTS (
             SELECT 1
             FROM save
+            INNER JOIN `character` AS candidate
+                ON candidate.save_id = save.id
             INNER JOIN career_run
                 ON career_run.save_id = save.id
                AND career_run.run_revision = save.run_revision
@@ -2216,6 +2228,81 @@ SET NEW.save_id = IF(
                AND artifact.sealed_at IS NOT NULL
             WHERE save.id = NEW.save_id
               AND save.run_revision = NEW.run_revision
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM employment_contract AS contract
+                  WHERE contract.save_id = save.id
+                    AND contract.run_revision = save.run_revision
+                    AND contract.status IN ('pendingStart', 'active')
+              )
+              AND candidate.military NOT IN ('serving', 'alternative')
+              AND (
+                  posting.military_requirement = 'none'
+                  OR candidate.military IN ('completed', 'exempted')
+              )
+              AND (
+                  platform.same_region_only = FALSE
+                  OR BINARY candidate.region = BINARY posting.region
+              )
+              AND (
+                  posting.minimum_education IS NULL
+                  OR CASE candidate.education
+                      WHEN 'highSchool' THEN 1
+                      WHEN 'associate' THEN 2
+                      WHEN 'bachelor' THEN 3
+                      WHEN 'master' THEN 4
+                      WHEN 'doctorate' THEN 5
+                      ELSE 0
+                  END >= CASE posting.minimum_education
+                      WHEN 'highSchool' THEN 1
+                      WHEN 'associate' THEN 2
+                      WHEN 'bachelor' THEN 3
+                      WHEN 'master' THEN 4
+                      WHEN 'doctorate' THEN 5
+                      ELSE 6
+                  END
+              )
+              AND (
+                  posting.required_certification_entry_id IS NULL
+                  OR EXISTS (
+                      SELECT 1
+                      FROM spec_evidence AS certification
+                      WHERE certification.save_id = save.id
+                        AND certification.run_revision = save.run_revision
+                        AND certification.spec_catalog_entry_id
+                            = posting.required_certification_entry_id
+                        AND certification.acquired_game_day
+                            <= NEW.invitation_game_day
+                        AND (
+                            certification.expires_on_game_day IS NULL
+                            OR certification.expires_on_game_day
+                                >= NEW.invitation_game_day
+                        )
+                  )
+              )
+              AND posting.minimum_experience_days <= (
+                  SELECT COALESCE(SUM(
+                      CASE
+                          WHEN experience.kind = 'experience'
+                            AND experience.period_start_date IS NOT NULL
+                            AND experience.period_end_exclusive_date IS NOT NULL
+                          THEN DATEDIFF(
+                              experience.period_end_exclusive_date,
+                              experience.period_start_date
+                          )
+                          ELSE 0
+                      END
+                  ), 0)
+                  FROM spec_evidence AS experience
+                  WHERE experience.save_id = save.id
+                    AND experience.run_revision = save.run_revision
+                    AND experience.acquired_game_day <= NEW.invitation_game_day
+                    AND (
+                        experience.expires_on_game_day IS NULL
+                        OR experience.expires_on_game_day
+                            >= NEW.invitation_game_day
+                    )
+              )
               AND EXISTS (
                   SELECT 1
                   FROM career_scheduled_action AS action
@@ -2598,6 +2685,9 @@ SET NEW.id = IF(
                 AND NEW.end_game_day IS NULL
                 AND NEW.credited_experience_days = 1
                 AND NEW.last_credited_game_day = OLD.start_game_day
+                AND NEW.last_credited_game_day = (
+                    SELECT game_day + 1 FROM save WHERE id = OLD.save_id
+                )
                 AND EXISTS (
                     SELECT 1
                     FROM career_scheduled_action AS action
@@ -2617,6 +2707,9 @@ SET NEW.id = IF(
                     = OLD.credited_experience_days + 1
                 AND NEW.last_credited_game_day
                     = OLD.last_credited_game_day + 1
+                AND NEW.last_credited_game_day = (
+                    SELECT game_day + 1 FROM save WHERE id = OLD.save_id
+                )
             )
             OR (
                 OLD.status = 'pendingStart'
@@ -2755,6 +2848,7 @@ SET NEW.save_id = IF(
                     WHERE platform.id = NEW.platform_catalog_id
                       AND platform.career_catalog_bundle_id
                           = NEW.career_catalog_bundle_id
+                      AND BINARY platform.platform_key = BINARY NEW.platform_key
                       AND platform.invitation_source IN ('resume', 'linkedinProfile')
                 )
             )
@@ -2784,6 +2878,7 @@ SET NEW.id = IF(
         AND NEW.employment_contract_id <=> OLD.employment_contract_id
         AND NEW.job_application_id <=> OLD.job_application_id
         AND NEW.platform_catalog_id <=> OLD.platform_catalog_id
+        AND NEW.platform_key <=> OLD.platform_key
         AND NEW.invitation_generation_game_day
             <=> OLD.invitation_generation_game_day
         AND NEW.created_at = OLD.created_at

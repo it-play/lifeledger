@@ -458,6 +458,7 @@ pub struct InvitationEvaluationInput<'a> {
     pub world_seed: u64,
     pub posting: &'a MaterializedPosting,
     pub invitation_game_day: u32,
+    pub candidate: CandidateApplicationProfile<'a>,
     pub latest_public_artifact: &'a SubmittedArtifact,
     pub visible_scores: DimensionScores,
     pub open_invitation_count: u32,
@@ -927,8 +928,8 @@ impl RecruitmentRules for V1RecruitmentRules {
         &self,
         input: ApplicationEligibilityInput<'_>,
     ) -> Result<ApplicationSubmissionPlan, RecruitmentError> {
-        validate_candidate_access(&input)?;
-        validate_qualifications(&input)?;
+        validate_candidate_access(input.posting, input.current_game_day, input.candidate)?;
+        validate_qualifications(input.posting, input.candidate)?;
         let pin = pin_application_artifacts(
             &input.posting.required_artifacts,
             input.submitted_artifacts,
@@ -1042,11 +1043,8 @@ impl RecruitmentRules for V1RecruitmentRules {
         &self,
         input: InvitationEvaluationInput<'_>,
     ) -> Result<InvitationDecision, RecruitmentError> {
-        if input.invitation_game_day < input.posting.posted_game_day
-            || input.invitation_game_day >= input.posting.closes_exclusive_game_day
-        {
-            return Err(RecruitmentError::PostingClosed);
-        }
+        validate_candidate_access(input.posting, input.invitation_game_day, input.candidate)?;
+        validate_qualifications(input.posting, input.candidate)?;
         if input.open_invitation_count >= self.ruleset.open_invitation_limit
             || input.platform_invitation_already_generated_today
         {
@@ -1563,58 +1561,58 @@ fn validate_template(
 }
 
 fn validate_candidate_access(
-    input: &ApplicationEligibilityInput<'_>,
+    posting: &MaterializedPosting,
+    current_game_day: u32,
+    candidate: CandidateApplicationProfile<'_>,
 ) -> Result<(), RecruitmentError> {
-    if input.candidate.has_active_or_pending_contract
-        || input.candidate.life_status == LifeStatus::Employed
+    if candidate.has_active_or_pending_contract || candidate.life_status == LifeStatus::Employed
     {
         return Err(RecruitmentError::ActiveEmployment);
     }
-    if input.candidate.life_status != LifeStatus::Unemployed
-        || input.candidate.military_qualification == MilitaryQualification::Serving
+    if candidate.life_status != LifeStatus::Unemployed
+        || candidate.military_qualification == MilitaryQualification::Serving
     {
         return Err(RecruitmentError::ServiceConflict);
     }
-    if input.current_game_day < input.posting.posted_game_day
-        || input.current_game_day >= input.posting.closes_exclusive_game_day
+    if current_game_day < posting.posted_game_day
+        || current_game_day >= posting.closes_exclusive_game_day
     {
         return Err(RecruitmentError::PostingClosed);
     }
-    if input.posting.same_region_only && input.candidate.region != input.posting.region {
+    if posting.same_region_only && candidate.region != posting.region {
         return Err(RecruitmentError::RegionMismatch);
     }
     Ok(())
 }
 
 fn validate_qualifications(
-    input: &ApplicationEligibilityInput<'_>,
+    posting: &MaterializedPosting,
+    candidate: CandidateApplicationProfile<'_>,
 ) -> Result<(), RecruitmentError> {
-    if input
-        .posting
+    if posting
         .minimum_education
-        .is_some_and(|minimum| input.candidate.education < minimum)
+        .is_some_and(|minimum| candidate.education < minimum)
     {
         return Err(RecruitmentError::EducationRequired);
     }
-    let mut catalog_keys = HashSet::with_capacity(input.candidate.valid_catalog_entry_keys.len());
-    for key in input.candidate.valid_catalog_entry_keys {
+    let mut catalog_keys = HashSet::with_capacity(candidate.valid_catalog_entry_keys.len());
+    for key in candidate.valid_catalog_entry_keys {
         if !catalog_keys.insert(*key) {
             return Err(RecruitmentError::InvalidStableKey);
         }
     }
-    if input
-        .posting
+    if posting
         .required_certification_entry_key
         .as_deref()
         .is_some_and(|required| !catalog_keys.contains(required))
     {
         return Err(RecruitmentError::CertificationRequired);
     }
-    if input.candidate.experience_days < input.posting.minimum_experience_days {
+    if candidate.experience_days < posting.minimum_experience_days {
         return Err(RecruitmentError::ExperienceRequired);
     }
-    if input.posting.military_requirement == MilitaryPostingRequirement::CompletedOrExempt
-        && input.candidate.military_qualification != MilitaryQualification::CompletedOrExempt
+    if posting.military_requirement == MilitaryPostingRequirement::CompletedOrExempt
+        && candidate.military_qualification != MilitaryQualification::CompletedOrExempt
     {
         return Err(RecruitmentError::MilitaryRequirementNotMet);
     }
@@ -1920,7 +1918,7 @@ fn transition_application(
             },
             ApplicationAction::ResolveDocument { game_day, decision },
         ) => {
-            if game_day < *document_decision_game_day {
+            if game_day != *document_decision_game_day {
                 return Err(RecruitmentError::DecisionNotDue);
             }
             validate_stage_decision(&decision, RecruitmentStage::Document)?;
@@ -1980,7 +1978,7 @@ fn transition_application(
             },
             ApplicationAction::ExpireConfirmation { game_day },
         ) => {
-            if game_day < *confirmation_deadline_exclusive_game_day {
+            if game_day != *confirmation_deadline_exclusive_game_day {
                 return Err(RecruitmentError::DecisionNotDue);
             }
             Ok(ApplicationState::Withdrawn {
@@ -2032,7 +2030,7 @@ fn transition_application(
                 salary,
             },
         ) => {
-            if game_day < *interview_game_day {
+            if game_day != *interview_game_day {
                 return Err(RecruitmentError::DecisionNotDue);
             }
             validate_stage_decision(&decision, RecruitmentStage::Interview)?;
@@ -2079,7 +2077,7 @@ fn transition_application(
             },
             ApplicationAction::ExpireOffer { game_day },
         ) => {
-            if game_day < *expires_exclusive_game_day {
+            if game_day != *expires_exclusive_game_day {
                 return Err(RecruitmentError::DecisionNotDue);
             }
             Ok(ApplicationState::Expired {
@@ -2625,6 +2623,7 @@ mod tests {
                         world_seed: 77,
                         posting: &posting,
                         invitation_game_day: posting.posted_game_day,
+                        candidate: given_candidate(&[]),
                         latest_public_artifact: artifact,
                         visible_scores: DimensionScores::default(),
                         open_invitation_count: 0,
@@ -2652,6 +2651,7 @@ mod tests {
                     world_seed: 77,
                     posting: &posting,
                     invitation_game_day: posting.posted_game_day,
+                    candidate: given_candidate(&[]),
                     latest_public_artifact: &profile,
                     visible_scores: scores,
                     open_invitation_count: 0,
@@ -2661,6 +2661,31 @@ mod tests {
 
             assert_eq!(result.decision.score_bp, 6_500);
             assert_eq!(result.decision.probability_ppm, 80_000);
+        }
+
+        #[test]
+        fn given_재직중인_후보_when_초대판정하면_then_초대를_거절한다() {
+            let posting = given_posting(PlatformKey::Saramin);
+            let resume = given_artifact(ArtifactKind::Resume, 1, 8_000, vec![1]);
+            let candidate = CandidateApplicationProfile {
+                has_active_or_pending_contract: true,
+                ..given_candidate(&[])
+            };
+
+            let result = create_v1_recruitment_rules().evaluate_invitation(
+                InvitationEvaluationInput {
+                    world_seed: 77,
+                    posting: &posting,
+                    invitation_game_day: posting.posted_game_day,
+                    candidate,
+                    latest_public_artifact: &resume,
+                    visible_scores: DimensionScores::default(),
+                    open_invitation_count: 0,
+                    platform_invitation_already_generated_today: false,
+                },
+            );
+
+            assert_eq!(result, Err(RecruitmentError::ActiveEmployment));
         }
     }
 

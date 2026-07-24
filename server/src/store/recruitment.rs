@@ -1124,23 +1124,42 @@ const POSTING_SELECT: &str =
       AND family.id = posting.career_job_family_id
      LEFT JOIN spec_catalog_entry AS certification
        ON certification.career_catalog_bundle_id = posting.career_catalog_bundle_id
-      AND certification.id = posting.required_certification_entry_id";
+      AND certification.id = posting.required_certification_entry_id
+     WHERE posting.market_world_id = ?
+       AND posting.career_catalog_bundle_id = ?
+       AND (? IS NULL OR posting.id = ?)
+       AND (? IS NULL OR BINARY posting.posting_key = BINARY ?)
+       AND (? IS NULL OR posting.posted_game_day <= ?)
+       AND (? IS NULL OR posting.closes_exclusive_game_day > ?)
+       AND (? IS NULL OR BINARY posting.posting_key < BINARY ?)
+       AND (? IS NULL OR BINARY platform.platform_key = BINARY ?)
+       AND (? IS NULL OR BINARY industry.industry_key = BINARY ?)
+     ORDER BY posting.posting_key DESC
+     LIMIT ?";
 
 async fn read_posting_by_key(
     tx: &mut Transaction<'_, MySql>,
     scope: &RecruitmentScopeRow,
     posting_key: &str,
 ) -> Result<Option<PostingRow>> {
-    let sql = format!(
-        "{POSTING_SELECT}
-         WHERE posting.market_world_id = ?
-           AND posting.career_catalog_bundle_id = ?
-           AND BINARY posting.posting_key = BINARY ?"
-    );
-    sqlx::query_as(&*sql)
+    sqlx::query_as(POSTING_SELECT)
         .bind(scope.market_world_id)
         .bind(scope.career_catalog_bundle_id)
+        .bind(Option::<u64>::None)
+        .bind(Option::<u64>::None)
+        .bind(Some(posting_key))
         .bind(posting_key)
+        .bind(Option::<u32>::None)
+        .bind(Option::<u32>::None)
+        .bind(Option::<u32>::None)
+        .bind(Option::<u32>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(1_u32)
         .fetch_optional(&mut **tx)
         .await
         .context("failed to read a recruitment posting")
@@ -1151,16 +1170,24 @@ async fn read_posting_by_id(
     scope: &RecruitmentScopeRow,
     posting_id: u64,
 ) -> Result<Option<PostingRow>> {
-    let sql = format!(
-        "{POSTING_SELECT}
-         WHERE posting.market_world_id = ?
-           AND posting.career_catalog_bundle_id = ?
-           AND posting.id = ?"
-    );
-    sqlx::query_as(&*sql)
+    sqlx::query_as(POSTING_SELECT)
         .bind(scope.market_world_id)
         .bind(scope.career_catalog_bundle_id)
+        .bind(Some(posting_id))
         .bind(posting_id)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<u32>::None)
+        .bind(Option::<u32>::None)
+        .bind(Option::<u32>::None)
+        .bind(Option::<u32>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(1_u32)
         .fetch_optional(&mut **tx)
         .await
         .context("failed to read a recruitment posting")
@@ -1332,22 +1359,16 @@ pub(super) async fn read_career_jobs(
     let scope = read_scope_for_user(&mut tx, user_id).await?;
     let platform = query.platform.map(|value| enum_to_db(&value)).transpose()?;
     let industry = query.industry.map(|value| enum_to_db(&value)).transpose()?;
-    let sql = format!(
-        "{POSTING_SELECT}
-         WHERE posting.market_world_id = ?
-           AND posting.career_catalog_bundle_id = ?
-           AND posting.posted_game_day <= ?
-           AND posting.closes_exclusive_game_day > ?
-           AND (? IS NULL OR BINARY posting.posting_key < BINARY ?)
-           AND (? IS NULL OR BINARY platform.platform_key = BINARY ?)
-           AND (? IS NULL OR BINARY industry.industry_key = BINARY ?)
-         ORDER BY posting.posting_key DESC
-         LIMIT ?"
-    );
-    let rows: Vec<PostingRow> = sqlx::query_as(&*sql)
+    let rows: Vec<PostingRow> = sqlx::query_as(POSTING_SELECT)
         .bind(scope.market_world_id)
         .bind(scope.career_catalog_bundle_id)
+        .bind(Option::<u64>::None)
+        .bind(Option::<u64>::None)
+        .bind(Option::<&str>::None)
+        .bind(Option::<&str>::None)
+        .bind(Some(scope.game_day))
         .bind(scope.game_day)
+        .bind(Some(scope.game_day))
         .bind(scope.game_day)
         .bind(query.before.as_deref())
         .bind(query.before.as_deref())
@@ -1476,7 +1497,14 @@ const APPLICATION_SELECT: &str =
      LEFT JOIN job_offer AS offer
        ON offer.save_id = application.save_id
       AND offer.run_revision = application.run_revision
-      AND offer.job_application_id = application.id";
+      AND offer.job_application_id = application.id
+     WHERE application.save_id = ? AND application.run_revision = ?
+       AND (? IS NULL OR application.id < ?)
+       AND (? = FALSE OR application.status IN (
+           'submitted', 'interviewAwaitingConfirmation', 'interviewConfirmed', 'offered'
+       ))
+     ORDER BY application.id DESC
+     LIMIT ?";
 
 async fn read_application_rows(
     tx: &mut Transaction<'_, MySql>,
@@ -1486,17 +1514,7 @@ async fn read_application_rows(
     limit: u32,
     open_only: bool,
 ) -> Result<Vec<ApplicationReadRow>> {
-    let sql = format!(
-        "{APPLICATION_SELECT}
-         WHERE application.save_id = ? AND application.run_revision = ?
-           AND (? IS NULL OR application.id < ?)
-           AND (? = FALSE OR application.status IN (
-               'submitted', 'interviewAwaitingConfirmation', 'interviewConfirmed', 'offered'
-           ))
-         ORDER BY application.id DESC
-         LIMIT ?"
-    );
-    sqlx::query_as(&*sql)
+    sqlx::query_as(APPLICATION_SELECT)
         .bind(save_id)
         .bind(run_revision)
         .bind(before)
@@ -2646,6 +2664,8 @@ pub(super) async fn accept_career_invitation_command(
         .await?.context("invitation artifact is unavailable")?;
     let (evidence, catalog) = read_score_inputs(&mut tx, scope.save_id, scope.run_revision, scope.career_catalog_bundle_id).await?;
     let (_, visible_scores) = calculate_scores(invitation.invitation_game_day, &posting.job_family_key, &artifact.evidence_ids, &evidence, &catalog)?;
+    let candidate = read_candidate_profile(&mut tx, &scope).await?;
+    let key_refs = candidate.valid_catalog_entry_keys.iter().map(String::as_str).collect::<Vec<_>>();
     let invitation_decision = rules.evaluate_invitation(InvitationEvaluationInput {
         world_seed: scope.world_seed,
         posting: &posting,
@@ -2654,6 +2674,7 @@ pub(super) async fn accept_career_invitation_command(
         visible_scores,
         open_invitation_count: 0,
         platform_invitation_already_generated_today: false,
+        candidate: candidate_domain(&candidate, &key_refs),
     }).map_err(anyhow::Error::new)?;
     ensure!(
         invitation_decision.decision.score_bp == invitation.invitation_score_bp
@@ -2673,8 +2694,6 @@ pub(super) async fn accept_career_invitation_command(
         } && artifact.completeness_bp == invitation.artifact_completeness_bp,
         "stored invitation pin drifted"
     );
-    let candidate = read_candidate_profile(&mut tx, &scope).await?;
-    let key_refs = candidate.valid_catalog_entry_keys.iter().map(String::as_str).collect::<Vec<_>>();
     let (active_application_count, direct_applications_today, already_applied_to_posting) = application_counts(&mut tx, &scope, posting_row.id).await?;
     let plan = match rules.prepare_application(ApplicationEligibilityInput {
         posting: &posting,
@@ -2865,7 +2884,7 @@ pub(super) async fn decline_career_offer_command(
     let receipt = CareerOfferReceipt {
         command_id: command.command_id.clone(),
         offer_id: command.offer_id,
-        status: CareerOfferStatus::Declined,
+        status: CareerApplicationStatus::Declined,
         employment_contract_id: None,
         replayed: false,
     };
@@ -3146,11 +3165,589 @@ pub(super) async fn accept_career_offer_command(
     let receipt = CareerOfferReceipt {
         command_id: command.command_id.clone(),
         offer_id: command.offer_id,
-        status: CareerOfferStatus::Accepted,
+        status: CareerApplicationStatus::Accepted,
         employment_contract_id: Some(ResourceId::from_u64(contract_id)),
         replayed: false,
     };
     finish_command(tx, &scope, &identity, receipt).await
+}
+
+pub(super) async fn advance_recruitment_lifecycle_in_tx(
+    tx: &mut Transaction<'_, MySql>,
+    save_id: u64,
+    run_revision: u32,
+    target_game_day: u32,
+) -> Result<()> {
+    let previous_game_day: u32 = sqlx::query_scalar(
+        "SELECT game_day FROM save WHERE id = ? AND run_revision = ?",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .fetch_optional(&mut **tx)
+    .await?
+    .context("daily recruitment lifecycle requires an active save")?;
+    ensure!(
+        previous_game_day.checked_add(1) == Some(target_game_day),
+        "daily recruitment lifecycle target is not the next game day"
+    );
+    let action_rows: Vec<ScheduledActionRow> = sqlx::query_as(
+        "SELECT id, action_kind, payload_version, phase_rank, due_game_day,
+                source_kind, source_id, occurrence, recruitment_ruleset_id,
+                employment_contract_id, job_application_id, platform_catalog_id,
+                invitation_generation_game_day
+         FROM career_scheduled_action
+         WHERE save_id = ? AND run_revision = ? AND status = 'pending'
+           AND phase_rank = 10 AND due_game_day = ?
+         ORDER BY due_game_day, id",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(target_game_day)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut contract_ids = action_rows
+        .iter()
+        .map(|action| {
+            validate_scheduled_action(action)?;
+            action.employment_contract_id.context("employment start action has no contract")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    contract_ids.sort_unstable();
+    contract_ids.dedup();
+    for contract_id in &contract_ids {
+        let _: (u64,) = sqlx::query_as(
+            "SELECT id FROM employment_contract
+             WHERE save_id = ? AND run_revision = ? AND id = ? FOR UPDATE",
+        )
+        .bind(save_id)
+        .bind(run_revision)
+        .bind(contract_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .context("employment start contract is unavailable")?;
+    }
+    for action in action_rows {
+        let contract_id = action.employment_contract_id.context("employment start action has no contract")?;
+        let locked: Option<(u64,)> = sqlx::query_as(
+            "SELECT id FROM career_scheduled_action
+             WHERE save_id = ? AND run_revision = ? AND id = ?
+               AND status = 'pending' AND due_game_day = ? FOR UPDATE",
+        )
+        .bind(save_id)
+        .bind(run_revision)
+        .bind(action.id)
+        .bind(target_game_day)
+        .fetch_optional(&mut **tx)
+        .await?;
+        ensure!(locked.is_some(), "employment start action changed under lock");
+        let update = sqlx::query(
+            "UPDATE employment_contract
+             SET status = 'active', credited_experience_days = 1,
+                 last_credited_game_day = ?
+             WHERE save_id = ? AND run_revision = ? AND id = ?
+               AND status = 'pendingStart' AND start_game_day = ?",
+        )
+        .bind(target_game_day)
+        .bind(save_id)
+        .bind(run_revision)
+        .bind(contract_id)
+        .bind(target_game_day)
+        .execute(&mut **tx)
+        .await?;
+        ensure!(update.rows_affected() == 1, "employment start transition was lost");
+        complete_action(tx, action.id, target_game_day).await?;
+    }
+    let stale_active: u64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM employment_contract
+         WHERE save_id = ? AND run_revision = ? AND status = 'active'
+           AND last_credited_game_day < ?",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(target_game_day.saturating_sub(1))
+    .fetch_one(&mut **tx)
+    .await?;
+    ensure!(stale_active == 0, "active employment experience has a game-day gap");
+    sqlx::query(
+        "UPDATE employment_contract
+         SET credited_experience_days = credited_experience_days + 1,
+             last_credited_game_day = ?
+         WHERE save_id = ? AND run_revision = ? AND status = 'active'
+           AND last_credited_game_day = ?",
+    )
+    .bind(target_game_day)
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(target_game_day.saturating_sub(1))
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+fn validate_scheduled_action(action: &ScheduledActionRow) -> Result<()> {
+    ensure!(action.payload_version == 1, "unknown career scheduled action payload version");
+    match action.action_kind.as_str() {
+        "employmentStart" => ensure!(
+            action.phase_rank == 10
+                && action.source_kind == "employmentStart"
+                && action.employment_contract_id == Some(action.source_id)
+                && action.job_application_id.is_none()
+                && action.platform_catalog_id.is_none()
+                && action.invitation_generation_game_day.is_none()
+                && action.occurrence == 1,
+            "invalid employment start action payload"
+        ),
+        "documentReview" => ensure!(action.phase_rank == 20 && action.source_kind == "documentReview" && action.job_application_id == Some(action.source_id) && action.employment_contract_id.is_none() && action.platform_catalog_id.is_none() && action.invitation_generation_game_day.is_none() && action.occurrence == 1, "invalid document action payload"),
+        "confirmationExpiry" => ensure!(action.phase_rank == 30 && action.source_kind == "confirmationExpiry" && action.job_application_id == Some(action.source_id) && action.employment_contract_id.is_none() && action.platform_catalog_id.is_none() && action.invitation_generation_game_day.is_none() && action.occurrence == 1, "invalid confirmation action payload"),
+        "interviewDecision" => ensure!(action.phase_rank == 40 && action.source_kind == "interviewDecision" && action.job_application_id == Some(action.source_id) && action.employment_contract_id.is_none() && action.platform_catalog_id.is_none() && action.invitation_generation_game_day.is_none() && action.occurrence == 1, "invalid interview action payload"),
+        "offerExpiry" => ensure!(action.phase_rank == 50 && action.source_kind == "offerExpiry" && action.job_application_id == Some(action.source_id) && action.employment_contract_id.is_none() && action.platform_catalog_id.is_none() && action.invitation_generation_game_day.is_none() && action.occurrence == 1, "invalid offer expiry action payload"),
+        "invitationGeneration" => ensure!(action.phase_rank == 60 && action.source_kind == "invitationGeneration" && action.platform_catalog_id == Some(action.source_id) && action.employment_contract_id.is_none() && action.job_application_id.is_none() && action.invitation_generation_game_day == Some(action.due_game_day) && action.occurrence == u64::from(action.due_game_day), "invalid invitation generation action payload"),
+        _ => bail!("unknown career scheduled action kind"),
+    }
+    Ok(())
+}
+
+async fn complete_action(
+    tx: &mut Transaction<'_, MySql>,
+    action_id: u64,
+    due_game_day: u32,
+) -> Result<()> {
+    let update = sqlx::query(
+        "UPDATE career_scheduled_action
+         SET status = 'completed', completed_game_day = ?
+         WHERE id = ? AND status = 'pending' AND due_game_day = ?",
+    )
+    .bind(due_game_day)
+    .bind(action_id)
+    .bind(due_game_day)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(update.rows_affected() == 1, "career scheduled action completion was lost");
+    Ok(())
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct EvaluationApplicationRow {
+    id: u64,
+    job_posting_id: u64,
+    recruitment_ruleset_id: u64,
+    source_kind: String,
+    status: String,
+    submitted_game_day: u32,
+    artifact_completeness_bp: i64,
+    resume_version_id: Option<u64>,
+    portfolio_version_id: Option<u64>,
+    linkedin_profile_version_id: Option<u64>,
+    visible_education_score_bp: i64,
+    visible_certification_score_bp: i64,
+    visible_language_score_bp: i64,
+    visible_training_score_bp: i64,
+    visible_experience_score_bp: i64,
+    visible_project_score_bp: i64,
+    document_visible_fit_bp: Option<i64>,
+    document_platform_affinity_bp: Option<i64>,
+    document_score_bp: Option<i64>,
+    document_probability_ppm: Option<u32>,
+    document_roll: Option<u32>,
+    document_decided_game_day: Option<u32>,
+    confirmation_expires_exclusive_game_day: Option<u32>,
+    interview_game_day: Option<u32>,
+}
+
+async fn read_scope_for_save_day(
+    tx: &mut Transaction<'_, MySql>,
+    save_id: u64,
+    run_revision: u32,
+    game_day: u32,
+) -> Result<RecruitmentScopeRow> {
+    sqlx::query_as(
+        "SELECT save.id AS save_id, save.market_world_id, world.seed AS world_seed,
+                save.run_revision, save.state_revision, ? AS game_day, save.cash_krw,
+                career_run.career_catalog_bundle_id,
+                `character`.region AS character_region,
+                `character`.education AS character_education,
+                `character`.military AS character_military
+         FROM save
+         INNER JOIN `character` ON `character`.save_id = save.id
+         INNER JOIN career_run
+           ON career_run.save_id = save.id AND career_run.run_revision = save.run_revision
+         INNER JOIN market_world AS world ON world.id = save.market_world_id
+         WHERE save.id = ? AND save.run_revision = ?",
+    )
+    .bind(game_day)
+    .bind(save_id)
+    .bind(run_revision)
+    .fetch_optional(&mut **tx)
+    .await?
+    .context("daily recruitment actions require an active career run")
+}
+
+async fn load_evaluation_application(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &RecruitmentScopeRow,
+    application_id: u64,
+) -> Result<EvaluationApplicationRow> {
+    sqlx::query_as(
+        "SELECT id, job_posting_id, recruitment_ruleset_id, source_kind, status,
+                submitted_game_day, artifact_completeness_bp,
+                resume_version_id, portfolio_version_id, linkedin_profile_version_id,
+                visible_education_score_bp, visible_certification_score_bp,
+                visible_language_score_bp, visible_training_score_bp,
+                visible_experience_score_bp, visible_project_score_bp,
+                document_visible_fit_bp, document_platform_affinity_bp,
+                document_score_bp, document_probability_ppm, document_roll,
+                document_decided_game_day,
+                confirmation_expires_exclusive_game_day, interview_game_day
+         FROM job_application
+         WHERE save_id = ? AND run_revision = ? AND id = ?",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(application_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .context("scheduled recruitment application is unavailable")
+}
+
+fn application_visible_scores(application: &EvaluationApplicationRow) -> DimensionScores {
+    DimensionScores {
+        education: application.visible_education_score_bp,
+        certification: application.visible_certification_score_bp,
+        language: application.visible_language_score_bp,
+        training: application.visible_training_score_bp,
+        experience: application.visible_experience_score_bp,
+        project: application.visible_project_score_bp,
+    }
+}
+
+async fn process_document_action(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &RecruitmentScopeRow,
+    action: &ScheduledActionRow,
+) -> Result<()> {
+    let application_id = action.job_application_id.context("document action has no application")?;
+    let application = load_evaluation_application(tx, scope, application_id).await?;
+    ensure!(application.status == "submitted" && application.source_kind == "direct", "document action application is not submitted");
+    let posting_row = read_posting_by_id(tx, scope, application.job_posting_id).await?.context("document posting is unavailable")?;
+    let posting = posting_from_row(&posting_row)?;
+    let rules = read_recruitment_rules_by_id(tx, scope.career_catalog_bundle_id, application.recruitment_ruleset_id).await?;
+    let decision = rules.evaluate_document(DocumentEvaluationInput {
+        world_seed: scope.world_seed,
+        posting: &posting,
+        visible_scores: application_visible_scores(&application),
+        artifact_completeness_bp: application.artifact_completeness_bp,
+    }).map_err(anyhow::Error::new)?;
+    let initial = ApplicationState::Submitted {
+        submitted_game_day: application.submitted_game_day,
+        document_decision_game_day: application.submitted_game_day.checked_add(posting.document_review_days).context("document day overflowed")?,
+        interview_delay_days: posting.interview_delay_days,
+        offer_expiry_days: posting.offer_expiry_days,
+    };
+    let next = rules.transition_application(&initial, ApplicationAction::ResolveDocument {
+        game_day: action.due_game_day,
+        decision: decision.clone(),
+    }).map_err(anyhow::Error::new)?;
+    let (status, confirmation_day, interview_day) = match next {
+        ApplicationState::DocumentRejected { .. } => ("documentRejected", None, None),
+        ApplicationState::InterviewAwaitingConfirmation {
+            confirmation_deadline_exclusive_game_day,
+            interview_game_day,
+            ..
+        } => ("interviewAwaitingConfirmation", Some(confirmation_deadline_exclusive_game_day), Some(interview_game_day)),
+        _ => bail!("document transition produced an invalid state"),
+    };
+    let update = sqlx::query(
+        "UPDATE job_application
+         SET status = ?, document_visible_fit_bp = ?,
+             document_platform_affinity_bp = ?, document_score_bp = ?,
+             document_probability_ppm = ?, document_roll = ?,
+             document_decided_game_day = ?,
+             confirmation_expires_exclusive_game_day = ?, interview_game_day = ?
+         WHERE save_id = ? AND run_revision = ? AND id = ? AND status = 'submitted'",
+    )
+    .bind(status)
+    .bind(decision.components.primary_fit_bp)
+    .bind(decision.components.context_fit_bp)
+    .bind(decision.score_bp)
+    .bind(decision.probability_ppm)
+    .bind(decision.roll_ppm)
+    .bind(action.due_game_day)
+    .bind(confirmation_day)
+    .bind(interview_day)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(application.id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(update.rows_affected() == 1, "document decision was lost");
+    if let Some(interview_day) = interview_day {
+        insert_application_action(tx, scope, application.recruitment_ruleset_id, application.id, "confirmationExpiry", 30, interview_day).await?;
+    }
+    complete_action(tx, action.id, action.due_game_day).await
+}
+
+async fn process_confirmation_expiry_action(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &RecruitmentScopeRow,
+    action: &ScheduledActionRow,
+) -> Result<()> {
+    let application_id = action.job_application_id.context("confirmation action has no application")?;
+    let application = load_evaluation_application(tx, scope, application_id).await?;
+    ensure!(application.status == "interviewAwaitingConfirmation", "confirmation expiry application is not awaiting confirmation");
+    ensure!(application.confirmation_expires_exclusive_game_day == Some(action.due_game_day), "confirmation expiry day drifted");
+    let update = sqlx::query(
+        "UPDATE job_application
+         SET terminal_from_status = status, terminal_game_day = ?, status = 'withdrawn'
+         WHERE save_id = ? AND run_revision = ? AND id = ?
+           AND status = 'interviewAwaitingConfirmation'",
+    )
+    .bind(action.due_game_day)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(application.id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(update.rows_affected() == 1, "confirmation expiry was lost");
+    complete_action(tx, action.id, action.due_game_day).await
+}
+
+async fn pinned_application_evidence_ids(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &RecruitmentScopeRow,
+    application: &EvaluationApplicationRow,
+) -> Result<Vec<u64>> {
+    let mut ids = Vec::new();
+    for artifact_id in [application.resume_version_id, application.portfolio_version_id, application.linkedin_profile_version_id].into_iter().flatten() {
+        let mut artifact_ids: Vec<u64> = sqlx::query_scalar(
+            "SELECT evidence_id FROM profile_artifact_evidence
+             WHERE save_id = ? AND run_revision = ? AND profile_artifact_version_id = ?
+             ORDER BY selection_order",
+        )
+        .bind(scope.save_id)
+        .bind(scope.run_revision)
+        .bind(artifact_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        ids.append(&mut artifact_ids);
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
+async fn process_interview_action(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &RecruitmentScopeRow,
+    action: &ScheduledActionRow,
+) -> Result<()> {
+    let application_id = action.job_application_id.context("interview action has no application")?;
+    let application = load_evaluation_application(tx, scope, application_id).await?;
+    ensure!(application.status == "interviewConfirmed" && application.interview_game_day == Some(action.due_game_day), "interview action application is not due");
+    let posting_row = read_posting_by_id(tx, scope, application.job_posting_id).await?.context("interview posting is unavailable")?;
+    let posting = posting_from_row(&posting_row)?;
+    let rules = read_recruitment_rules_by_id(tx, scope.career_catalog_bundle_id, application.recruitment_ruleset_id).await?;
+    let (evidence, catalog) = read_score_inputs(tx, scope.save_id, scope.run_revision, scope.career_catalog_bundle_id).await?;
+    let pinned_ids = pinned_application_evidence_ids(tx, scope, &application).await?;
+    let currently_valid_ids = evidence.iter().filter(|item| item.acquired_game_day <= action.due_game_day && item.expires_on_game_day.is_none_or(|expiry| action.due_game_day <= expiry)).map(|item| item.evidence_id).collect::<Vec<_>>();
+    let (possessed_scores, _) = calculate_scores(action.due_game_day, &posting.job_family_key, &[], &evidence, &catalog)?;
+    let decision = rules.evaluate_interview(InterviewEvaluationInput {
+        world_seed: scope.world_seed,
+        posting: &posting,
+        possessed_scores,
+        pinned_evidence_ids: &pinned_ids,
+        currently_valid_evidence_ids: &currently_valid_ids,
+    }).map_err(anyhow::Error::new)?;
+    let salary = if decision.passed {
+        Some(rules.determine_offer_salary(OfferSalaryInput {
+            world_seed: scope.world_seed,
+            posting: &posting,
+            possessed_fit_bp: decision.components.primary_fit_bp,
+        }).map_err(anyhow::Error::new)?)
+    } else {
+        None
+    };
+    let entry_decision = entry_decision_for_application(tx, scope, &application, rules.ruleset()).await?;
+    let initial = ApplicationState::InterviewConfirmed {
+        entry_decision,
+        confirmed_game_day: action.due_game_day.saturating_sub(1),
+        interview_game_day: action.due_game_day,
+        offer_expiry_days: posting.offer_expiry_days,
+    };
+    let next = rules.transition_application(&initial, ApplicationAction::ResolveInterview {
+        game_day: action.due_game_day,
+        decision: decision.clone(),
+        salary,
+    }).map_err(anyhow::Error::new)?;
+    let (status, expires_game_day, salary) = match next {
+        ApplicationState::InterviewRejected { .. } => ("interviewRejected", None, None),
+        ApplicationState::Offered { expires_exclusive_game_day, salary, .. } => ("offered", Some(expires_exclusive_game_day), Some(salary)),
+        _ => bail!("interview transition produced an invalid state"),
+    };
+    let offer_id = if let (Some(expires_game_day), Some(salary)) = (expires_game_day, salary) {
+        let start_game_day = expires_game_day.checked_add(rules.ruleset().start_delay_days).context("employment start day overflowed")?;
+        let insert = sqlx::query(
+            "INSERT INTO job_offer
+                 (save_id, run_revision, career_catalog_bundle_id, recruitment_ruleset_id,
+                  job_application_id, job_posting_id, career_industry_id,
+                  career_job_family_id, virtual_employer_id, status,
+                  annual_salary_krw, region, employment_type, payday_day_of_month,
+                  offered_game_day, start_game_day, expires_exclusive_game_day,
+                  first_pay_reward_krw)
+             SELECT ?, ?, posting.career_catalog_bundle_id, posting.recruitment_ruleset_id,
+                    ?, posting.id, posting.career_industry_id,
+                    posting.career_job_family_id, posting.virtual_employer_id, 'pending',
+                    ?, posting.region, posting.employment_type, ?, ?, ?, ?,
+                    platform.first_pay_reward_krw
+             FROM job_posting AS posting
+             INNER JOIN platform_catalog AS platform
+               ON platform.career_catalog_bundle_id = posting.career_catalog_bundle_id
+              AND platform.id = posting.platform_catalog_id
+             WHERE posting.id = ?",
+        )
+        .bind(scope.save_id)
+        .bind(scope.run_revision)
+        .bind(application.id)
+        .bind(salary.annual_salary_krw)
+        .bind(rules.ruleset().monthly_payday)
+        .bind(action.due_game_day)
+        .bind(start_game_day)
+        .bind(expires_game_day)
+        .bind(posting_row.id)
+        .execute(&mut **tx)
+        .await?;
+        Some(insert.last_insert_id())
+    } else {
+        None
+    };
+    let update = sqlx::query(
+        "UPDATE job_application
+         SET status = ?,
+             possessed_education_score_bp = ?, possessed_certification_score_bp = ?,
+             possessed_language_score_bp = ?, possessed_training_score_bp = ?,
+             possessed_experience_score_bp = ?, possessed_project_score_bp = ?,
+             possessed_fit_bp = ?, experience_project_fit_bp = ?,
+             profile_consistency_bp = ?, interview_score_bp = ?,
+             interview_probability_ppm = ?, interview_roll = ?,
+             interview_decided_game_day = ?
+         WHERE save_id = ? AND run_revision = ? AND id = ?
+           AND status = 'interviewConfirmed'",
+    )
+    .bind(status)
+    .bind(possessed_scores.education)
+    .bind(possessed_scores.certification)
+    .bind(possessed_scores.language)
+    .bind(possessed_scores.training)
+    .bind(possessed_scores.experience)
+    .bind(possessed_scores.project)
+    .bind(decision.components.primary_fit_bp)
+    .bind(decision.components.supporting_fit_bp)
+    .bind(decision.components.context_fit_bp)
+    .bind(decision.score_bp)
+    .bind(decision.probability_ppm)
+    .bind(decision.roll_ppm)
+    .bind(action.due_game_day)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(application.id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(update.rows_affected() == 1, "interview decision was lost");
+    if offer_id.is_some() {
+        insert_application_action(tx, scope, application.recruitment_ruleset_id, application.id, "offerExpiry", 50, expires_game_day.context("offer expiry is missing")?).await?;
+    }
+    complete_action(tx, action.id, action.due_game_day).await
+}
+
+async fn entry_decision_for_application(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &RecruitmentScopeRow,
+    application: &EvaluationApplicationRow,
+    rules: &RecruitmentRuleset,
+) -> Result<StageDecision> {
+    if application.source_kind == "direct" {
+        let score = application.document_score_bp.context("document score is missing")?;
+        return Ok(StageDecision {
+            stage: RecruitmentStage::Document,
+            score_band: score_band_for(score, rules)?,
+            components: StageComponents {
+                primary_fit_bp: application.document_visible_fit_bp.context("document fit is missing")?,
+                supporting_fit_bp: application.artifact_completeness_bp,
+                context_fit_bp: application.document_platform_affinity_bp.context("platform affinity is missing")?,
+            },
+            dimension_fit_bp: None,
+            score_bp: score,
+            probability_ppm: application.document_probability_ppm.context("document probability is missing")?,
+            roll_ppm: application.document_roll.context("document roll is missing")?,
+            passed: true,
+        });
+    }
+    let row: (i64, u32, u32) = sqlx::query_as(
+        "SELECT invitation.invitation_score_bp, invitation.invitation_probability_ppm,
+                invitation.invitation_roll
+         FROM job_application AS application
+         INNER JOIN job_invitation AS invitation
+           ON invitation.save_id = application.save_id
+          AND invitation.run_revision = application.run_revision
+          AND invitation.id = application.source_invitation_id
+         WHERE application.save_id = ? AND application.run_revision = ? AND application.id = ?",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(application.id)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(StageDecision {
+        stage: RecruitmentStage::Invitation,
+        score_band: score_band_for(row.0, rules)?,
+        components: StageComponents { primary_fit_bp: row.0, supporting_fit_bp: 0, context_fit_bp: 0 },
+        dimension_fit_bp: None,
+        score_bp: row.0,
+        probability_ppm: row.1,
+        roll_ppm: row.2,
+        passed: true,
+    })
+}
+
+async fn process_offer_expiry_action(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &RecruitmentScopeRow,
+    action: &ScheduledActionRow,
+) -> Result<()> {
+    let application_id = action.job_application_id.context("offer expiry action has no application")?;
+    let offer: (u64, u32) = sqlx::query_as(
+        "SELECT id, expires_exclusive_game_day FROM job_offer
+         WHERE save_id = ? AND run_revision = ? AND job_application_id = ?
+           AND status = 'pending'",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(application_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .context("offer expiry has no pending offer")?;
+    ensure!(offer.1 == action.due_game_day, "offer expiry day drifted");
+    let offer_update = sqlx::query(
+        "UPDATE job_offer SET status = 'expired', decided_game_day = ?
+         WHERE save_id = ? AND run_revision = ? AND id = ? AND status = 'pending'",
+    )
+    .bind(action.due_game_day)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(offer.0)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(offer_update.rows_affected() == 1, "offer expiry was lost");
+    let app_update = sqlx::query(
+        "UPDATE job_application SET status = 'expired'
+         WHERE save_id = ? AND run_revision = ? AND id = ? AND status = 'offered'",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(application_id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(app_update.rows_affected() == 1, "offer application expiry was lost");
+    complete_action(tx, action.id, action.due_game_day).await
 }
 
 fn command_prefix(version: &str, cursor: CommandCursor) -> String {
@@ -3193,10 +3790,14 @@ fn fingerprint(canonical: &str) -> String {
 fn apply_fingerprint(command: &ApplyCareerCommand) -> String {
     let mut canonical = command_prefix("lifeledger.career.application-submit.v1", command.cursor);
     push_fingerprint_field(&mut canonical, "postingKey", &command.posting_key);
-    push_fingerprint_field(&mut canonical, "resumeVersionId", &command.resume_version_id.get().to_string());
-    push_fingerprint_field(&mut canonical, "portfolioVersionId", &command.portfolio_version_id.get().to_string());
-    push_fingerprint_field(&mut canonical, "linkedinProfileVersionId", &command.linkedin_profile_version_id.get().to_string());
+    push_fingerprint_field(&mut canonical, "resumeVersionId", &optional_resource_id(command.resume_version_id));
+    push_fingerprint_field(&mut canonical, "portfolioVersionId", &optional_resource_id(command.portfolio_version_id));
+    push_fingerprint_field(&mut canonical, "linkedinProfileVersionId", &optional_resource_id(command.linkedin_profile_version_id));
     fingerprint(&canonical)
+}
+
+fn optional_resource_id(value: Option<ResourceId>) -> String {
+    value.map_or_else(|| "none".to_owned(), |id| id.get().to_string())
 }
 
 fn interview_confirmation_fingerprint(command: &ConfirmCareerInterviewCommand) -> String {
