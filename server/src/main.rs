@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("omega_dream_server=debug,tower_http=debug,axum=info"));
+        .unwrap_or_else(|_| EnvFilter::new("lifeledger_server=debug,tower_http=debug,axum=info"));
 
     tracing_subscriber::registry()
         .with(filter)

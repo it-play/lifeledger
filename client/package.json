@@ -1,10 +1,10 @@
 {
-  "name": "omega-dream-client",
+  "name": "lifeledger-client",
   "version": "0.0.1",
-  "description": "omega-dream 웹 클라이언트",
+  "description": "LifeLedger 웹 클라이언트",
   "private": true,
   "keywords": [],
-  "license": "SEE LICENSE IN ../LICENSE.md",
+  "license": "SEE LICENSE IN ../LICENSE",
   "author": "",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
