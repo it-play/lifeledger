@@ -1,20 +1,21 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use anyhow::Result;
 use serde::Serialize;
 use tokio::sync::broadcast;
+use utoipa::ToSchema;
 
 use crate::character::{Character, net_worth_krw};
+use crate::store::{SaveState, SaveStore};
 
 /// 시작 게임 날짜. 나중에 월드 시드 설정으로 옮긴다.
 const START_DATE: &str = "2026-01-01";
-/// 캐릭터를 만들기 전의 기본 자금 (원). 캐릭터가 생기면 그 값으로 대체된다.
-const INITIAL_CASH_KRW: i64 = 10_000_000;
 
 /// 클라이언트에 보내는 게임 상태 스냅샷.
 ///
 /// 날짜 문자열을 매번 계산해 보내지 않고 시작일 + 경과일만 보낸다.
 /// 표시용 날짜 계산은 결정론적이라 클라이언트가 해도 권위 문제가 없다.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSnapshot {
     pub game_day: u32,
@@ -27,83 +28,60 @@ pub struct GameSnapshot {
 }
 
 /// 게임일 전진의 권위는 서버에 있다 (§4.2). 클라이언트는 "얼마나" 만 요청한다.
-#[derive(Debug)]
+///
+/// 상태 자체는 DB 가 들고 있다 (§4.4). 여기서는 저장소 호출을 조립하고,
+/// 커밋된 결과만 스트림으로 흘린다.
 pub struct AppState {
-    inner: Mutex<Inner>,
+    store: Arc<dyn SaveStore>,
     ticks: broadcast::Sender<GameSnapshot>,
 }
 
-#[derive(Debug)]
-struct Inner {
-    game_day: u32,
-    cash_krw: i64,
-    debt_krw: i64,
-    character: Option<Character>,
-}
-
 impl AppState {
-    pub fn new() -> Arc<Self> {
+    pub fn new(store: Arc<dyn SaveStore>) -> Arc<Self> {
         let (ticks, _) = broadcast::channel(256);
-        Arc::new(Self {
-            inner: Mutex::new(Inner {
-                game_day: 0,
-                cash_krw: INITIAL_CASH_KRW,
-                debt_krw: 0,
-                character: None,
-            }),
-            ticks,
-        })
+        Arc::new(Self { store, ticks })
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<GameSnapshot> {
         self.ticks.subscribe()
     }
 
-    pub fn snapshot(&self) -> GameSnapshot {
-        let inner = self.inner.lock().expect("state mutex poisoned");
-        Self::snapshot_of(&inner)
+    pub async fn snapshot(&self) -> Result<GameSnapshot> {
+        Ok(to_snapshot(&self.store.load().await?))
     }
 
-    /// 게임일을 하루씩 전진시키며 매일의 스냅샷을 방송한다.
-    /// 1개월 스텝이나 배속은 이 루프를 서버가 연속 실행하는 것으로 표현된다.
-    pub fn advance(&self, days: u32) -> GameSnapshot {
-        let mut last = self.snapshot();
-        for _ in 0..days {
-            let snapshot = {
-                let mut inner = self.inner.lock().expect("state mutex poisoned");
-                inner.game_day += 1;
-                // TODO(M1): 시장 일봉 조회 → 평가 → 정산. 지금은 자리만 잡아 둔다.
-                Self::snapshot_of(&inner)
-            };
-            // 구독자가 없으면 오류가 나는데, 그건 정상 상황이므로 무시한다
-            let _ = self.ticks.send(snapshot.clone());
-            last = snapshot;
-        }
-        last
+    /// 게임일을 전진시키고 결과를 방송한다.
+    ///
+    /// 지금은 마지막 상태 하나만 흘린다. 일별 정산(M1)이 붙으면 하루가 실제로
+    /// 값을 바꾸므로, 그때 하루 단위 틱으로 나눈다.
+    pub async fn advance(&self, days: u32) -> Result<GameSnapshot> {
+        let snapshot = to_snapshot(&self.store.advance(days).await?);
+        self.broadcast(&snapshot);
+
+        Ok(snapshot)
     }
 
     /// 캐릭터를 확정하고 게임을 시작 상태로 되돌린다 (게임일 0).
-    pub fn start_game(&self, character: Character) -> GameSnapshot {
-        let snapshot = {
-            let mut inner = self.inner.lock().expect("state mutex poisoned");
-            inner.game_day = 0;
-            inner.cash_krw = character.cash_krw;
-            inner.debt_krw = character.debt_krw;
-            inner.character = Some(character);
-            Self::snapshot_of(&inner)
-        };
-        let _ = self.ticks.send(snapshot.clone());
-        snapshot
+    pub async fn start_game(&self, character: Character) -> Result<GameSnapshot> {
+        let snapshot = to_snapshot(&self.store.start_game(&character).await?);
+        self.broadcast(&snapshot);
+
+        Ok(snapshot)
     }
 
-    fn snapshot_of(inner: &Inner) -> GameSnapshot {
-        GameSnapshot {
-            game_day: inner.game_day,
-            start_date: START_DATE,
-            cash_krw: inner.cash_krw,
-            debt_krw: inner.debt_krw,
-            net_worth_krw: net_worth_krw(inner.cash_krw, inner.debt_krw),
-            character_name: inner.character.as_ref().map(|c| c.name.clone()),
-        }
+    fn broadcast(&self, snapshot: &GameSnapshot) {
+        // 구독자가 없으면 오류가 나는데, 그건 정상 상황이므로 무시한다
+        let _ = self.ticks.send(snapshot.clone());
+    }
+}
+
+fn to_snapshot(state: &SaveState) -> GameSnapshot {
+    GameSnapshot {
+        game_day: state.game_day,
+        start_date: START_DATE,
+        cash_krw: state.cash_krw,
+        debt_krw: state.debt_krw,
+        net_worth_krw: net_worth_krw(state.cash_krw, state.debt_krw),
+        character_name: state.character.as_ref().map(|c| c.name.clone()),
     }
 }

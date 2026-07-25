@@ -4,6 +4,7 @@
 //! 검증은 순수 함수로 두어 저장소·HTTP 없이 단독으로 테스트한다.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// 취학 연령. 학업·복무·경력 기간 합이 나이를 넘지 못하는지 볼 때의 기준점.
 const SCHOOL_ENTRY_AGE: u32 = 6;
@@ -16,7 +17,7 @@ const MAX_STARTING_CASH_KRW: i64 = 10_000_000_000;
 const MAX_CAREER_YEARS: u32 = 30;
 const MAX_DEPENDENTS: u32 = 6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Gender {
     Male,
@@ -24,7 +25,7 @@ pub enum Gender {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum MilitaryStatus {
     /// 미필. 일부 공고가 "필 또는 면제"를 요구해 채용 풀이 좁아진다.
@@ -36,7 +37,7 @@ pub enum MilitaryStatus {
     Alternative,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Education {
     HighSchool,
@@ -46,7 +47,7 @@ pub enum Education {
     Doctorate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Region {
     CapitalArea,
@@ -55,7 +56,7 @@ pub enum Region {
     Rural,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum FamilyBackground {
     /// 지원형 — 부모 지원금을 받는다.
@@ -65,7 +66,7 @@ pub enum FamilyBackground {
     Dependent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Health {
     Good,
@@ -107,7 +108,7 @@ impl MilitaryStatus {
 }
 
 /// 클라이언트가 보내는 시작 조건. 아직 검증되지 않은 상태다.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterDraft {
     pub name: String,
@@ -127,7 +128,7 @@ pub struct CharacterDraft {
 }
 
 /// 검증을 통과한 캐릭터. 여기서부터는 값을 신뢰할 수 있다.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Character {
     pub name: String,
@@ -151,7 +152,7 @@ pub const fn net_worth_krw(cash_krw: i64, debt_krw: i64) -> i64 {
 }
 
 /// 어떤 필드 조합이 왜 모순인지 알려준다 (§3.5).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationError {
     /// 클라이언트 폼 필드 이름과 맞춘다.
@@ -320,7 +321,7 @@ fn validate_timeline(draft: &CharacterDraft) -> Vec<ValidationError> {
 }
 
 /// 시작 프리셋 (§3.3). 콘텐츠 데이터라서 나중에 파일로 빼낸다.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
     pub id: &'static str,
