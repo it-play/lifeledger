@@ -1,0 +1,22 @@
+name: lifeledger
+
+services:
+  server:
+    build: ./server
+    image: lifeledger-server:latest
+    container_name: lifeledger-server
+    restart: unless-stopped
+    # 배포 시 .env 를 통째로 갈아끼운다 (GitHub Secret SERVER_ENV)
+    env_file:
+      - .env
+    # nginx 만 붙는다. 외부에 직접 노출하지 않는다
+    ports:
+      - "127.0.0.1:10105:8080"
+    # 호스트의 mysql 컨테이너(3306)를 host.docker.internal 로 부른다
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

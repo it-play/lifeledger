@@ -6,3 +6,6 @@ dist
 # rust
 target
 .env
+
+# 배포 스테이징 (워크플로가 만든다)
+_deploy
