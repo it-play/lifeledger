@@ -1,0 +1,41 @@
+name: Server Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'deploy/**'
+      - '.github/workflows/deploy-server.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare Deployment Package
+        env:
+          SERVER_ENV: ${{ secrets.SERVER_ENV }}
+        run: |
+          mkdir -p _deploy
+          cp -R server _deploy/server
+          cp -R deploy/scripts _deploy/scripts
+          cp deploy/docker-compose.yml deploy/deployspec.yml _deploy/
+          printf '%s\n' "$SERVER_ENV" > _deploy/.env
+          rm -rf _deploy/server/target
+
+      - name: Deploy to Server
+        uses: 8G4B/GSM-SV-Deploy@v1.2.1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          user: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source_path: _deploy
+          target_path: /Users/snowykte0426/Downloads/lifeledger
+          deployspec_path: _deploy/deployspec.yml
