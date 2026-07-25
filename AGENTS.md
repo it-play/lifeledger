@@ -1,7 +1,8 @@
-# AGENTS.md — LifeLedger
+# LifeLedger — working rules
 
-Rules for every agent and contributor working in this repository. Harness-specific files
-(`CLAUDE.md` and friends) reference this file, so change rules **here only**.
+Rules for every agent and contributor working in this repository.
+
+`CLAUDE.md` and `AGENTS.md` hold this same text. Change both together.
 
 ## Project
 
@@ -11,6 +12,12 @@ statistics, but only the player's assets are fictional. Non-commercial personal 
 `plan-docs/development-plan.md` is the single source of truth for design. Any decision that
 changes the design goes into that document **before** it goes into code.
 
+Two facts shape most of the code:
+
+- **The server owns game time.** The client only asks *how far* to advance.
+- **The client has no UI framework.** What a framework would do is built explicitly in
+  `client/src/lib/`.
+
 ## Layout
 
 ```
@@ -18,7 +25,9 @@ client/      TypeScript + webpack, no framework (do not add React, Vue, Svelte, 
   src/lib/     reactive · hooks · store · sse · http · router · view · form · dom — our own foundation
   src/api/     server contracts (zod) and the domain API
   src/app/     screens and app state
-server/      Rust + axum. Simulation, settlement, and saves are authoritative here
+server/      Rust + axum. Simulation, settlement, saves, and auth are authoritative here
+  migrations/  SQL applied at startup by sqlx
+  deploy/      compose file, env template, and deploy lifecycle scripts
 plan-docs/   design documents
 ```
 
@@ -35,10 +44,13 @@ screens. All zod glue lives in `src/api/zod-adapters.ts` and nowhere else.
 | Lint / format | `cd client && npm run lint` / `npm run lint:fix` |
 | Unit tests | `cd client && npm test` |
 | Run server | `cd server && cargo run` |
+| Server tests | `cd server && cargo test` |
 | Server checks | `cd server && cargo clippy --all-targets -- -D warnings && cargo fmt --check` |
 
 The Rust toolchain lives in `~/.cargo` and is **not** on `PATH` by default. Run
 `export PATH="$HOME/.cargo/bin:$PATH"` first when needed.
+
+After a change, run what is relevant — not everything.
 
 ## Testing policy (important)
 
@@ -88,6 +100,7 @@ describe('재시도 판단', () => {                          // Data: the rule
   `any` and non-null assertions (`!`) are forbidden.
 - Validate server responses with zod at the boundary. Unvalidated data never reaches a screen.
 - Money is an integer number of KRW. Never compute money in floating point.
+- User-facing text is Korean. Identifiers, comments, and log messages are English.
 
 ### Comments
 
@@ -127,7 +140,17 @@ The rules it assumes:
 - Unlike React there is no call-order rule: hooks may be called conditionally or in loops.
 - Charts come from a framework-agnostic library. Do not hand-draw charts.
 
+## Traps worth knowing
+
+- The SSE client is a hand-written implementation of the WHATWG event-stream algorithm.
+  Read `client/src/lib/sse/parser.ts` before touching stream parsing.
+- `sqlx::migrate!` embeds `server/migrations/` at compile time, so the Dockerfile must copy that
+  directory before the sources.
+- Login providers are enabled only when both their client id and secret are present. A provider
+  without credentials never reaches the login screen.
+
 ## Commits
 
-Follow `.claude/skills/git-commit`: `type(scope): Korean description`, subject line only,
-never add an AI tool as co-author. Split work into logical units, one commit each.
+Follow the `git-commit` skill (`.claude/skills/git-commit/`, mirrored under `.agents/`):
+`type(scope): Korean description`, subject line only, never add an AI tool as co-author.
+Split work into logical units, one commit each.
