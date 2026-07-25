@@ -4,6 +4,7 @@ import type { GameApi } from '../../api/game-api.js';
 import { el } from '../../lib/dom/index.js';
 import { createHooks } from '../../lib/hooks/index.js';
 import type { Store } from '../../lib/store/index.js';
+import type { ToastQueue } from '../../lib/toast/index.js';
 import type { View, ViewFactory } from '../../lib/view/index.js';
 import { CONNECTION_LABEL, formatGameDate, formatWon } from '../format.js';
 import { type AppState, paths } from '../state.js';
@@ -12,6 +13,7 @@ export interface DashboardDeps {
   readonly store: Store<AppState>;
   readonly api: GameApi;
   readonly auth: AuthApi;
+  readonly toasts: ToastQueue;
 }
 
 /**
@@ -26,7 +28,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
 
     return {
       mount(host, ctx) {
-        const { store, api, auth } = deps;
+        const { store, api, auth, toasts } = deps;
         const h = createHooks(ctx.bag);
 
         // Pull in only the paths this screen needs; other changes do not wake it
@@ -109,12 +111,12 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           h.useEventListener(button, 'click', () => {
             const unit = button.dataset.unit as StepUnit | undefined;
             if (unit === undefined) return;
-            void advance(store, api, STEP_DAYS[unit]);
+            void advance(store, api, toasts, STEP_DAYS[unit]);
           });
         }
 
         h.useEventListener(logoutButton, 'click', () => {
-          void logout(auth);
+          void logout(auth, toasts);
         });
 
         // No snapshot yet (undefined) differs from no character (null); navigating before
@@ -145,22 +147,28 @@ const moneyText = (amount: number | undefined): string =>
 const stepLabel = (unit: StepUnit): string =>
   unit === 'day' ? '1일 진행' : unit === 'week' ? '1주 진행' : '1개월 진행';
 
-async function logout(auth: AuthApi): Promise<void> {
+async function logout(auth: AuthApi, toasts: ToastQueue): Promise<void> {
   try {
     await auth.logout();
-  } finally {
-    // A full reload is the reliable way to pick up the cleared session cookie
-    globalThis.location.assign('/');
+  } catch {
+    toasts.show('로그아웃하지 못했습니다. 다시 시도해 주세요.', { tone: 'error' });
+    return;
   }
+  // A full reload is the reliable way to pick up the cleared session cookie
+  globalThis.location.assign('/');
 }
 
-async function advance(store: Store<AppState>, api: GameApi, days: number): Promise<void> {
+async function advance(
+  store: Store<AppState>,
+  api: GameApi,
+  toasts: ToastQueue,
+  days: number,
+): Promise<void> {
   store.set(paths.gameAdvancing, true);
   try {
-    const snapshot = await api.advance(days);
-    store.set(paths.gameSnapshot, snapshot);
-  } catch (error) {
-    store.set('connection.lastError', error instanceof Error ? error.message : '진행 실패');
+    store.set(paths.gameSnapshot, await api.advance(days));
+  } catch {
+    toasts.show('게임일을 진행하지 못했습니다. 다시 시도해 주세요.', { tone: 'error' });
   } finally {
     store.set(paths.gameAdvancing, false);
   }

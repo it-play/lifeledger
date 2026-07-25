@@ -5,12 +5,14 @@ import { el } from '../../lib/dom/index.js';
 import { type FieldSpec, type FormHandle, renderForm } from '../../lib/form/index.js';
 import { createHooks } from '../../lib/hooks/index.js';
 import type { Store } from '../../lib/store/index.js';
+import type { ToastQueue } from '../../lib/toast/index.js';
 import type { View, ViewFactory } from '../../lib/view/index.js';
 import { type AppState, paths } from '../state.js';
 
 export interface CharacterCreateDeps {
   readonly store: Store<AppState>;
   readonly api: GameApi;
+  readonly toasts: ToastQueue;
 }
 
 const FIELDS: readonly FieldSpec[] = [
@@ -105,7 +107,7 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
 
     return {
       async mount(host, ctx) {
-        const { store, api } = deps;
+        const { store, api, toasts } = deps;
         const h = createHooks(ctx.bag);
 
         const presetBar = el('div', { class: 'presets' }, '프리셋 불러오는 중…');
@@ -142,6 +144,10 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
                 const snapshot = await api.createCharacter(draft);
                 store.set(paths.gameSnapshot, snapshot);
                 ctx.navigate('/');
+                // The host lives outside #app, so this survives the screen swap
+                toasts.show(`${snapshot.characterName ?? '캐릭터'}의 인생을 시작합니다`, {
+                  tone: 'success',
+                });
               } catch (error) {
                 // Show the server's contradiction findings on the fields themselves
                 if (error instanceof CharacterRejectedError) {
