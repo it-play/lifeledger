@@ -6,6 +6,10 @@ groups:
 overrides:
   claude/skills/git-commit: false
   codex/skills/git-commit: false
+  claude/skills/write-pr: false
+  codex/skills/write-pr: false
+  claude/skills/resolve-reviews: false
+  codex/skills/resolve-reviews: false
 
   claude/skills/kotlin-spring-arch: false
   claude/skills/java-spring-arch: false
@@ -37,4 +41,4 @@ overrides:
 base_branch: main
 language: ko
 pr_label: false
-enabled: true
+enabled: false
