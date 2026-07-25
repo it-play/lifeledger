@@ -3,9 +3,11 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
+use crate::character::{Character, net_worth_krw};
+
 /// 시작 게임 날짜. 나중에 월드 시드 설정으로 옮긴다.
 const START_DATE: &str = "2026-01-01";
-/// 프리셋 "사회초년생" 의 시작 자금 (원). 캐릭터 생성이 붙으면 여기서 사라진다.
+/// 캐릭터를 만들기 전의 기본 자금 (원). 캐릭터가 생기면 그 값으로 대체된다.
 const INITIAL_CASH_KRW: i64 = 10_000_000;
 
 /// 클라이언트에 보내는 게임 상태 스냅샷.
@@ -18,7 +20,10 @@ pub struct GameSnapshot {
     pub game_day: u32,
     pub start_date: &'static str,
     pub cash_krw: i64,
+    pub debt_krw: i64,
     pub net_worth_krw: i64,
+    /// 캐릭터를 아직 만들지 않았으면 None — 클라이언트는 생성 화면으로 보낸다.
+    pub character_name: Option<String>,
 }
 
 /// 게임일 전진의 권위는 서버에 있다 (§4.2). 클라이언트는 "얼마나" 만 요청한다.
@@ -32,6 +37,8 @@ pub struct AppState {
 struct Inner {
     game_day: u32,
     cash_krw: i64,
+    debt_krw: i64,
+    character: Option<Character>,
 }
 
 impl AppState {
@@ -41,6 +48,8 @@ impl AppState {
             inner: Mutex::new(Inner {
                 game_day: 0,
                 cash_krw: INITIAL_CASH_KRW,
+                debt_krw: 0,
+                character: None,
             }),
             ticks,
         })
@@ -73,12 +82,28 @@ impl AppState {
         last
     }
 
+    /// 캐릭터를 확정하고 게임을 시작 상태로 되돌린다 (게임일 0).
+    pub fn start_game(&self, character: Character) -> GameSnapshot {
+        let snapshot = {
+            let mut inner = self.inner.lock().expect("state mutex poisoned");
+            inner.game_day = 0;
+            inner.cash_krw = character.cash_krw;
+            inner.debt_krw = character.debt_krw;
+            inner.character = Some(character);
+            Self::snapshot_of(&inner)
+        };
+        let _ = self.ticks.send(snapshot.clone());
+        snapshot
+    }
+
     fn snapshot_of(inner: &Inner) -> GameSnapshot {
         GameSnapshot {
             game_day: inner.game_day,
             start_date: START_DATE,
             cash_krw: inner.cash_krw,
-            net_worth_krw: inner.cash_krw,
+            debt_krw: inner.debt_krw,
+            net_worth_krw: net_worth_krw(inner.cash_krw, inner.debt_krw),
+            character_name: inner.character.as_ref().map(|c| c.name.clone()),
         }
     }
 }

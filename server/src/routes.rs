@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
+use crate::character;
 use crate::state::{AppState, GameSnapshot};
 
 /// 서버가 재연결 지연으로 권하는 값. 클라이언트는 이 값을 백오프의 기준으로 쓴다.
@@ -21,10 +23,36 @@ const KEEP_ALIVE: Duration = Duration::from_secs(15);
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route("/api/presets", get(presets))
+        .route("/api/characters", post(create_character))
         .route("/api/state", get(snapshot))
         .route("/api/advance", post(advance))
         .route("/api/stream", get(stream))
         .with_state(state)
+}
+
+async fn presets() -> Json<&'static [character::Preset]> {
+    Json(character::presets())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidationFailure {
+    errors: Vec<character::ValidationError>,
+}
+
+/// 캐릭터 생성. 검증은 도메인(§3.5)이 하고 여기서는 상태 코드만 정한다.
+async fn create_character(
+    State(state): State<Arc<AppState>>,
+    Json(draft): Json<character::CharacterDraft>,
+) -> Result<Json<GameSnapshot>, (StatusCode, Json<ValidationFailure>)> {
+    match character::create_character(draft) {
+        Ok(character) => Ok(Json(state.start_game(character))),
+        Err(errors) => Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ValidationFailure { errors }),
+        )),
+    }
 }
 
 #[derive(Serialize)]

@@ -1,3 +1,4 @@
+mod character;
 mod routes;
 mod state;
 
