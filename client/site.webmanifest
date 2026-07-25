@@ -1,12 +1,15 @@
 {
-  "short_name": "",
-  "name": "",
-  "icons": [{
-    "src": "icon.png",
-    "type": "image/png",
-    "sizes": "192x192"
-  }],
-  "start_url": "/?utm_source=homescreen",
-  "background_color": "#fafafa",
-  "theme_color": "#fafafa"
+  "name": "LifeLedger",
+  "short_name": "LifeLedger",
+  "description": "모의 자산 관리 인생 시뮬레이션",
+  "lang": "ko",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1A211B",
+  "theme_color": "#1A211B",
+  "icons": [
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "icon.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
 }
