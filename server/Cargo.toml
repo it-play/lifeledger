@@ -3,6 +3,7 @@ name = "omega-dream-server"
 version = "0.0.1"
 edition = "2024"
 rust-version = "1.97"
+license-file = "../LICENSE.md"
 publish = false
 
 [dependencies]

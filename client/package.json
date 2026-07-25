@@ -4,7 +4,7 @@
   "description": "omega-dream 웹 클라이언트",
   "private": true,
   "keywords": [],
-  "license": "",
+  "license": "SEE LICENSE IN ../LICENSE.md",
   "author": "",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
