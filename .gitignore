@@ -4,9 +4,5 @@ dist
 .idea
 target
 .env
-
-# Build staging the deploy workflow creates
 _deploy
-
-# Real deploy environment; only the .example file is committed
 app.env
