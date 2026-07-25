@@ -1,4 +1,5 @@
 mod routes;
+mod state;
 
 use std::net::SocketAddr;
 
@@ -18,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     init_tracing();
 
     let app = Router::new()
-        .merge(routes::router())
+        .merge(routes::router(state::AppState::new()))
         .layer(TraceLayer::new_for_http());
 
     let addr = bind_addr()?;
