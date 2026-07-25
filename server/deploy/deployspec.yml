@@ -1,0 +1,26 @@
+version: 1.0
+
+# location 은 target_path 기준이다. 배포 묶음은 server/ 전체이므로 deploy/ 아래를 가리킨다.
+hooks:
+  ApplicationStop:
+    - location: deploy/scripts/stop.sh
+      timeout: 120
+
+  AfterInstall:
+    - location: deploy/scripts/build.sh
+      timeout: 3000
+
+  ApplicationStart:
+    - location: deploy/scripts/start.sh
+      timeout: 300
+
+  ValidateService:
+    - location: deploy/scripts/validate.sh
+      timeout: 180
+
+permissions:
+  - object: /deploy/scripts
+    pattern: "*.sh"
+    mode: 755
+    type:
+      - file

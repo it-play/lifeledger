@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'server/**'
-      - 'deploy/**'
       - '.github/workflows/deploy-server.yml'
   workflow_dispatch:
 
@@ -22,16 +21,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      # 서버 디렉터리를 통째로 보낸다. env 만 시크릿에서 채워 넣는다.
+      # 파일명이 .env 가 아닌 이유는 server/deploy/app.env.example 에 적어 두었다.
       - name: Prepare Deployment Package
         env:
           SERVER_ENV: ${{ secrets.SERVER_ENV }}
-        run: |
-          mkdir -p _deploy
-          cp -R server _deploy/server
-          cp -R deploy/scripts _deploy/scripts
-          cp deploy/docker-compose.yml deploy/deployspec.yml _deploy/
-          printf '%s\n' "$SERVER_ENV" > _deploy/app.env
-          rm -rf _deploy/server/target
+        run: printf '%s\n' "$SERVER_ENV" > server/deploy/app.env
 
       - name: Deploy to Server
         uses: 8G4B/GSM-SV-Deploy@v1.2.1
@@ -39,6 +34,6 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           user: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          source_path: _deploy
+          source_path: server
           target_path: /Users/snowykte0426/Downloads/lifeledger
-          deployspec_path: _deploy/deployspec.yml
+          deployspec_path: server/deploy/deployspec.yml

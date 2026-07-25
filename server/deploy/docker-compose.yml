@@ -2,7 +2,8 @@ name: lifeledger
 
 services:
   server:
-    build: ./server
+    # 이 파일이 server/deploy/ 에 있으므로 빌드 컨텍스트는 server 루트다
+    build: ..
     image: lifeledger-server:latest
     container_name: lifeledger-server
     restart: unless-stopped

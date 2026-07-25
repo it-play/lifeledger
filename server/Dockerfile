@@ -10,6 +10,8 @@ RUN mkdir src \
  && cargo build --release --locked \
  && rm -rf src target/release/lifeledger-server target/release/deps/lifeledger_server*
 
+# sqlx::migrate! 는 컴파일 타임에 이 디렉터리를 읽어 바이너리에 심는다 — 소스보다 먼저 온다
+COPY migrations ./migrations
 COPY src ./src
 RUN cargo build --release --locked
 
