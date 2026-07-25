@@ -50,6 +50,8 @@ The Rust toolchain lives in `~/.cargo` and is **not** on `PATH` by default. Run
 - Out of scope: DOM rendering, screen interaction, routing transitions, network round trips,
   end-to-end flows, snapshots.
 - Test files sit next to their subject as `*.test.ts`.
+- Rust core logic is tested the same way with `cargo test`: a `#[cfg(test)] mod tests` holding
+  `mod context_<situation>` blocks and `given_… _when_… _then_…` function names.
 
 ### Structure tests as BDD/DCI
 
@@ -89,11 +91,15 @@ describe('재시도 판단', () => {                          // Data: the rule
 
 ### Client UI conventions (no framework)
 
-- Build DOM once in `mount`, then let hooks update only the nodes that changed. Do not re-render
-  a subtree by replacing it.
-- Reach for `src/lib/hooks` (`useSignal`, `useComputed`, `useEffect`, `useStoreValue`,
-  `useDebounced`, `useAsync`, …) instead of hand-rolling subscriptions. Hooks bind their
-  resources to the `DisposableBag` you pass to `createHooks`.
+**Usage guides live in the `client-foundation` skill** (`.claude/skills/client-foundation/`,
+mirrored under `.agents/`). Read it before writing screen code — it documents every layer with
+examples. Do not duplicate that material here.
+
+The rules it assumes:
+
+- Build DOM once in `mount`, then update only the nodes that changed. Never replace a subtree.
+- Use `src/lib/hooks` instead of hand-rolling subscriptions; hooks register their resources with
+  the `DisposableBag` passed to `createHooks`.
 - Unlike React there is no call-order rule: hooks may be called conditionally or in loops.
 - Charts come from a framework-agnostic library. Do not hand-draw charts.
 
