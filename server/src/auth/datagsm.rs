@@ -13,8 +13,6 @@ use super::types::{OAuthIdentity, OAuthProvider, ProviderKind};
 const AUTHORIZE_URL: &str = "https://oauth.authorization.datagsm.kr/v1/oauth/authorize";
 const TOKEN_URL: &str = "https://oauth.authorization.datagsm.kr/v1/oauth/token";
 const USERINFO_URL: &str = "https://oauth.resource.datagsm.kr/userinfo";
-/// Scope for reading the signed-in user's own record.
-const SCOPE: &str = "self:read";
 
 pub struct DatagsmProvider {
     http: reqwest::Client,
@@ -54,6 +52,9 @@ struct StudentInfo {
 
 #[async_trait]
 impl OAuthProvider for DatagsmProvider {
+    /// `scope` is deliberately omitted. DataGSM grants the default user-info flow when the
+    /// parameter is absent, but rejects an explicit `self:read` with `invalid_scope` unless
+    /// the scope is registered against the client.
     fn authorize_url(&self, state: &str, code_challenge: &str, redirect_uri: &str) -> String {
         let query = super::query_string(&[
             ("client_id", &self.client_id),
@@ -62,7 +63,6 @@ impl OAuthProvider for DatagsmProvider {
             ("state", state),
             ("code_challenge", code_challenge),
             ("code_challenge_method", "S256"),
-            ("scope", SCOPE),
         ]);
 
         format!("{AUTHORIZE_URL}?{query}")
