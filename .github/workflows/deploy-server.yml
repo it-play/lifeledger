@@ -16,6 +16,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://kimtaeeun.site/lifeledger/api/health
 
     steps:
       - uses: actions/checkout@v7
@@ -27,7 +30,7 @@ jobs:
           cp -R server _deploy/server
           cp -R deploy/scripts _deploy/scripts
           cp deploy/docker-compose.yml deploy/deployspec.yml _deploy/
-          printf '%s\n' "$SERVER_ENV" > _deploy/.env
+          printf '%s\n' "$SERVER_ENV" > _deploy/app.env
           rm -rf _deploy/server/target
 
       - name: Deploy to Server

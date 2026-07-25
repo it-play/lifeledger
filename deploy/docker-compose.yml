@@ -6,9 +6,9 @@ services:
     image: lifeledger-server:latest
     container_name: lifeledger-server
     restart: unless-stopped
-    # 배포 시 .env 를 통째로 갈아끼운다 (GitHub Secret SERVER_ENV)
+    # 배포 시 통째로 갈아끼운다 (production 환경의 GitHub Secret SERVER_ENV)
     env_file:
-      - .env
+      - app.env
     # nginx 만 붙는다. 외부에 직접 노출하지 않는다
     ports:
       - "127.0.0.1:10105:8080"

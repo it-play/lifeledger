@@ -5,8 +5,8 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 cd "$(dirname "$0")/.."
 
-if [[ ! -f .env ]]; then
-  echo "[build] .env 가 없습니다 — GitHub Secret SERVER_ENV 가 비어 있는지 확인하세요" >&2
+if [[ ! -f app.env ]]; then
+  echo "[build] app.env 가 없습니다 — production 환경의 SERVER_ENV 시크릿을 확인하세요" >&2
   exit 1
 fi
 
