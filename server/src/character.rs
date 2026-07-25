@@ -1,18 +1,18 @@
-//! 캐릭터 생성 도메인 (계획 문서 §3).
+//! Character creation domain (§3).
 //!
-//! 시작 조건은 서로 모순될 수 있어(§3.5) 조합 검증이 이 모듈의 핵심 책임이다.
-//! 검증은 순수 함수로 두어 저장소·HTTP 없이 단독으로 테스트한다.
+//! Starting conditions can contradict each other (§3.5), so combination validation is
+//! this module's core job. It stays pure to be testable without a store or HTTP.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// 취학 연령. 학업·복무·경력 기간 합이 나이를 넘지 못하는지 볼 때의 기준점.
+/// School entry age; the baseline for checking that study, service and career fit in a life.
 const SCHOOL_ENTRY_AGE: u32 = 6;
 const MIN_AGE: u32 = 19;
 const MAX_AGE: u32 = 50;
-/// 미필 상태를 사실상 면제로 보는 나이 (§3.5).
+/// Age at which unserved status is treated as exempt in practice (§3.5).
 const DE_FACTO_EXEMPT_AGE: u32 = 40;
-/// 포인트 예산(M5)이 붙기 전까지의 안전 상한.
+/// Safety ceiling until the point budget lands (M5).
 const MAX_STARTING_CASH_KRW: i64 = 10_000_000_000;
 const MAX_CAREER_YEARS: u32 = 30;
 const MAX_DEPENDENTS: u32 = 6;
@@ -28,12 +28,12 @@ pub enum Gender {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum MilitaryStatus {
-    /// 미필. 일부 공고가 "필 또는 면제"를 요구해 채용 풀이 좁아진다.
+    /// Not served. Some postings require served-or-exempt, narrowing the job pool.
     NotServed,
     Serving,
     Completed,
     Exempted,
-    /// 산업기능요원·전문연구요원 등. 자격증이나 석사 이상이 요건이다.
+    /// Alternative service, which requires a certification or a master's degree.
     Alternative,
 }
 
@@ -59,10 +59,10 @@ pub enum Region {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum FamilyBackground {
-    /// 지원형 — 부모 지원금을 받는다.
+    /// Supported: receives money from parents.
     Supportive,
     Independent,
-    /// 부양형 — 부양비를 낸다.
+    /// Dependent: pays support to family.
     Dependent,
 }
 
@@ -75,7 +75,7 @@ pub enum Health {
 }
 
 impl Education {
-    /// 해당 학력을 마치는 데 드는 누적 학업 연수 (취학부터).
+    /// Cumulative years of schooling this level takes, counted from school entry.
     const fn school_years(self) -> u32 {
         match self {
             Self::HighSchool => 12,
@@ -88,7 +88,7 @@ impl Education {
 }
 
 impl MilitaryStatus {
-    /// 경력·학업과 겹치지 않는 복무 소요 연수.
+    /// Years of service that do not overlap study or career.
     const fn service_years(self) -> u32 {
         match self {
             Self::Completed => 2,
@@ -97,7 +97,7 @@ impl MilitaryStatus {
         }
     }
 
-    /// 복무를 마쳤다고 주장할 수 있는 최소 나이.
+    /// Youngest age at which this service status is credible.
     const fn min_age(self) -> u32 {
         match self {
             Self::Completed => MIN_AGE + 2,
@@ -107,7 +107,7 @@ impl MilitaryStatus {
     }
 }
 
-/// 클라이언트가 보내는 시작 조건. 아직 검증되지 않은 상태다.
+/// Starting conditions as sent by a client, before validation.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterDraft {
@@ -127,7 +127,7 @@ pub struct CharacterDraft {
     pub dependents: u32,
 }
 
-/// 검증을 통과한 캐릭터. 여기서부터는 값을 신뢰할 수 있다.
+/// A validated character. Values are trustworthy from here on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Character {
@@ -146,16 +146,16 @@ pub struct Character {
     pub dependents: u32,
 }
 
-/// 순자산 규칙. 상태 계층과 도메인이 같은 식을 쓰도록 한 곳에 둔다.
+/// Net worth, kept in one place so the state layer and the domain agree.
 pub const fn net_worth_krw(cash_krw: i64, debt_krw: i64) -> i64 {
     cash_krw - debt_krw
 }
 
-/// 어떤 필드 조합이 왜 모순인지 알려준다 (§3.5).
+/// Says which field combination is contradictory and why (§3.5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationError {
-    /// 클라이언트 폼 필드 이름과 맞춘다.
+    /// Matches the client form field name.
     pub field: &'static str,
     pub message: String,
 }
@@ -169,8 +169,8 @@ impl ValidationError {
     }
 }
 
-/// 시작 조건을 검증해 캐릭터를 만든다. 오류는 한 번에 모두 돌려준다
-/// (하나씩 고치게 만들면 폼을 여러 번 왕복해야 한다).
+/// Validates starting conditions into a character, reporting every error at once so the
+/// form is not corrected one round trip at a time.
 pub fn create_character(draft: CharacterDraft) -> Result<Character, Vec<ValidationError>> {
     let mut errors = Vec::new();
 
@@ -197,7 +197,7 @@ pub fn create_character(draft: CharacterDraft) -> Result<Character, Vec<Validati
     }
 
     errors.extend(validate_money(&draft));
-    // 나이가 유효할 때만 나이에 의존하는 규칙을 본다 (같은 원인으로 오류가 중복되지 않게)
+    // Age-dependent rules only run on a valid age, so one cause yields one error
     if (MIN_AGE..=MAX_AGE).contains(&draft.age) {
         errors.extend(validate_military(&draft));
         errors.extend(validate_timeline(&draft));
@@ -225,7 +225,7 @@ pub fn create_character(draft: CharacterDraft) -> Result<Character, Vec<Validati
     })
 }
 
-/// 미필로 나이가 찬 경우는 사실상 면제로 본다 (§3.5).
+/// Unserved past a certain age counts as exempt in practice (§3.5).
 const fn normalize_military(status: MilitaryStatus, age: u32) -> MilitaryStatus {
     match status {
         MilitaryStatus::NotServed if age >= DE_FACTO_EXEMPT_AGE => MilitaryStatus::Exempted,
@@ -272,7 +272,7 @@ fn validate_military(draft: &CharacterDraft) -> Vec<ValidationError> {
         ));
     }
 
-    // 특례복무는 자격증 또는 석사 이상을 요건으로 한다 (§8.1)
+    // Alternative service requires a certification or a master's degree (§8.1)
     if draft.military == MilitaryStatus::Alternative
         && draft.certifications == 0
         && draft.education < Education::Master
@@ -297,7 +297,7 @@ fn validate_education(draft: &CharacterDraft) -> Vec<ValidationError> {
     errors
 }
 
-/// 학업 + 복무 + 경력 기간의 합이 살아온 기간을 넘지 못한다 (§3.5).
+/// Study plus service plus career cannot exceed the years actually lived (§3.5).
 fn validate_timeline(draft: &CharacterDraft) -> Vec<ValidationError> {
     let available = draft.age.saturating_sub(SCHOOL_ENTRY_AGE);
     let required =
@@ -320,7 +320,7 @@ fn validate_timeline(draft: &CharacterDraft) -> Vec<ValidationError> {
     Vec::new()
 }
 
-/// 시작 프리셋 (§3.3). 콘텐츠 데이터라서 나중에 파일로 빼낸다.
+/// Starting presets (§3.3). Content data, so this moves to a file later.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
@@ -435,7 +435,7 @@ pub fn presets() -> &'static [Preset] {
 mod tests {
     use super::*;
 
-    /// given: 검증을 통과하는 기본 초안 (프리셋 "사회초년생" 기준)
+    /// A draft that passes validation, based on the "사회초년생" preset.
     fn given_valid_draft() -> CharacterDraft {
         CharacterDraft {
             name: "테스터".to_owned(),
@@ -528,7 +528,7 @@ mod tests {
 
             let errors = create_character(draft).expect_err("19세 미만은 거부된다");
 
-            // 나이가 무효면 나이에 의존하는 규칙은 보지 않는다 — 원인 하나에 오류 하나
+            // An invalid age skips age-dependent rules, so one cause yields one error
             assert_eq!(fields_of(&errors), vec!["age"]);
         }
     }

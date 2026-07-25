@@ -14,23 +14,35 @@ use tokio_stream::wrappers::BroadcastStream;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::{Config, SwaggerUi};
 
+mod auth;
+
+use crate::auth::AuthUser;
 use crate::character;
 use crate::error::AppError;
 use crate::state::{AppState, GameSnapshot};
 
-/// 서버가 재연결 지연으로 권하는 값. 클라이언트는 이 값을 백오프의 기준으로 쓴다.
+/// Reconnect delay the server suggests; the client uses it as its backoff baseline.
 const RETRY_HINT: Duration = Duration::from_secs(1);
-/// keep-alive 주석 간격. 프록시가 유휴 연결을 끊는 것을 막는다.
+/// Keep-alive comment interval, so proxies do not drop an idle connection.
 const KEEP_ALIVE: Duration = Duration::from_secs(15);
 
-/// API 문서. 경로는 nginx 가 `/api` 를 붙여 넘기므로 그 아래에 둔다.
+/// API docs, mounted under `/api` because that is the prefix nginx forwards.
 #[derive(OpenApi)]
 #[openapi(
     info(
         title = "LifeLedger API",
         description = "모의 자산관리 인생 시뮬레이션 서버"
     ),
-    paths(health, presets, create_character, snapshot, advance),
+    paths(
+        health,
+        presets,
+        create_character,
+        snapshot,
+        advance,
+        auth::providers,
+        auth::me,
+        auth::logout,
+    ),
     components(schemas(
         GameSnapshot,
         Health,
@@ -45,6 +57,9 @@ const KEEP_ALIVE: Duration = Duration::from_secs(15);
         character::Region,
         character::FamilyBackground,
         character::Health,
+        auth::ProviderSummary,
+        auth::MeResponse,
+        crate::auth::ProviderKind,
     ))
 )]
 pub struct ApiDoc;
@@ -57,12 +72,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/state", get(snapshot))
         .route("/api/advance", post(advance))
         .route("/api/stream", get(stream))
+        .merge(auth::router())
         .with_state(state)
         .merge(
             SwaggerUi::new("/api/docs")
                 .url("/api/docs/openapi.json", ApiDoc::openapi())
-                // UI 가 스펙을 부를 때는 상대 경로를 쓴다. 절대 경로면 nginx 가 앞에 붙이는
-                // prefix(`/lifeledger`)를 건너뛰어 도메인 루트를 찾아가 버린다
+                // Relative, so the spec URL follows the prefix nginx adds; an absolute path
+                // would skip `/lifeledger` and resolve against the domain root
                 .config(Config::from("./openapi.json")),
         )
 }
@@ -82,7 +98,7 @@ struct ValidationFailure {
     errors: Vec<character::ValidationError>,
 }
 
-/// 캐릭터 생성. 검증은 도메인(§3.5)이 하고 여기서는 상태 코드만 정한다.
+/// Character creation. The domain validates (§3.5); this only picks a status code.
 #[utoipa::path(
     post,
     path = "/api/characters",
@@ -95,14 +111,15 @@ struct ValidationFailure {
 )]
 async fn create_character(
     State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
     Json(draft): Json<character::CharacterDraft>,
 ) -> Result<Json<GameSnapshot>, CreateCharacterError> {
     let character = character::create_character(draft).map_err(CreateCharacterError::Invalid)?;
 
-    Ok(Json(state.start_game(character).await?))
+    Ok(Json(state.start_game(user.id, character).await?))
 }
 
-/// 422(검증 실패)와 500(저장 실패)은 원인이 달라 응답 모양도 다르다.
+/// 422 and 500 have different causes, so they have different response shapes.
 enum CreateCharacterError {
     Invalid(Vec<character::ValidationError>),
     Internal(AppError),
@@ -153,8 +170,11 @@ async fn health() -> Json<Health> {
         (status = 500, description = "조회 실패"),
     )
 )]
-async fn snapshot(State(state): State<Arc<AppState>>) -> Result<Json<GameSnapshot>, AppError> {
-    Ok(Json(state.snapshot().await?))
+async fn snapshot(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<GameSnapshot>, AppError> {
+    Ok(Json(state.snapshot(user.id).await?))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -174,27 +194,32 @@ struct AdvanceRequest {
 )]
 async fn advance(
     State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
     Json(request): Json<AdvanceRequest>,
 ) -> Result<Json<GameSnapshot>, AppError> {
-    // 상한을 두어 한 요청이 서버를 오래 점유하지 못하게 한다
+    // Capped so one request cannot occupy the server for long
     let days = request.days.clamp(1, 3650);
 
-    Ok(Json(state.advance(days).await?))
+    Ok(Json(state.advance(user.id, days).await?))
 }
 
-/// 게임일 전진 스트림.
+/// Stream of game-day advances.
 ///
-/// 이벤트 이름은 `tick`, `id` 는 게임일이다. 클라이언트가 재연결할 때
-/// `Last-Event-ID` 로 마지막 게임일을 보내오므로, 나중에 그 지점부터 재생할 수 있다.
+/// Events are named `tick` and carry the game day as `id`. A reconnecting client sends
+/// its last day back as `Last-Event-ID`, leaving room to replay from there later.
 async fn stream(
     State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
-    let current = state.snapshot().await?;
+    let (save_id, current) = state.current(user.id).await?;
+
+    // Only this save's ticks; without the filter another player's advance would arrive (§4.5)
     let updates = BroadcastStream::new(state.subscribe())
         .filter_map(|result| result.ok())
-        .map(|snapshot| Ok(to_event(&snapshot)));
+        .filter(move |tick| tick.save_id == save_id)
+        .map(|tick| Ok(to_event(&tick.snapshot)));
 
-    // 연결 직후 현재 상태를 한 번 보낸다 — 클라이언트가 별도 조회 없이 그릴 수 있다
+    // Send current state once on connect so the client can draw without a separate fetch
     let initial = tokio_stream::once(Ok(to_event(&current).retry(RETRY_HINT)));
 
     Ok(Sse::new(initial.chain(updates)).keep_alive(KeepAlive::new().interval(KEEP_ALIVE)))

@@ -1,7 +1,7 @@
-//! `SaveStore` 의 MySQL 구현.
+//! MySQL implementation of `SaveStore`.
 //!
-//! 열거형은 도메인의 serde 표현을 그대로 문자열 컬럼에 넣는다 (§4.3). 변환을 한 곳에
-//! 모아 두어 API 응답과 DB 값이 갈라지지 않게 한다.
+//! Enums go into string columns using their domain serde representation (§4.3). Keeping
+//! the conversion in one place stops API responses and stored values from drifting apart.
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -13,64 +13,64 @@ use sqlx::MySqlPool;
 use super::types::{SaveState, SaveStore};
 use crate::character::Character;
 
-/// 캐릭터를 만들기 전의 기본 자금 (원).
+/// Starting cash before a character exists, in KRW.
 const INITIAL_CASH_KRW: i64 = 10_000_000;
 
 pub struct MySqlSaveStore {
     pool: MySqlPool,
-    /// 인증이 붙기 전까지 세이브는 하나다. 기동할 때 확정해 둔다 (§4.4).
-    save_id: u64,
 }
 
-/// 세이브가 없으면 만들고, 그 세이브에 묶인 저장소를 돌려준다.
-pub async fn create_mysql_save_store(pool: MySqlPool) -> Result<MySqlSaveStore> {
-    let save_id = ensure_save(&pool)
-        .await
-        .context("세이브를 준비하지 못했습니다")?;
-
-    Ok(MySqlSaveStore { pool, save_id })
+pub const fn create_mysql_save_store(pool: MySqlPool) -> MySqlSaveStore {
+    MySqlSaveStore { pool }
 }
 
-async fn ensure_save(pool: &MySqlPool) -> Result<u64> {
-    let existing: Option<(u64,)> = sqlx::query_as("SELECT id FROM save ORDER BY id LIMIT 1")
-        .fetch_optional(pool)
-        .await?;
+/// Finds the account's save, creating it if absent. One save per account (§4.5).
+async fn ensure_save(tx: &mut sqlx::Transaction<'_, sqlx::MySql>, user_id: u64) -> Result<u64> {
+    let existing: Option<(u64,)> =
+        sqlx::query_as("SELECT id FROM save WHERE user_id = ? ORDER BY id LIMIT 1")
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await?;
 
     if let Some((id,)) = existing {
         return Ok(id);
     }
 
-    let result = sqlx::query("INSERT INTO save (game_day, cash_krw, debt_krw) VALUES (0, ?, 0)")
-        .bind(INITIAL_CASH_KRW)
-        .execute(pool)
-        .await?;
+    let result =
+        sqlx::query("INSERT INTO save (user_id, game_day, cash_krw, debt_krw) VALUES (?, 0, ?, 0)")
+            .bind(user_id)
+            .bind(INITIAL_CASH_KRW)
+            .execute(&mut **tx)
+            .await?;
 
     Ok(result.last_insert_id())
 }
 
 #[async_trait]
 impl SaveStore for MySqlSaveStore {
-    async fn load(&self) -> Result<SaveState> {
+    async fn load(&self, user_id: u64) -> Result<SaveState> {
         let mut tx = self.pool.begin().await?;
-        let state = read_state(&mut tx, self.save_id).await?;
+        let save_id = ensure_save(&mut tx, user_id).await?;
+        let state = read_state(&mut tx, save_id).await?;
         tx.commit().await?;
 
         Ok(state)
     }
 
-    async fn start_game(&self, character: &Character) -> Result<SaveState> {
+    async fn start_game(&self, user_id: u64, character: &Character) -> Result<SaveState> {
         let mut tx = self.pool.begin().await?;
+        let save_id = ensure_save(&mut tx, user_id).await?;
 
         sqlx::query("UPDATE save SET game_day = 0, cash_krw = ?, debt_krw = ? WHERE id = ?")
             .bind(character.cash_krw)
             .bind(character.debt_krw)
-            .bind(self.save_id)
+            .bind(save_id)
             .execute(&mut *tx)
             .await?;
 
-        // 세이브당 캐릭터는 하나다. 갈아엎는 편이 upsert 보다 읽기 쉽다
+        // One character per save; replacing reads more clearly than an upsert
         sqlx::query("DELETE FROM `character` WHERE save_id = ?")
-            .bind(self.save_id)
+            .bind(save_id)
             .execute(&mut *tx)
             .await?;
 
@@ -80,7 +80,7 @@ impl SaveStore for MySqlSaveStore {
                   education, career_years, certifications, health, dependents)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(self.save_id)
+        .bind(save_id)
         .bind(&character.name)
         .bind(character.age)
         .bind(to_db_str(&character.gender)?)
@@ -95,23 +95,25 @@ impl SaveStore for MySqlSaveStore {
         .execute(&mut *tx)
         .await?;
 
-        let state = read_state(&mut tx, self.save_id).await?;
+        let state = read_state(&mut tx, save_id).await?;
         tx.commit().await?;
 
         Ok(state)
     }
 
-    async fn advance(&self, days: u32) -> Result<SaveState> {
+    async fn advance(&self, user_id: u64, days: u32) -> Result<SaveState> {
         let mut tx = self.pool.begin().await?;
+        let save_id = ensure_save(&mut tx, user_id).await?;
 
-        // 읽고-더하고-쓰지 않고 DB 에서 더한다 — 동시 요청이 서로의 전진을 덮어쓰지 않게
+        // Add in the database rather than read-modify-write, so concurrent requests
+        // cannot overwrite each other's advance
         sqlx::query("UPDATE save SET game_day = game_day + ? WHERE id = ?")
             .bind(days)
-            .bind(self.save_id)
+            .bind(save_id)
             .execute(&mut *tx)
             .await?;
 
-        let state = read_state(&mut tx, self.save_id).await?;
+        let state = read_state(&mut tx, save_id).await?;
         tx.commit().await?;
 
         Ok(state)
@@ -151,7 +153,7 @@ async fn read_state(
             .await?;
 
     let Some(save) = save else {
-        bail!("세이브 {save_id} 이 사라졌습니다");
+        bail!("save {save_id} disappeared");
     };
 
     let character: Option<CharacterRow> = sqlx::query_as(
@@ -169,6 +171,7 @@ async fn read_state(
     };
 
     Ok(SaveState {
+        save_id,
         game_day: save.game_day,
         cash_krw: save.cash_krw,
         debt_krw: save.debt_krw,
@@ -176,7 +179,7 @@ async fn read_state(
     })
 }
 
-/// 캐릭터의 현금·부채는 세이브가 들고 있다 — 게임이 진행되면 변하는 값이라서다.
+/// Cash and debt live on the save, not the character row: they change as the game runs.
 fn to_character(row: CharacterRow, cash_krw: i64, debt_krw: i64) -> Result<Character> {
     Ok(Character {
         name: row.name,
@@ -195,18 +198,18 @@ fn to_character(row: CharacterRow, cash_krw: i64, debt_krw: i64) -> Result<Chara
     })
 }
 
-/// 열거형 → 컬럼 문자열. serde 표현(camelCase)을 그대로 쓴다.
+/// Enum -> column string, reusing the serde (camelCase) representation.
 fn to_db_str<T: Serialize>(value: &T) -> Result<String> {
     match serde_json::to_value(value)? {
         Value::String(text) => Ok(text),
-        other => bail!("문자열로 저장할 수 없는 값입니다: {other}"),
+        other => bail!("value is not storable as a string: {other}"),
     }
 }
 
-/// 컬럼 문자열 → 열거형.
+/// Column string -> enum.
 fn from_db_str<T: DeserializeOwned>(raw: &str) -> Result<T> {
     serde_json::from_value(Value::String(raw.to_owned()))
-        .with_context(|| format!("알 수 없는 값이 저장되어 있습니다: {raw}"))
+        .with_context(|| format!("unknown value stored: {raw}"))
 }
 
 #[cfg(test)]
@@ -214,8 +217,8 @@ mod tests {
     use super::*;
     use crate::character::{Education, FamilyBackground, Gender, MilitaryStatus, Region};
 
-    /// DB 왕복은 테스트하지 않는다 (§테스트 정책). 조용히 틀릴 수 있는 것은
-    /// 열거형 ↔ 컬럼 문자열 변환이라서 그것만 본다.
+    /// Database round trips are out of scope for tests. What can silently go wrong is the
+    /// enum <-> column string conversion, so that is what is covered here.
     mod context_enum_columns_round_trip {
         use super::*;
 

@@ -1,3 +1,4 @@
+mod auth;
 mod character;
 mod error;
 mod routes;
@@ -19,7 +20,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8080";
-/// 홈서버 한 대에 여러 서비스가 같은 MySQL 을 쓴다. 커넥션을 넉넉히 잡지 않는다.
+/// Origin the OAuth callback returns to; must match the provider console (§4.5).
+const DEFAULT_PUBLIC_ORIGIN: &str = "http://localhost:8080";
+/// Several services share one MySQL instance on the home server, so stay modest.
 const MAX_DB_CONNECTIONS: u32 = 8;
 
 #[tokio::main]
@@ -28,15 +31,17 @@ async fn main() -> anyhow::Result<()> {
 
     let pool = connect_database().await?;
 
-    // 스키마는 서버가 기동하면서 맞춘다 (§4.4)
+    // Schema is brought up to date at startup (§4.4)
     sqlx::migrate!()
         .run(&pool)
         .await
-        .context("마이그레이션 적용에 실패했습니다")?;
-    tracing::info!("마이그레이션 적용 완료");
+        .context("failed to apply migrations")?;
+    tracing::info!("migrations applied");
 
-    let store = store::create_mysql_save_store(pool).await?;
-    let state = state::AppState::new(Arc::new(store));
+    let providers = auth::Providers::from_env(public_origin())?;
+    let saves = store::create_mysql_save_store(pool.clone());
+    let users = store::create_mysql_user_store(pool);
+    let state = state::AppState::new(Arc::new(saves), Arc::new(users), providers);
 
     let app = Router::new()
         .merge(routes::router(state))
@@ -67,24 +72,32 @@ fn init_tracing() {
         .init();
 }
 
-/// DB 는 필수다. 주소가 없으면 게임 상태를 둘 곳이 없으므로 기동하지 않는다.
+/// The database is required: without it there is nowhere to keep game state.
 async fn connect_database() -> anyhow::Result<sqlx::MySqlPool> {
     let url = std::env::var("DATABASE_URL")
-        .context("DATABASE_URL 이 없습니다 — server/deploy/app.env.example 을 보세요")?;
+        .context("DATABASE_URL is not set - see server/deploy/app.env.example")?;
 
     let pool = MySqlPoolOptions::new()
         .max_connections(MAX_DB_CONNECTIONS)
         .acquire_timeout(Duration::from_secs(10))
         .connect(&url)
         .await
-        .context("MySQL 에 연결하지 못했습니다")?;
+        .context("failed to connect to MySQL")?;
 
-    tracing::info!("MySQL 연결됨");
+    tracing::info!("connected to MySQL");
 
     Ok(pool)
 }
 
-/// 바인드 주소는 `BIND_ADDR` 환경변수로 덮어쓴다 (기본값 `127.0.0.1:8080`).
+/// Overridden by `PUBLIC_ORIGIN`. The trailing slash is trimmed so redirect URIs do not
+/// end up with a doubled separator.
+fn public_origin() -> String {
+    let raw = std::env::var("PUBLIC_ORIGIN").unwrap_or_else(|_| DEFAULT_PUBLIC_ORIGIN.to_string());
+
+    raw.trim_end_matches('/').to_owned()
+}
+
+/// Overridden by `BIND_ADDR` (default `127.0.0.1:8080`).
 fn bind_addr() -> anyhow::Result<SocketAddr> {
     let raw = std::env::var("BIND_ADDR").unwrap_or_else(|_| DEFAULT_BIND_ADDR.to_string());
     raw.parse()

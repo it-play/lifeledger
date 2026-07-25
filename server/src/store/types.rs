@@ -1,32 +1,60 @@
-//! 저장소 계약. 구현(MySQL)은 이 파일을 모르고, 상위 계층은 구현을 모른다.
+//! Store contracts. The MySQL implementation does not know this file, and callers do
+//! not know the implementation.
+
+use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 
+use crate::auth::{OAuthIdentity, ProviderKind};
 use crate::character::Character;
 
-/// 세이브 하나의 지속 상태. DB 에 있는 것과 같은 값이다.
+/// The durable state of one save, mirroring what the database holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveState {
+    /// Used to filter SSE ticks down to the subscriber's own save (§4.5).
+    pub save_id: u64,
     pub game_day: u32,
     pub cash_krw: i64,
     pub debt_krw: i64,
-    /// 아직 캐릭터를 만들지 않았으면 `None`.
+    /// `None` until a character has been created.
     pub character: Option<Character>,
 }
 
-/// 세이브의 읽기·쓰기.
-///
-/// 인증이 붙기 전까지 서버는 세이브 하나만 다룬다 (§4.4). 그래서 메서드에
-/// 세이브 식별자가 없다 — 계정이 생기면 여기에 인자로 들어온다.
+/// A signed-in account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountUser {
+    pub id: u64,
+    pub provider: ProviderKind,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+}
+
+/// Accounts and sessions.
+#[async_trait]
+pub trait UserStore: Send + Sync + 'static {
+    /// Records an OAuth-verified user: creates the account, or refreshes it if known.
+    async fn upsert(&self, identity: &OAuthIdentity) -> Result<AccountUser>;
+
+    /// Opens a session, storing only the token hash.
+    async fn open_session(&self, user_id: u64, token_hash: &str, ttl: Duration) -> Result<()>;
+
+    /// Finds a user by token hash. An expired session counts as absent.
+    async fn find_by_session(&self, token_hash: &str) -> Result<Option<AccountUser>>;
+
+    /// Closes one session (logout).
+    async fn close_session(&self, token_hash: &str) -> Result<()>;
+}
+
+/// Save reads and writes. Every access is scoped to an account (§4.5).
 #[async_trait]
 pub trait SaveStore: Send + Sync + 'static {
-    /// 현재 세이브를 읽는다. 없으면 초기 상태로 만들어 반환한다.
-    async fn load(&self) -> Result<SaveState>;
+    /// Reads the account's save, creating it in its initial state if absent.
+    async fn load(&self, user_id: u64) -> Result<SaveState>;
 
-    /// 캐릭터를 확정하고 세이브를 그 시작 조건으로 되돌린다.
-    async fn start_game(&self, character: &Character) -> Result<SaveState>;
+    /// Commits a character and resets the save to those starting conditions.
+    async fn start_game(&self, user_id: u64, character: &Character) -> Result<SaveState>;
 
-    /// 게임일을 `days` 만큼 전진시킨다. 되감기는 없다 (§2).
-    async fn advance(&self, days: u32) -> Result<SaveState>;
+    /// Advances the game day by `days`. There is no rewind (§2).
+    async fn advance(&self, user_id: u64, days: u32) -> Result<SaveState>;
 }

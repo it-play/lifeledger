@@ -1,7 +1,7 @@
-//! HTTP 경계의 오류 처리.
+//! Error handling at the HTTP boundary.
 //!
-//! 도메인·저장소는 `anyhow::Error` 로 실패를 올리고, 여기서 한 번만 상태 코드로 바꾼다.
-//! 원인은 서버 로그에만 남긴다 — 클라이언트에 DB 오류 문자열을 흘리지 않는다.
+//! Domain and store layers raise `anyhow::Error`; this is the single place it becomes a
+//! status code. Causes stay in the server log so database errors never reach a client.
 
 use axum::Json;
 use axum::http::StatusCode;

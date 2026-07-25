@@ -1,7 +1,9 @@
-//! MySQL 접근 계층 (§4). 상위 계층은 `SaveStore` 만 보고 구현은 보지 않는다.
+//! MySQL access layer (§4). Callers see only the traits.
 
 mod mysql;
 mod types;
+mod user;
 
 pub use mysql::create_mysql_save_store;
-pub use types::{SaveState, SaveStore};
+pub use types::{AccountUser, SaveState, SaveStore, UserStore};
+pub use user::create_mysql_user_store;

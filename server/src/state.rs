@@ -1,20 +1,22 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use serde::Serialize;
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
+use crate::auth::{Providers, token_hash_of};
 use crate::character::{Character, net_worth_krw};
-use crate::store::{SaveState, SaveStore};
+use crate::store::{AccountUser, SaveState, SaveStore, UserStore};
 
-/// 시작 게임 날짜. 나중에 월드 시드 설정으로 옮긴다.
+/// Game start date. Moves into world seed configuration later.
 const START_DATE: &str = "2026-01-01";
 
-/// 클라이언트에 보내는 게임 상태 스냅샷.
+/// The game state sent to a client.
 ///
-/// 날짜 문자열을 매번 계산해 보내지 않고 시작일 + 경과일만 보낸다.
-/// 표시용 날짜 계산은 결정론적이라 클라이언트가 해도 권위 문제가 없다.
+/// Carries the start date plus elapsed days rather than a formatted date: the
+/// calculation is deterministic, so letting the client do it costs no authority.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSnapshot {
@@ -23,55 +25,107 @@ pub struct GameSnapshot {
     pub cash_krw: i64,
     pub debt_krw: i64,
     pub net_worth_krw: i64,
-    /// 캐릭터를 아직 만들지 않았으면 None — 클라이언트는 생성 화면으로 보낸다.
+    /// `None` until a character exists; the client routes to creation.
     pub character_name: Option<String>,
 }
 
-/// 게임일 전진의 권위는 서버에 있다 (§4.2). 클라이언트는 "얼마나" 만 요청한다.
+/// Carries which save the tick belongs to so subscribers can filter to their own (§4.5).
+#[derive(Debug, Clone)]
+pub struct Tick {
+    pub save_id: u64,
+    pub snapshot: GameSnapshot,
+}
+
+/// The server owns day advancement (§4.2); a client only asks how far.
 ///
-/// 상태 자체는 DB 가 들고 있다 (§4.4). 여기서는 저장소 호출을 조립하고,
-/// 커밋된 결과만 스트림으로 흘린다.
+/// State itself lives in the database (§4.4). This layer composes store calls and
+/// broadcasts only what has been committed.
 pub struct AppState {
-    store: Arc<dyn SaveStore>,
-    ticks: broadcast::Sender<GameSnapshot>,
+    saves: Arc<dyn SaveStore>,
+    users: Arc<dyn UserStore>,
+    pub providers: Providers,
+    ticks: broadcast::Sender<Tick>,
 }
 
 impl AppState {
-    pub fn new(store: Arc<dyn SaveStore>) -> Arc<Self> {
+    pub fn new(
+        saves: Arc<dyn SaveStore>,
+        users: Arc<dyn UserStore>,
+        providers: Providers,
+    ) -> Arc<Self> {
         let (ticks, _) = broadcast::channel(256);
-        Arc::new(Self { store, ticks })
+        Arc::new(Self {
+            saves,
+            users,
+            providers,
+            ticks,
+        })
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<GameSnapshot> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Tick> {
         self.ticks.subscribe()
     }
 
-    pub async fn snapshot(&self) -> Result<GameSnapshot> {
-        Ok(to_snapshot(&self.store.load().await?))
+    /// Resolves a session cookie token to a user. `None` when absent or expired.
+    pub async fn authenticate(&self, token: &str) -> Result<Option<AccountUser>> {
+        self.users.find_by_session(&token_hash_of(token)).await
     }
 
-    /// 게임일을 전진시키고 결과를 방송한다.
+    pub fn users(&self) -> &Arc<dyn UserStore> {
+        &self.users
+    }
+
+    /// Opens a session and returns the raw token to put in the cookie.
+    pub async fn open_session(&self, user_id: u64, ttl: Duration) -> Result<String> {
+        let token = crate::auth::random_token()?;
+        self.users
+            .open_session(user_id, &token_hash_of(&token), ttl)
+            .await?;
+
+        Ok(token)
+    }
+
+    pub async fn close_session(&self, token: &str) -> Result<()> {
+        self.users.close_session(&token_hash_of(token)).await
+    }
+
+    pub async fn snapshot(&self, user_id: u64) -> Result<GameSnapshot> {
+        Ok(to_snapshot(&self.saves.load(user_id).await?))
+    }
+
+    /// Current state for a subscriber that just connected, with its save id.
+    pub async fn current(&self, user_id: u64) -> Result<(u64, GameSnapshot)> {
+        let state = self.saves.load(user_id).await?;
+
+        Ok((state.save_id, to_snapshot(&state)))
+    }
+
+    /// Advances the game day and broadcasts the result.
     ///
-    /// 지금은 마지막 상태 하나만 흘린다. 일별 정산(M1)이 붙으면 하루가 실제로
-    /// 값을 바꾸므로, 그때 하루 단위 틱으로 나눈다.
-    pub async fn advance(&self, days: u32) -> Result<GameSnapshot> {
-        let snapshot = to_snapshot(&self.store.advance(days).await?);
-        self.broadcast(&snapshot);
+    /// Emits one final state for now. Once daily settlement lands (M1) each day will
+    /// actually change values, and this splits into per-day ticks.
+    pub async fn advance(&self, user_id: u64, days: u32) -> Result<GameSnapshot> {
+        let state = self.saves.advance(user_id, days).await?;
 
-        Ok(snapshot)
+        Ok(self.broadcast(&state))
     }
 
-    /// 캐릭터를 확정하고 게임을 시작 상태로 되돌린다 (게임일 0).
-    pub async fn start_game(&self, character: Character) -> Result<GameSnapshot> {
-        let snapshot = to_snapshot(&self.store.start_game(&character).await?);
-        self.broadcast(&snapshot);
+    /// Commits a character and resets the game to day 0.
+    pub async fn start_game(&self, user_id: u64, character: Character) -> Result<GameSnapshot> {
+        let state = self.saves.start_game(user_id, &character).await?;
 
-        Ok(snapshot)
+        Ok(self.broadcast(&state))
     }
 
-    fn broadcast(&self, snapshot: &GameSnapshot) {
-        // 구독자가 없으면 오류가 나는데, 그건 정상 상황이므로 무시한다
-        let _ = self.ticks.send(snapshot.clone());
+    fn broadcast(&self, state: &SaveState) -> GameSnapshot {
+        let snapshot = to_snapshot(state);
+        // Sending with no subscribers errors, which is a normal state here
+        let _ = self.ticks.send(Tick {
+            save_id: state.save_id,
+            snapshot: snapshot.clone(),
+        });
+
+        snapshot
     }
 }
 
