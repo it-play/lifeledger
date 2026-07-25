@@ -12,6 +12,8 @@ All working rules for this repository live in `AGENTS.md`. The import below appl
 - **Never add a UI framework to the client.** Use the foundation in `client/src/lib/`
   (`reactive` signals and the `hooks` layer) instead.
 - **Interfaces first, barrels only.** Never import another module's internal files.
+- **Comments are English and explain _why_, never _what_.** Delete anything that restates the
+  code. BDD test titles stay Korean.
 - Commits are `type(scope): Korean description`, subject line only, no co-author.
 
 ## Verification

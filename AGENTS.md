@@ -89,6 +89,30 @@ describe('재시도 판단', () => {                          // Data: the rule
 - Validate server responses with zod at the boundary. Unvalidated data never reaches a screen.
 - Money is an integer number of KRW. Never compute money in floating point.
 
+### Comments
+
+**Write comments in English, and only where the code cannot speak for itself.**
+
+A comment earns its place by explaining **why** — a constraint, a trade-off, a bug it prevents,
+an external rule it obeys. Delete anything that restates the code.
+
+```rust
+// Bad — restates the code
+// increment the game day
+save.game_day += 1;
+
+// Good — explains why this shape was chosen
+// Add in the database rather than read-modify-write, so concurrent
+// requests cannot overwrite each other's advance.
+```
+
+- Doc comments (`///`, `/** */`) describe the contract of a public item: what it is for and what
+  a caller must know. Keep them to a sentence or two.
+- Reference the design document by section (`§4.5`) instead of restating its reasoning.
+- Do not leave commented-out code, changelog notes, or "TODO" without a tracked reason.
+- **Exception:** BDD test titles and `describe('맥락: …')` names stay in Korean — they describe
+  domain behaviour to Korean readers, and are prose, not comments.
+
 ### Client UI conventions (no framework)
 
 **Usage guides live in the `client-foundation` skill** (`.claude/skills/client-foundation/`,
