@@ -20,7 +20,6 @@ module.exports = merge(common, {
         { from: 'icon.png', to: 'icon.png' },
         { from: 'icon-512.png', to: 'icon-512.png' },
         { from: 'apple-touch-icon.png', to: 'apple-touch-icon.png' },
-        { from: '404.html', to: '404.html' },
         { from: 'site.webmanifest', to: 'site.webmanifest' },
       ],
     }),
