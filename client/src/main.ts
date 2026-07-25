@@ -1,4 +1,5 @@
 import { createGameApi } from './api/game-api.js';
+import { createCharacterCreateView } from './app/screens/character-create.js';
 import { createDashboardView } from './app/screens/dashboard.js';
 import { createNotFoundView } from './app/screens/not-found.js';
 import { type AppState, initialState, paths } from './app/state.js';
@@ -34,10 +35,14 @@ function bootstrap(): void {
 
   const viewHost = createViewHost(mountPoint);
   const dashboard = createDashboardView({ store, api });
+  const characterCreate = createCharacterCreateView({ store, api });
   const notFound = createNotFoundView();
 
   const router = createRouter<ViewFactory>({
-    routes: [{ pattern: '/', handler: dashboard }],
+    routes: [
+      { pattern: '/', handler: dashboard },
+      { pattern: '/new', handler: characterCreate },
+    ],
     fallback: notFound,
     onNavigate: (factory, match) =>
       viewHost.render(factory, {

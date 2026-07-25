@@ -47,5 +47,7 @@ export interface FormHandle extends Disposable {
   readonly element: HTMLFormElement;
   /** 서버측 검증 실패를 표시할 때 사용한다. */
   setErrors(errors: Readonly<Record<string, string>>): void;
+  /** 프리셋 적용처럼 값 일부를 바꿔 넣을 때 사용한다. 없는 필드는 무시한다. */
+  setValues(values: Readonly<Record<string, unknown>>): void;
   reset(): void;
 }

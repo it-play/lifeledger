@@ -114,6 +114,18 @@ export function renderForm<T>(spec: FormSpec<T>, options: FormOptions<T>): FormH
   return {
     element: form,
     setErrors: applyErrors,
+    setValues(values) {
+      for (const binding of bindings) {
+        const value = values[binding.spec.name];
+        if (value === undefined) continue;
+        if (binding.spec.kind === 'checkbox') {
+          (binding.input as HTMLInputElement).checked = value === true;
+          continue;
+        }
+        binding.input.value = String(value);
+      }
+      clearErrors();
+    },
     reset() {
       form.reset();
       clearErrors();

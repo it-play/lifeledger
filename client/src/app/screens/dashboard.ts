@@ -36,6 +36,13 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           (s) => s.connection.status,
         );
 
+        // 캐릭터를 아직 만들지 않았으면 생성 화면으로 보낸다
+        const characterName = h.useStoreValue(
+          store,
+          paths.gameSnapshot,
+          (s) => s.game.snapshot?.characterName ?? null,
+        );
+
         const dateText = h.useComputed(() => {
           const current = snapshot.get();
           return current === undefined ? '—' : formatGameDate(current.startDate, current.gameDay);
@@ -74,6 +81,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
             el('dd', {}, netWorthValue),
           ),
           el('div', { class: 'controls' }, ...stepButtons),
+          el('p', {}, el('a', { href: '/new', dataset: { link: '' } }, '새 캐릭터로 다시 시작')),
         );
         host.replaceChildren(root);
 
@@ -91,6 +99,10 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
             void advance(store, api, STEP_DAYS[unit]);
           });
         }
+
+        h.useWatch(characterName, (name) => {
+          if (name === null) ctx.navigate('/new');
+        });
 
         // 탭이 숨으면 스트림을 끊고, 돌아오면 다시 붙는다 (모바일 배터리·서버 연결 절약)
         const visible = h.useVisibility();
