@@ -11,4 +11,5 @@ export * as reactive from './reactive/index.js';
 export * as router from './router/index.js';
 export * as sse from './sse/index.js';
 export * as store from './store/index.js';
+export * as toast from './toast/index.js';
 export * as view from './view/index.js';
