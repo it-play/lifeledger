@@ -3,6 +3,11 @@ FROM rust:1.97.1-slim-bookworm AS builder
 
 WORKDIR /build
 
+# utoipa-swagger-ui 의 빌드 스크립트가 Swagger UI 정적 파일을 curl 로 받아 온다
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 # 의존성만 먼저 빌드해 레이어로 굳힌다 — 소스만 바뀐 배포는 이 레이어를 재사용한다
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 RUN mkdir src \

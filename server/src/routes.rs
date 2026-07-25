@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 use utoipa::{OpenApi, ToSchema};
-use utoipa_swagger_ui::SwaggerUi;
+use utoipa_swagger_ui::{Config, SwaggerUi};
 
 use crate::character;
 use crate::error::AppError;
@@ -58,8 +58,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/advance", post(advance))
         .route("/api/stream", get(stream))
         .with_state(state)
-        // 상대 경로로 열어 둔다 — nginx 가 앞에 붙이는 prefix 를 따라가야 하기 때문이다
-        .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
+        .merge(
+            SwaggerUi::new("/api/docs")
+                .url("/api/docs/openapi.json", ApiDoc::openapi())
+                // UI 가 스펙을 부를 때는 상대 경로를 쓴다. 절대 경로면 nginx 가 앞에 붙이는
+                // prefix(`/lifeledger`)를 건너뛰어 도메인 루트를 찾아가 버린다
+                .config(Config::from("./openapi.json")),
+        )
 }
 
 #[utoipa::path(
