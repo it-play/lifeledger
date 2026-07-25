@@ -58,7 +58,7 @@ export function createRouter<H>(options: RouterOptions<H>): Router {
     void dispatch();
   }
 
-  /** 앱 내부 링크(`<a data-link href="/x">`)를 라우터가 가로챈다. */
+  /** Whether the router intercepts in-app links (`<a data-link href="/x">`). */
   function onClick(event: MouseEvent): void {
     if (event.defaultPrevented || event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

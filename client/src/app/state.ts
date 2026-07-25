@@ -2,17 +2,17 @@ import type { GameSnapshot, Me } from '../api/contracts.js';
 import type { SseStatus } from '../lib/sse/index.js';
 
 /**
- * 로그인 상태. `unknown` 은 아직 서버에 물어보기 전이라는 뜻이다.
- * 이 구분이 있어야 확인하는 동안 로그인 화면이 잠깐 번쩍이지 않는다.
+ * Login status. `unknown` means the server has not been asked yet, and that distinction
+ * is what keeps the login screen from flashing while the check is in flight.
  */
 export type AuthStatus = 'unknown' | 'anonymous' | 'authenticated';
 
-/** 앱 전역 상태. 경로 문자열로 구독하므로 구조를 얕고 안정적으로 유지한다. */
+/** Global app state. Subscribed to by path string, so the shape stays shallow and stable. */
 export interface AppState {
   readonly auth: {
     readonly status: AuthStatus;
     readonly user: Me | undefined;
-    /** 로그인 왕복이 실패했을 때 서버가 쿼리로 알려준 이유. */
+    /** Why the login round trip failed, as reported by the server. */
     readonly error: string | undefined;
   };
   readonly connection: {
@@ -31,7 +31,7 @@ export const initialState: AppState = {
   game: { snapshot: undefined, advancing: false },
 };
 
-/** 자주 쓰는 구독 경로를 상수로 둔다 — 오타로 구독이 조용히 죽는 것을 막는다. */
+/** Common subscription paths as constants, so a typo cannot silently kill a subscription. */
 export const paths = {
   authStatus: 'auth.status',
   authUser: 'auth.user',

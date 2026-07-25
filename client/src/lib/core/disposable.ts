@@ -1,8 +1,8 @@
 import type { Disposable, Unsubscribe } from './types.js';
 
 /**
- * 정리 함수를 모아 한 번에 해제한다.
- * 화면(view)이나 클라이언트가 자기 구독을 흘리지 않도록 하는 기본 도구.
+ * Collects teardown functions and releases them together, so a view or client never
+ * leaks its own subscriptions.
  */
 export interface DisposableBag extends Disposable {
   add(cleanup: Unsubscribe | Disposable): void;
@@ -17,7 +17,7 @@ export function createDisposableBag(): DisposableBag {
   return {
     add(cleanup) {
       const fn = typeof cleanup === 'function' ? cleanup : () => cleanup.dispose();
-      // 이미 정리된 뒤에 들어온 자원은 즉시 해제해 누수를 막는다
+      // A resource registered after disposal is released immediately
       if (disposed) {
         fn();
         return;
@@ -27,12 +27,12 @@ export function createDisposableBag(): DisposableBag {
     dispose() {
       if (disposed) return;
       disposed = true;
-      // 등록 역순으로 해제한다 (의존 관계가 있는 자원 대비)
+      // Reverse registration order, in case resources depend on each other
       for (const fn of [...cleanups].reverse()) {
         try {
           fn();
         } catch {
-          // 하나가 실패해도 나머지는 정리한다
+          // One failure must not strand the rest
         }
       }
       cleanups.clear();

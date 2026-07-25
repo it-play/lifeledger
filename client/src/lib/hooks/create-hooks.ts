@@ -7,8 +7,8 @@ import type { ReadableStore, StatePath } from '../store/types.js';
 import type { AsyncHandle, AsyncState, DebouncedFn, Hooks, HooksOptions } from './types.js';
 
 /**
- * 훅 집합을 생명주기(bag)에 묶어 만든다.
- * 화면은 `mount` 에서 `const h = createHooks(ctx.bag)` 한 번 하고 그 아래서만 훅을 쓴다.
+ * Binds a set of hooks to a lifecycle bag. A screen calls
+ * `const h = createHooks(ctx.bag)` once in `mount` and uses hooks only below that.
  */
 export function createHooks(bag: DisposableBag, options: HooksOptions = {}): Hooks {
   const clock: Clock = options.clock ?? createSystemClock();
@@ -53,7 +53,7 @@ export function createHooks(bag: DisposableBag, options: HooksOptions = {}): Hoo
   }
 
   const useInterval: Hooks['useInterval'] = (handler, intervalMs) => {
-    // Clock 은 단발 타이머만 제공하므로, 스스로 다시 예약해 주기를 만든다
+    // Clock offers one-shot timers only, so re-arm to build an interval
     let cancel: (() => void) | undefined;
     let stopped = false;
     const tick = (): void => {
@@ -112,7 +112,7 @@ export function createHooks(bag: DisposableBag, options: HooksOptions = {}): Hoo
         handler(...args);
         return;
       }
-      // 간격 안에 들어온 호출은 마지막 것만 뒤에 한 번 실행한다
+      // Calls arriving within the window collapse into one trailing run
       cancelTrailing?.();
       cancelTrailing = clock.setTimeout(() => {
         cancelTrailing = undefined;
@@ -199,7 +199,7 @@ export function createHooks(bag: DisposableBag, options: HooksOptions = {}): Hoo
         try {
           localStorage.setItem(key, JSON.stringify(value));
         } catch {
-          // 저장 실패(용량·프라이버시 모드)는 기능을 막지 않는다
+          // A failed write (quota, private mode) must not break the feature
         }
       }),
     );

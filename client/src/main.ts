@@ -12,12 +12,12 @@ import { createSseClient } from './lib/sse/index.js';
 import { createStore, type Store } from './lib/store/index.js';
 import { createViewHost, type ViewFactory } from './lib/view/index.js';
 
-/** 로그인하지 않아도 볼 수 있는 유일한 경로. */
+/** The only route reachable without signing in. */
 const LOGIN_PATH = '/login';
 
 /**
- * 부트스트랩. 의존성을 여기서 한 번 조립하고 아래로 주입한다.
- * 화면·라이브러리는 전역을 읽지 않는다 (테스트에서 갈아끼울 수 있어야 한다).
+ * Bootstrap. Dependencies are assembled once here and injected downward, so no screen or
+ * library reads a global and everything stays substitutable in tests.
  */
 function bootstrap(): void {
   const mountPoint = document.getElementById('app');
@@ -35,7 +35,7 @@ function bootstrap(): void {
     onInvalidTick: (error) => logger.log('error', '틱 payload 가 계약과 다릅니다', { error }),
   });
 
-  // 스트림 상태와 틱을 스토어로만 흘린다 — 화면은 스토어만 본다
+  // Stream status and ticks reach screens only through the store
   stream.onStatusChange((status) => store.set(paths.connectionStatus, status));
   api.onTick((snapshot) => store.set(paths.gameSnapshot, snapshot));
 
@@ -55,17 +55,16 @@ function bootstrap(): void {
       }),
   });
 
-  // 서버가 로그인 실패를 쿼리로 알려준다 (§4.5). 주소창에 남겨두지 않는다
+  // The server reports login failure by query parameter (§4.5); do not leave it in the URL
   takeLoginError(store);
 
   router.start();
 
-  // 세션을 먼저 확인한다. 그 전에는 게임 데이터를 부르지 않는다 —
-  // 미인증이면 전부 401 이라 콘솔만 시끄러워진다
+  // Check the session first: fetching game data while signed out only yields 401s
   void resume(store, auth, api, router.navigate, logger);
 }
 
-/** `?login_error=` 를 스토어로 옮기고 주소창에서 지운다. */
+/** Moves `?login_error=` into the store and strips it from the URL. */
 function takeLoginError(store: Store<AppState>): void {
   const url = new URL(globalThis.location.href);
   const reason = url.searchParams.get('login_error');
@@ -78,7 +77,7 @@ function takeLoginError(store: Store<AppState>): void {
 
 type GameApi = ReturnType<typeof createGameApi>;
 
-/** 세션이 있으면 게임을 잇고, 없으면 로그인 화면으로 보낸다. */
+/** Resumes the game when a session exists, otherwise routes to login. */
 async function resume(
   store: Store<AppState>,
   auth: AuthApi,

@@ -7,24 +7,24 @@ import type {
 } from './types.js';
 
 /**
- * 세밀한 반응성 코어. React 의 훅이 렌더 사이클에 의존해 하던 일을,
- * 여기서는 "값을 읽은 문맥을 기억한다" 는 방식으로 대신한다.
+ * The fine-grained reactivity core. Where React hooks lean on a render cycle, this
+ * remembers the context that read a value.
  *
- * 프레임워크를 쓰지 않기로 했으므로 이 파일이 그 자리를 메운다.
- * 규모는 의도적으로 작게 유지한다 — 스케줄러도, 컴포넌트도 없다.
+ * With no framework in the project, this file fills that role. It stays deliberately
+ * small: no scheduler, no components.
  */
 
 interface Subscriber {
-  /** 의존성이 바뀌었을 때 다시 실행할 작업. */
+  /** What to re-run when a dependency changes. */
   readonly execute: () => void;
-  /** 이 구독자가 등록된 신호들의 구독자 집합 (해제를 위해 역참조를 들고 있는다). */
+  /** Back-references to the signal subscriber sets holding this one, kept for removal. */
   readonly dependencies: Set<Set<Subscriber>>;
 }
 
-/** 현재 추적 중인 문맥. computed·effect 실행 중에만 설정된다. */
+/** The active tracking context, set only while a computed or effect runs. */
 let activeSubscriber: Subscriber | undefined;
 
-/** batch 중첩 깊이. 0 이면 즉시 실행. */
+/** Batch nesting depth; 0 means run immediately. */
 let batchDepth = 0;
 const pending = new Set<Subscriber>();
 
@@ -40,7 +40,7 @@ function unlink(subscriber: Subscriber): void {
   subscriber.dependencies.clear();
 }
 
-/** 추적 문맥을 세우고 작업을 실행한다. 실행마다 의존성을 새로 모은다. */
+/** Runs work inside a tracking context, collecting dependencies afresh each time. */
 function runTracked(subscriber: Subscriber, work: () => void): void {
   unlink(subscriber);
   const previous = activeSubscriber;
@@ -57,11 +57,11 @@ function schedule(subscribers: Iterable<Subscriber>): void {
     for (const subscriber of subscribers) pending.add(subscriber);
     return;
   }
-  // 실행 중 구독자 집합이 바뀔 수 있으므로 복사해서 돈다
+  // Iterate a copy: the subscriber set can change while notifying
   for (const subscriber of [...subscribers]) subscriber.execute();
 }
 
-/** 여러 변경을 묶어 구독자를 한 번만 깨운다. */
+/** Groups changes so subscribers wake once. */
 export function batch<T>(work: () => T): T {
   batchDepth += 1;
   try {
@@ -76,7 +76,7 @@ export function batch<T>(work: () => T): T {
   }
 }
 
-/** 추적 없이 읽는다. effect 안에서 의존성으로 잡히면 안 되는 값에 쓴다. */
+/** Reads without tracking, for values an effect must not depend on. */
 export function untracked<T>(work: () => T): T {
   const previous = activeSubscriber;
   activeSubscriber = undefined;
@@ -125,8 +125,9 @@ export function createSignal<T>(initial: T, options: SignalOptions<T> = {}): Wri
 }
 
 /**
- * 파생 값. 의존성이 바뀌면 다시 계산하고, 결과가 달라졌을 때만 자기 구독자에게 알린다.
- * (그래서 `순자산` 처럼 여러 값을 합치는 계산이 중간값 변화로 화면을 흔들지 않는다.)
+ * A derived value: recomputed when a dependency changes, but notifying its own
+ * subscribers only when the result differs. Aggregates such as net worth therefore do
+ * not shake the screen on every intermediate change.
  */
 export function createComputed<T>(compute: () => T, options: SignalOptions<T> = {}): Signal<T> {
   const equals = options.equals ?? Object.is;
@@ -145,8 +146,8 @@ export function createComputed<T>(compute: () => T, options: SignalOptions<T> = 
 }
 
 /**
- * 부수효과. 처음 한 번 실행하며 읽은 신호를 의존성으로 기억하고, 바뀌면 다시 실행한다.
- * 정리 함수를 반환하면 다음 실행 전과 dispose 시에 호출된다 (React useEffect 와 같은 계약).
+ * A side effect. Runs once, remembers the signals it read, and re-runs when they change.
+ * A returned cleanup runs before the next execution and on dispose, as in React.
  */
 export function createEffect(effect: () => EffectCleanup): EffectHandle {
   let cleanup: (() => void) | undefined;
@@ -159,7 +160,7 @@ export function createEffect(effect: () => EffectCleanup): EffectHandle {
     try {
       current();
     } catch {
-      // 정리 실패가 다음 실행을 막지 않게 한다
+      // A failed cleanup must not block the next run
     }
   };
 

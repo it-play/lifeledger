@@ -3,10 +3,11 @@ import type { FormValidation, FormValidator } from '../lib/form/index.js';
 import type { ResponseDecoder } from '../lib/http/index.js';
 
 /**
- * zod ↔ 라이브러리 경계 어댑터.
+ * The zod-to-library boundary adapter.
  *
- * lib/ 은 zod 를 모른다. 검증기 교체(예: 서버 OpenAPI 코드젠 결과)를 가능하게 하려면
- * 의존 방향이 앱 → lib 한쪽이어야 하고, 그 접착을 이 파일 하나에 모아 둔다.
+ * `lib/` knows nothing about zod. Keeping the dependency one-way (app -> lib) is what
+ * allows the validator to be swapped later for generated OpenAPI code, and all of that
+ * glue lives in this single file.
  */
 
 export function asDecoder<T>(schema: ZodType<T>): ResponseDecoder<T> {
@@ -21,7 +22,7 @@ export function asFormValidator<T>(schema: ZodType<T>): FormValidator<T> {
       const errors: Record<string, string> = {};
       for (const issue of result.error.issues) {
         const key = issue.path.map(String).join('.');
-        // 같은 필드에 여러 오류가 있으면 첫 번째만 보여준다
+        // Show only the first error per field
         if (errors[key] === undefined) errors[key] = issue.message;
       }
       return { ok: false, errors };

@@ -4,8 +4,8 @@ const DATE = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' });
 export const formatWon = (amount: number): string => WON.format(amount);
 
 /**
- * 게임일 → 표시용 날짜.
- * 서버가 시작일만 주고 날짜 계산은 클라이언트가 한다 (결정론적이라 권위 문제가 없다).
+ * Game day to display date. The server sends only the start date; the arithmetic is
+ * deterministic, so doing it here costs no authority.
  */
 export function gameDateOf(startDate: string, gameDay: number): Date {
   const start = new Date(`${startDate}T00:00:00Z`);
@@ -24,7 +24,7 @@ export const CONNECTION_LABEL: Record<string, string> = {
   closed: '끊김',
 };
 
-/** 서버가 `?login_error=` 로 알려주는 로그인 실패 사유 (§4.5). */
+/** Login failure reasons the server reports via `?login_error=` (§4.5). */
 export const LOGIN_ERROR_LABEL: Record<string, string> = {
   cancelled: '로그인을 취소했습니다.',
   expired: '로그인 시간이 지났습니다. 다시 시도해 주세요.',

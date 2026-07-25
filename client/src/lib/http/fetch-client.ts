@@ -33,14 +33,14 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     const raw = await readBody(response);
 
     if (!response.ok) {
-      logger.log('warn', '요청 실패', { path, status: response.status });
+      logger.log('warn', 'request failed', { path, status: response.status });
       throw new HttpError(response.status, path, raw);
     }
 
     try {
       return decoder.parse(raw);
     } catch (cause) {
-      logger.log('error', '응답 형식 불일치', { path });
+      logger.log('error', 'response shape mismatch', { path });
       throw new ResponseShapeError(path, cause);
     }
   }

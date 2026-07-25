@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * 서버 계약. 지금은 손으로 쓰지만, 서버가 OpenAPI 를 내보내면
- * 이 파일을 코드젠 산출물로 교체한다 (그때도 아래 타입 이름은 유지한다).
+ * The server contract. Hand-written for now; once the server emits OpenAPI this file is
+ * replaced by generated code, keeping the type names below.
  */
 
 export const HealthSchema = z.object({
@@ -23,7 +23,7 @@ export const AdvanceRequestSchema = z.object({
   days: z.number().int().min(1).max(3650),
 });
 
-// ── 캐릭터 생성 (계획 문서 §3) ────────────────────────────────────────────
+// -- Character creation (§3) ---------------------------------------------
 
 export const GenderSchema = z.enum(['male', 'female', 'other']);
 export const MilitaryStatusSchema = z.enum([
@@ -45,8 +45,8 @@ export const FamilyBackgroundSchema = z.enum(['supportive', 'independent', 'depe
 export const HealthLevelSchema = z.enum(['good', 'normal', 'poor']);
 
 /**
- * 폼 입력 검증. 여기서는 **각 필드의 형태만** 본다.
- * 조합 모순(§3.5)은 서버가 유일한 권위이므로 클라이언트에서 재구현하지 않는다.
+ * Form input validation, covering the shape of each field only. Contradictory
+ * combinations (§3.5) are the server's sole authority and are not reimplemented here.
  */
 export const CharacterDraftSchema = z.object({
   name: z.string().trim().min(1, '이름을 입력하세요').max(20, '이름이 너무 깁니다'),
@@ -85,18 +85,18 @@ export const PresetSchema = z.object({
 
 export const PresetListSchema = z.array(PresetSchema);
 
-/** 서버가 422 로 돌려주는 조합 검증 실패. field 는 폼 필드 이름과 같다. */
+/** The 422 body for a failed combination check; `field` matches the form field name. */
 export const ValidationFailureSchema = z.object({
   errors: z.array(z.object({ field: z.string(), message: z.string() })),
 });
 
-// ── 로그인 (계획 문서 §4.5) ──────────────────────────────────────────────
+// -- Login (§4.5) --------------------------------------------------------
 
 export const ProviderKindSchema = z.enum(['datagsm', 'google']);
 
 /**
- * 서버가 켜 둔 로그인 제공자. 자격증명이 없는 제공자는 목록에 들어오지 않으므로,
- * 클라이언트는 받은 것만 그리면 된다.
+ * A login provider the server enabled. One without credentials never reaches this list,
+ * so the client simply draws what it receives.
  */
 export const AuthProviderSchema = z.object({
   id: ProviderKindSchema,
@@ -121,6 +121,6 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 export type AuthProvider = z.infer<typeof AuthProviderSchema>;
 export type Me = z.infer<typeof MeSchema>;
 
-/** 진행 단위. 서버가 아니라 UI 어휘라서 클라이언트에 둔다. */
+/** Step units. UI vocabulary rather than server contract, so they live here. */
 export const STEP_DAYS = { day: 1, week: 7, month: 30 } as const;
 export type StepUnit = keyof typeof STEP_DAYS;

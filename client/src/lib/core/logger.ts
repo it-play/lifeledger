@@ -7,7 +7,7 @@ export interface ConsoleLoggerOptions {
   readonly scope?: string;
 }
 
-/** 개발용 기본 구현. 운영에서 다른 싱크로 교체할 수 있다. */
+/** Development default; swap in another sink for production. */
 export function createConsoleLogger(options: ConsoleLoggerOptions = {}): Logger {
   const minLevel = options.minLevel ?? 'info';
   const scope = options.scope ?? '';
@@ -32,7 +32,7 @@ export function createConsoleLogger(options: ConsoleLoggerOptions = {}): Logger 
   return logger;
 }
 
-/** 테스트나 로깅을 끄고 싶을 때. */
+/** For tests, or to switch logging off. */
 export function createNullLogger(): Logger {
   const logger: Logger = {
     log() {},

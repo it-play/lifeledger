@@ -6,31 +6,31 @@ const BOM = '\uFEFF';
 const NUL = '\u0000';
 
 /**
- * WHATWG HTML "event stream" 해석 알고리즘 구현.
+ * Implementation of the WHATWG HTML "event stream" interpretation algorithm.
  * https://html.spec.whatwg.org/multipage/server-sent-events.html
  *
- * 스펙에서 실수하기 쉬운 지점들을 그대로 지킨다.
- *  - 줄 구분자는 CRLF / LF / CR 세 가지 모두
- *  - 스트림 맨 앞의 BOM 하나만 제거
- *  - `:` 로 시작하는 줄은 주석 (keep-alive 로 쓰임)
- *  - 콜론 없는 줄은 필드명만 있고 값은 빈 문자열
- *  - 값 앞의 스페이스 하나만 제거 (두 개면 하나는 값에 남는다)
- *  - data 는 여러 줄이 LF 로 이어지고, dispatch 때 마지막 LF 하나만 제거
- *  - data 가 비어 있으면 이벤트를 발생시키지 않는다
- *  - id 에 NUL 이 있으면 그 필드는 무시
- *  - lastEventId 는 dispatch 후에도 유지된다 (event/data 버퍼만 초기화)
- *  - EOF 시 미완성 데이터는 폐기
+ * The easily-missed parts of the spec are honoured exactly:
+ *  - line separators are CRLF, LF and CR alike
+ *  - only one leading BOM is stripped from the stream
+ *  - a line starting with `:` is a comment (used for keep-alive)
+ *  - a line without a colon is a field name with an empty value
+ *  - only one space after the colon is stripped; a second stays in the value
+ *  - data lines join with LF, and dispatch removes only the final LF
+ *  - empty data dispatches no event
+ *  - an id containing NUL leaves the field untouched
+ *  - lastEventId survives dispatch; only the event and data buffers reset
+ *  - incomplete data at EOF is discarded
  */
 interface LineBoundary {
   readonly line: string;
   readonly nextCursor: number;
-  /** CR 로 버퍼가 끝난 경우. 다음 청크의 첫 LF 하나를 CRLF 의 뒷짝으로 보고 건너뛰어야 한다. */
+  /** Buffer ended on CR, so the next chunk's leading LF is the other half of a CRLF. */
   readonly deferLf: boolean;
 }
 
 /**
- * buffer[cursor..] 에서 다음 줄 하나를 떼어낸다. 줄바꿈이 없으면 undefined.
- * 줄 구분자 세 종류(CRLF/LF/CR)를 여기 한 곳에서만 다룬다.
+ * Takes the next line from buffer[cursor..], or undefined when no separator is present.
+ * All three separators (CRLF, LF, CR) are handled here and nowhere else.
  */
 function nextLine(buffer: string, cursor: number): LineBoundary | undefined {
   const nextLf = buffer.indexOf(LF, cursor);
@@ -44,8 +44,8 @@ function nextLine(buffer: string, cursor: number): LineBoundary | undefined {
 
   const line = buffer.slice(cursor, nextCr);
   if (nextCr === buffer.length - 1) {
-    // 줄 자체는 이미 끝났으므로 지금 넘긴다. 줄 전체를 보류하면 청크 경계에서
-    // 이벤트가 한 청크 늦게 나가거나, 다음 LF 가 빈 줄로 오인된다.
+    // The line is already complete, so yield it now. Holding it back would delay the
+    // event by a chunk, or let the next LF read as a blank line.
     return { line, nextCursor: nextCr + 1, deferLf: true };
   }
   const skipLf = buffer[nextCr + 1] === LF ? 1 : 0;
@@ -55,11 +55,11 @@ function nextLine(buffer: string, cursor: number): LineBoundary | undefined {
 interface LineScan {
   readonly lines: readonly string[];
   readonly remainder: string;
-  /** 마지막 줄이 CR 로 끝나 다음 청크의 첫 LF 를 건너뛰어야 하는지. */
+  /** Whether the last line ended on CR, so the next chunk's leading LF is skipped. */
   readonly deferLf: boolean;
 }
 
-/** 버퍼에서 완성된 줄을 모두 떼어내고 나머지를 남긴다. 상태를 갖지 않는다. */
+/** Takes every complete line, leaving the remainder. Stateless. */
 function scanLines(buffer: string): LineScan {
   const lines: string[] = [];
   let cursor = 0;
@@ -80,10 +80,10 @@ function scanLines(buffer: string): LineScan {
 }
 
 export function createEventStreamParser(): EventStreamParser {
-  /** 아직 줄바꿈을 만나지 못한 잔여 문자열. */
+  /** Text not yet terminated by a separator. */
   let pending = '';
   let bomChecked = false;
-  /** 직전 청크가 CR 로 끝났을 때, 다음 청크 첫 LF 하나를 CRLF 의 뒷짝으로 보고 건너뛴다. */
+  /** Set when the previous chunk ended on CR, so one leading LF is skipped. */
   let skipLeadingLf = false;
   let dataBuffer = '';
   let eventTypeBuffer = '';
@@ -99,22 +99,22 @@ export function createEventStreamParser(): EventStreamParser {
         dataBuffer += value + LF;
         break;
       case 'id':
-        // NUL 이 포함된 id 는 무시한다 (기존 값 유지)
+        // An id containing NUL is ignored, keeping the previous value
         if (!value.includes(NUL)) lastEventId = value;
         break;
       case 'retry':
-        // ASCII 숫자로만 이루어진 경우에만 유효
+        // Valid only when made entirely of ASCII digits
         if (/^\d+$/.test(value)) serverRetryMs = Number.parseInt(value, 10);
         break;
       default:
-        // 알 수 없는 필드는 무시
+        // Unknown fields are ignored
         break;
     }
   }
 
   function dispatch(out: SseMessage[]): void {
     if (dataBuffer === '') {
-      // 데이터가 없으면 이벤트를 발생시키지 않고 버퍼만 비운다
+      // No data dispatches nothing; the buffers are simply cleared
       eventTypeBuffer = '';
       return;
     }
@@ -133,7 +133,7 @@ export function createEventStreamParser(): EventStreamParser {
       dispatch(out);
       return;
     }
-    if (line.startsWith(':')) return; // 주석
+    if (line.startsWith(':')) return; // comment
     const colon = line.indexOf(':');
     if (colon === -1) {
       processField(line, '');
@@ -167,7 +167,7 @@ export function createEventStreamParser(): EventStreamParser {
     },
 
     end() {
-      // 스펙: EOF 시 남은 데이터는 폐기한다 (dispatch 하지 않는다)
+      // Per spec, data left at EOF is discarded rather than dispatched
       pending = '';
       dataBuffer = '';
       eventTypeBuffer = '';

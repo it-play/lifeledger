@@ -8,7 +8,7 @@ interface FieldBinding {
   readonly showError: (text: string) => void;
 }
 
-/** 스키마 → DOM. 필드 종류마다 읽는 방법이 다른 것을 여기 한 곳에 가둔다. */
+/** Schema to DOM. Confines the per-kind differences in reading values to one place. */
 function readValue(binding: FieldBinding): unknown {
   const { spec, input } = binding;
   if (spec.kind === 'checkbox') return (input as HTMLInputElement).checked;
@@ -17,7 +17,7 @@ function readValue(binding: FieldBinding): unknown {
   return raw;
 }
 
-/** 필드 종류별 입력 요소 생성. 에러 노드는 호출자가 붙인다. */
+/** Builds the input element for a field kind. The caller attaches the error node. */
 function buildInput(spec: FieldSpec, initial: unknown): HTMLInputElement | HTMLSelectElement {
   let input: HTMLInputElement | HTMLSelectElement;
   if (spec.kind === 'select') {
@@ -86,7 +86,7 @@ export function renderForm<T>(spec: FormSpec<T>, options: FormOptions<T>): FormH
       const message = errors[binding.spec.name];
       if (message !== undefined) binding.showError(message);
     }
-    // 특정 필드에 매칭되지 않은 오류는 폼 전체 오류로 보여준다
+    // An error matching no field is shown as a form-level error
     const unmatched = Object.entries(errors).filter(([key]) => !errorNodes.has(key));
     if (unmatched.length > 0) setFormError(unmatched.map(([, message]) => message).join(' '));
   }

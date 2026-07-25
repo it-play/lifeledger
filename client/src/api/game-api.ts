@@ -14,12 +14,12 @@ import {
 import { asDecoder } from './zod-adapters.js';
 
 /**
- * 도메인 API. 화면은 HttpClient·SseClient 를 직접 만지지 않고 이 인터페이스만 쓴다.
- * 전송 수단(REST/SSE)이 바뀌어도 화면은 영향받지 않는다.
+ * The domain API. Screens use this interface rather than HttpClient or SseClient
+ * directly, so changing transport leaves them untouched.
  */
 /**
- * 서버가 조합 모순(§3.5)을 거부했을 때. 필드별 메시지를 그대로 폼에 꽂을 수 있다.
- * 화면이 HTTP 상태 코드를 알 필요가 없게 여기서 도메인 오류로 바꿔준다.
+ * Raised when the server rejects a contradictory combination (§3.5). Carries per-field
+ * messages ready for the form, so no screen needs to know an HTTP status code.
  */
 export class CharacterRejectedError extends Error {
   constructor(readonly fieldErrors: Readonly<Record<string, string>>) {
@@ -30,17 +30,17 @@ export class CharacterRejectedError extends Error {
 
 export interface GameApi {
   health(): Promise<Health>;
-  /** 시작 프리셋 목록 (§3.3). */
+  /** Starting presets (§3.3). */
   listPresets(): Promise<readonly Preset[]>;
   /**
-   * 캐릭터를 만들고 게임을 시작한다.
-   * 조합 검증 실패는 {@link CharacterRejectedError} 로 던진다.
+   * Creates a character and starts the game.
+   * A failed combination check throws {@link CharacterRejectedError}.
    */
   createCharacter(draft: CharacterDraft): Promise<GameSnapshot>;
   getSnapshot(): Promise<GameSnapshot>;
-  /** 게임일을 days 만큼 전진시킨다. 전진 결과는 SSE 로도 흘러온다. */
+  /** Advances the game day. The result also arrives over SSE. */
   advance(days: number): Promise<GameSnapshot>;
-  /** 틱 스트림 구독. 서버가 보낸 payload 를 계약으로 검증한 뒤 넘긴다. */
+  /** Subscribes to ticks, validating each payload against the contract first. */
   onTick(handler: (snapshot: GameSnapshot) => void): Unsubscribe;
   connectStream(): void;
   disconnectStream(): void;
@@ -49,7 +49,7 @@ export interface GameApi {
 export interface GameApiDeps {
   readonly http: HttpClient;
   readonly stream: SseClient;
-  /** 계약 위반 payload 를 어떻게 다룰지. 기본은 무시하고 로깅만. */
+  /** What to do with a payload that breaks the contract. Logged and dropped by default. */
   readonly onInvalidTick?: (error: unknown, raw: SseMessage) => void;
 }
 
@@ -57,7 +57,7 @@ const snapshotDecoder = asDecoder(GameSnapshotSchema);
 const healthDecoder = asDecoder(HealthSchema);
 const presetListDecoder = asDecoder(PresetListSchema);
 
-/** 서버의 422 본문을 필드 → 메시지 맵으로 바꾼다. 형태가 다르면 그대로 다시 던진다. */
+/** Turns a 422 body into a field-to-message map, or gives up if the shape is unfamiliar. */
 function toFieldErrors(error: unknown): Record<string, string> | undefined {
   if (!(error instanceof HttpError) || error.status !== 422) return undefined;
   const parsed = ValidationFailureSchema.safeParse(error.body);

@@ -10,15 +10,15 @@ import { type AppState, paths } from '../state.js';
 export interface LoginDeps {
   readonly store: Store<AppState>;
   readonly auth: AuthApi;
-  /** 브라우저 이동. 테스트에서 갈아끼울 수 있게 주입받는다. */
+  /** Browser navigation, injected so tests can substitute it. */
   readonly redirect?: (url: string) => void;
 }
 
 /**
- * 로그인 화면 (§4.5).
+ * The login screen (§4.5).
  *
- * 제공자 목록은 서버가 준다 — 자격증명이 없는 제공자는 목록에 없으므로
- * "버튼은 있는데 누르면 실패" 가 생기지 않는다.
+ * The provider list comes from the server, which omits any provider lacking credentials,
+ * so no button can exist that fails when pressed.
  */
 export function createLoginView(deps: LoginDeps): ViewFactory {
   return (): View => {
@@ -52,7 +52,7 @@ export function createLoginView(deps: LoginDeps): ViewFactory {
         h.bindText(errorLine, () => errorText.get());
         h.bindAttribute(errorLine, 'hidden', () => errorText.get() === '');
 
-        // 목록을 받아오기 전까지는 버튼 자리를 비워 둔다
+        // Leave the button area empty until the list arrives
         const providers = h.useAsync<readonly AuthProvider[]>(() => auth.listProviders());
         h.useWatch(providers.state, (result) => {
           if (result.status !== 'success') return;
@@ -77,7 +77,7 @@ function providerButton(provider: AuthProvider, redirect: (url: string) => void)
     { type: 'button', class: `login-button login-button--${provider.id}` },
     `${provider.label} 계정으로 로그인`,
   );
-  // 화면이 사라질 때 버튼도 함께 사라지므로 별도 해제가 필요 없다
+  // The button dies with the screen, so the listener needs no separate removal
   button.addEventListener('click', () => redirect(`/api/auth/${provider.id}/start`));
 
   return button;

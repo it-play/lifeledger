@@ -9,7 +9,7 @@ export interface RouteMatch {
 }
 
 export interface RouteDefinition<H> {
-  /** `'/game/:id'` 처럼 `:name` 세그먼트를 쓴다. */
+  /** Uses `:name` segments, as in `'/game/:id'`. */
   readonly pattern: string;
   readonly handler: H;
 }
@@ -19,8 +19,8 @@ export interface NavigateOptions {
 }
 
 /**
- * History API 라우터. 화면 전환의 유일한 진입점이며,
- * 어떤 화면을 어떻게 그릴지는 모른다 (그건 RouterOptions.onNavigate 가 정한다).
+ * A History API router: the single entry point for screen changes, and deliberately
+ * ignorant of which screen to draw - that is RouterOptions.onNavigate's decision.
  */
 export interface Router extends Disposable {
   start(): void;
@@ -30,7 +30,7 @@ export interface Router extends Disposable {
 
 export interface RouterOptions<H> {
   readonly routes: readonly RouteDefinition<H>[];
-  /** 매칭 실패 시 사용할 핸들러. */
+  /** Handler used when nothing matches. */
   readonly fallback: H;
   readonly onNavigate: (handler: H, match: RouteMatch) => void | Promise<void>;
 }

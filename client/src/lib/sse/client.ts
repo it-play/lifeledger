@@ -14,15 +14,13 @@ import type {
 const CONTENT_TYPE = 'text/event-stream';
 
 /**
- * fetch 스트리밍 기반 SSE 클라이언트.
+ * An SSE client built on streaming fetch.
  *
- * EventSource 를 쓰지 않는 이유:
- *  - 요청 헤더를 붙일 수 없다 (인증 토큰을 쿠키 외 방법으로 못 보냄)
- *  - 재연결 지연을 제어할 수 없다 (백오프·지터 불가)
- *  - 상태 전이(connecting/open/reconnecting)를 세밀하게 관찰하기 어렵다
- *  - POST 로 열 수 없다
+ * EventSource is not used because it cannot set request headers, cannot control the
+ * reconnect delay (so no backoff or jitter), makes state transitions hard to observe,
+ * and cannot open with POST.
  *
- * 대신 스펙의 파싱·재연결 의미론은 그대로 지킨다 (parser.ts).
+ * The spec's parsing and reconnection semantics are still honoured (see parser.ts).
  */
 export function createSseClient(options: SseClientOptions): SseClient {
   const clock = options.clock ?? createSystemClock();
@@ -58,13 +56,13 @@ export function createSseClient(options: SseClientOptions): SseClient {
   function scheduleReconnect(reason: DisconnectReason): void {
     if (disposed) return;
     if (!retryDecider.shouldRetry(reason)) {
-      logger.log('info', '재연결하지 않고 종료', { reason: reason.kind });
+      logger.log('info', 'closing without reconnect', { reason: reason.kind });
       setStatus('closed');
       return;
     }
     attempt += 1;
     const delay = backoff.delayMs(attempt, parser.serverRetryMs);
-    logger.log('debug', '재연결 예약', { attempt, delay, reason: reason.kind });
+    logger.log('debug', 'reconnect scheduled', { attempt, delay, reason: reason.kind });
     setStatus('reconnecting');
     cancelRetryTimer = clock.setTimeout(() => {
       cancelRetryTimer = undefined;
@@ -78,12 +76,12 @@ export function createSseClient(options: SseClientOptions): SseClient {
       Accept: CONTENT_TYPE,
       'Cache-Control': 'no-store',
     };
-    // 스펙: 마지막 이벤트 id 가 있으면 재연결 시 서버에 알린다 → 서버가 이어서 보낼 수 있다
+    // Per spec, a known last event id is sent on reconnect so the server can resume
     if (parser.lastEventId !== '') headers['Last-Event-ID'] = parser.lastEventId;
     return headers;
   }
 
-  /** 연결 수립 단계. 스트림을 얻거나, 실패 이유를 돌려준다. */
+  /** Establishes the connection, yielding either a stream or a reason it failed. */
   async function requestStream(
     signal: AbortSignal,
   ): Promise<Result<ReadableStream<Uint8Array>, DisconnectReason>> {
@@ -100,13 +98,13 @@ export function createSseClient(options: SseClientOptions): SseClient {
     }
 
     if (!response.ok) {
-      logger.log('warn', 'SSE 응답 상태 이상', { status: response.status });
+      logger.log('warn', 'unexpected SSE response status', { status: response.status });
       return err({ kind: 'http', status: response.status });
     }
 
     const contentType = response.headers.get('content-type');
     if (contentType === null || !contentType.includes(CONTENT_TYPE)) {
-      logger.log('error', 'SSE Content-Type 불일치', { contentType });
+      logger.log('error', 'unexpected SSE Content-Type', { contentType });
       return err({ kind: 'bad-content-type', contentType });
     }
 
@@ -114,10 +112,10 @@ export function createSseClient(options: SseClientOptions): SseClient {
     return ok(response.body);
   }
 
-  /** 스트림 소비 단계. 끊긴 이유를 돌려준다. */
+  /** Consumes the stream, returning why it ended. */
   async function pumpStream(body: ReadableStream<Uint8Array>): Promise<DisconnectReason> {
     const reader = body.getReader();
-    // stream: true — 멀티바이트 문자가 청크 경계에 걸려도 깨지지 않게 디코더가 상태를 유지한다
+    // stream: true keeps decoder state, so a multi-byte character split across chunks survives
     const decoder = new TextDecoder('utf-8');
     try {
       for (;;) {
@@ -126,7 +124,7 @@ export function createSseClient(options: SseClientOptions): SseClient {
         if (value === undefined) continue;
         for (const message of parser.push(decoder.decode(value, { stream: true }))) emit(message);
       }
-      // 서버가 스트림을 정상 종료했다 — SSE 에서는 다시 붙는 것이 기본 동작이다
+      // The server closed the stream cleanly, and reconnecting is the SSE default
       return { kind: 'stream-ended' };
     } catch (error) {
       return { kind: 'network', error };
@@ -143,15 +141,15 @@ export function createSseClient(options: SseClientOptions): SseClient {
     setStatus(attempt === 0 ? 'connecting' : 'reconnecting');
 
     const stream = await requestStream(ac.signal);
-    if (ac.signal.aborted) return; // 호출자가 닫은 것
+    if (ac.signal.aborted) return; // closed by the caller
     if (!stream.ok) {
       scheduleReconnect(stream.error);
       return;
     }
 
-    attempt = 0; // 성공적으로 열렸으므로 백오프를 초기화한다
+    attempt = 0; // opened, so reset the backoff
     setStatus('open');
-    logger.log('info', 'SSE 연결됨', { url: options.url });
+    logger.log('info', 'SSE connected', { url: options.url });
 
     const reason = await pumpStream(stream.value);
     if (ac.signal.aborted) return;

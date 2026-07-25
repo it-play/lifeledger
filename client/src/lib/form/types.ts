@@ -12,13 +12,13 @@ export interface FieldSpec {
   readonly label: string;
   readonly kind: FieldKind;
   readonly help?: string;
-  /** kind 가 'select' 일 때만 의미가 있다. */
+  /** Meaningful only when kind is 'select'. */
   readonly options?: readonly SelectOption[];
 }
 
 /**
- * 폼 검증기. zod 스키마가 이 형태를 만족하므로 폼 모듈은 zod 를 직접 import 하지 않는다.
- * 실패 시 필드별 메시지로 변환할 수 있어야 한다.
+ * A form validator. A zod schema satisfies this shape, so the form module never imports
+ * zod itself. Failures must be convertible to per-field messages.
  */
 export interface FormValidator<T> {
   validate(raw: Readonly<Record<string, unknown>>): FormValidation<T>;
@@ -40,14 +40,14 @@ export interface FormOptions<T> {
 }
 
 /**
- * 렌더된 폼 하나. 캐릭터 생성·이력서·공고 검색이 모두 이걸 재사용한다.
- * 화면은 DOM 을 직접 조립하지 않고 element 를 붙이기만 한다.
+ * One rendered form, reused by character creation, resumes and job search alike.
+ * A screen attaches `element` rather than assembling DOM itself.
  */
 export interface FormHandle extends Disposable {
   readonly element: HTMLFormElement;
-  /** 서버측 검증 실패를 표시할 때 사용한다. */
+  /** Displays a server-side validation failure. */
   setErrors(errors: Readonly<Record<string, string>>): void;
-  /** 프리셋 적용처럼 값 일부를 바꿔 넣을 때 사용한다. 없는 필드는 무시한다. */
+  /** Patches some values, as applying a preset does. Unknown fields are ignored. */
   setValues(values: Readonly<Record<string, unknown>>): void;
   reset(): void;
 }

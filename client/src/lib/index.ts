@@ -1,6 +1,6 @@
 /**
- * 라이브러리 공개 표면. 앱 코드는 이 파일(또는 각 모듈의 index)만 import 한다.
- * 내부 파일을 직접 참조하지 않는 것이 규칙이다 — 구현을 바꿀 여지를 남긴다.
+ * The library's public surface. App code imports this file, or a module's own index,
+ * and never an internal file - which is what leaves room to change implementations.
  */
 export * as core from './core/index.js';
 export * as dom from './dom/index.js';

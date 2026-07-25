@@ -9,17 +9,17 @@ interface Watcher {
 
 export interface CreateStoreOptions {
   /**
-   * 알림을 마이크로태스크로 모을지 여부. 기본 true.
-   * 배속 진행처럼 한 틱에 여러 번 갱신될 때 렌더를 1회로 합친다.
+   * Whether to coalesce notifications into a microtask. Defaults to true, collapsing
+   * bursts (such as fast-forwarded days) into a single render.
    */
   readonly batch?: boolean;
 }
 
 /**
- * 경로 단위 구독 스토어.
+ * A store subscribed to by path.
  *
- * 프레임워크의 세밀한 반응성을 대신하는 최소 장치다. 전체 리렌더를 피하기 위해
- * "무엇이 바뀌었는지"를 경로로 계산해 관련 구독자만 깨운다.
+ * Stands in for a framework's fine-grained reactivity: it computes which paths changed
+ * and wakes only the subscribers concerned, instead of re-rendering everything.
  */
 export function createStore<S extends object>(
   initialState: S,

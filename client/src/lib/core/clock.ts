@@ -1,6 +1,6 @@
 import type { Clock } from './types.js';
 
-/** 브라우저 기본 구현. */
+/** Browser-backed default. */
 export function createSystemClock(): Clock {
   return {
     now: () => Date.now(),
@@ -12,12 +12,12 @@ export function createSystemClock(): Clock {
 }
 
 export interface ManualClock extends Clock {
-  /** 등록된 타이머 중 만료된 것을 순서대로 실행한다. */
+  /** Runs every expired timer, in order. */
   advance(ms: number): void;
   readonly pendingCount: number;
 }
 
-/** 테스트용. 시간을 직접 밀어 재연결 스케줄을 결정론적으로 검증한다. */
+/** For tests: advance time by hand to verify reconnect scheduling deterministically. */
 export function createManualClock(startMs = 0): ManualClock {
   let current = startMs;
   let seq = 0;

@@ -15,10 +15,10 @@ export interface DashboardDeps {
 }
 
 /**
- * 대시보드. 이 프로젝트의 렌더 규약을 보여주는 기준 화면이다.
- *  - mount 에서 DOM 을 한 번 만든다
- *  - 이후 갱신은 훅(bindText·bindAttribute)이 신호 변화만 보고 해당 노드만 건드린다
- *  - 모든 구독·리스너는 ctx.bag 에 등록되어 unmount 에서 일괄 해제된다
+ * The dashboard, which is the reference for this project's render convention:
+ *  - build the DOM once in `mount`
+ *  - update through hooks (bindText, bindAttribute) that touch only the changed node
+ *  - register every subscription and listener with ctx.bag, released on unmount
  */
 export function createDashboardView(deps: DashboardDeps): ViewFactory {
   return (): View => {
@@ -29,7 +29,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         const { store, api, auth } = deps;
         const h = createHooks(ctx.bag);
 
-        // 스토어의 특정 경로만 신호로 끌어온다 — 나머지 변경에는 반응하지 않는다
+        // Pull in only the paths this screen needs; other changes do not wake it
         const snapshot = h.useStoreValue(store, paths.gameSnapshot, (s) => s.game.snapshot);
         const advancing = h.useStoreValue(store, paths.gameAdvancing, (s) => s.game.advancing);
         const connection = h.useStoreValue(
@@ -38,7 +38,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           (s) => s.connection.status,
         );
 
-        // 캐릭터를 아직 만들지 않았으면 생성 화면으로 보낸다
+        // Without a character, route to creation
         const characterName = h.useStoreValue(
           store,
           paths.gameSnapshot,
@@ -117,13 +117,13 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           void logout(auth);
         });
 
-        // 스냅샷이 아직 없을 때(undefined) 와 캐릭터가 없을 때(null) 는 다르다.
-        // 로그인·조회가 끝나기 전에 보내면 생성 화면이 잠깐 번쩍인다
+        // No snapshot yet (undefined) differs from no character (null); navigating before
+        // login and the first fetch settle would flash the creation screen
         h.useWatch(characterName, (name) => {
           if (name === null && authStatus.get() === 'authenticated') ctx.navigate('/new');
         });
 
-        // 탭이 숨으면 스트림을 끊고, 돌아오면 다시 붙는다 (모바일 배터리·서버 연결 절약)
+        // Drop the stream on a hidden tab and reattach on return, sparing battery and connections
         const visible = h.useVisibility();
         h.useWatch(visible, (isVisible) => {
           if (isVisible) api.connectStream();
@@ -149,7 +149,7 @@ async function logout(auth: AuthApi): Promise<void> {
   try {
     await auth.logout();
   } finally {
-    // 세션 쿠키가 사라진 상태를 확실히 반영하려면 새로 읽는 편이 안전하다
+    // A full reload is the reliable way to pick up the cleared session cookie
     globalThis.location.assign('/');
   }
 }

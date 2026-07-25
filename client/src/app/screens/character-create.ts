@@ -93,10 +93,11 @@ const FIELDS: readonly FieldSpec[] = [
 const validator = asFormValidator(CharacterDraftSchema);
 
 /**
- * 캐릭터 생성 화면 (§3).
+ * The character creation screen (§3).
  *
- * 조합 검증은 서버가 권위다 — 여기서는 필드 형태만 zod 로 걸러 보내고,
- * 서버가 422 로 돌려준 필드 오류를 그대로 폼에 꽂는다. 규칙이 두 곳에 살지 않게 하는 것이 요점.
+ * The server is the authority on combination checks. This screen filters field shapes
+ * with zod, then plants the server's 422 field errors straight into the form, so the
+ * rules never live in two places.
  */
 export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactory {
   return (): View => {
@@ -142,7 +143,7 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
                 store.set(paths.gameSnapshot, snapshot);
                 ctx.navigate('/');
               } catch (error) {
-                // 서버가 판단한 조합 모순을 필드에 그대로 표시한다
+                // Show the server's contradiction findings on the fields themselves
                 if (error instanceof CharacterRejectedError) {
                   form?.setErrors(error.fieldErrors);
                   return;
@@ -155,7 +156,7 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
         ctx.bag.add(form);
         container.appendChild(form.element);
 
-        // 프리셋은 화면이 뜬 뒤 채운다 — 목록이 늦어도 폼은 이미 쓸 수 있다
+        // Presets fill in after mount, so a slow list does not hold up the form
         const presets = h.useAsync(() => api.listPresets());
         h.useEffect(() => {
           const state = presets.state.get();

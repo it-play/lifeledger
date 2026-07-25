@@ -18,7 +18,7 @@ export function getAtPath(state: unknown, path: StatePath): unknown {
   return cursor;
 }
 
-/** 경로상의 객체만 얕게 복사해 새 상태를 만든다 (구조 공유). */
+/** Builds the next state by shallow-copying only the objects along the path. */
 export function setAtPath<S>(state: S, path: StatePath, value: unknown): S {
   const keys = splitPath(path);
   if (keys.length === 0) return value as S;
@@ -26,7 +26,7 @@ export function setAtPath<S>(state: S, path: StatePath, value: unknown): S {
   const head = keys[0];
   if (head === undefined) return state;
 
-  if (!isPlainObject(state)) throw new TypeError(`경로를 적용할 수 없는 상태: ${path}`);
+  if (!isPlainObject(state)) throw new TypeError(`state cannot accept path: ${path}`);
   const rest = keys.slice(1).join('.');
   const nextChild = rest === '' ? value : setAtPath(state[head] ?? {}, rest, value);
   if (state[head] === nextChild) return state;
@@ -34,8 +34,8 @@ export function setAtPath<S>(state: S, path: StatePath, value: unknown): S {
 }
 
 /**
- * 두 상태를 비교해 바뀐 경로 목록을 만든다.
- * 참조가 같으면 하위는 보지 않는다 — 구조 공유가 되어 있으면 비용이 거의 없다.
+ * Diffs two states into the list of paths that changed.
+ * Identical references stop the walk, which is close to free given structural sharing.
  */
 export function diffPaths(prev: unknown, next: unknown, prefix = ''): readonly StatePath[] {
   if (prev === next) return [];
@@ -47,13 +47,13 @@ export function diffPaths(prev: unknown, next: unknown, prefix = ''): readonly S
     const childPath = prefix === '' ? key : `${prefix}.${key}`;
     changed.push(...diffPaths(prev[key], next[key], childPath));
   }
-  // 하위가 전부 같으면 이 노드도 바뀌지 않은 것으로 본다
+  // Unchanged children mean this node is unchanged too
   return changed;
 }
 
 /**
- * 구독 경로와 변경 경로가 서로 영향을 주는지 판단한다.
- * `'a'` 구독은 `'a.b'` 변경에 반응하고, `'a.b'` 구독도 `'a'` 교체에 반응해야 한다.
+ * Whether a subscribed path and a changed path affect each other. Subscribing to `'a'`
+ * must react to `'a.b'` changing, and subscribing to `'a.b'` to `'a'` being replaced.
  */
 export function pathsIntersect(watched: StatePath, changed: StatePath): boolean {
   if (watched === '' || changed === '') return true;

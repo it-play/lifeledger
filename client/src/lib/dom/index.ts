@@ -1,6 +1,6 @@
 /**
- * 최소 DOM 헬퍼. 가상 DOM 을 만들지 않는다 —
- * "만들 때는 el(), 바꿀 때는 바꿀 노드만 직접 갱신" 이 이 프로젝트의 렌더 규약이다.
+ * Minimal DOM helpers, with no virtual DOM. The render convention here is: build with
+ * `el()`, then update only the nodes that actually changed.
  */
 
 type Child = Node | string | null | undefined | false;
@@ -45,7 +45,7 @@ export function append(parent: Node, children: readonly Child[]): void {
   }
 }
 
-/** 텍스트만 바꾸는 바인딩. 값이 같으면 DOM 을 건드리지 않는다. */
+/** Text-only binding that leaves the DOM alone when the value is unchanged. */
 export function bindText(node: Node): (text: string) => void {
   let last: string | undefined;
   return (text) => {
@@ -55,7 +55,7 @@ export function bindText(node: Node): (text: string) => void {
   };
 }
 
-/** 이벤트 리스너를 붙이고 해제 함수를 돌려준다 (bag 에 넣어 쓴다). */
+/** Attaches a listener and returns its remover, for registering with a bag. */
 export function on<K extends keyof HTMLElementEventMap>(
   target: HTMLElement,
   type: K,

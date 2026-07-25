@@ -2,12 +2,12 @@ import { createDisposableBag } from '../core/disposable.js';
 import type { View, ViewContext, ViewFactory, ViewHost } from './types.js';
 
 /**
- * 한 번에 화면 하나. 전환할 때 이전 화면의 unmount 와 구독 정리를 강제한다.
- * 이 규칙이 프레임워크 없이도 누수를 막는 핵심이다.
+ * One screen at a time. Switching forces the previous screen to unmount and release its
+ * subscriptions, which is what prevents leaks without a framework.
  */
 export function createViewHost(host: HTMLElement): ViewHost {
   let active: { view: View; bag: ReturnType<typeof createDisposableBag> } | undefined;
-  /** 비동기 mount 중에 다시 전환될 수 있으므로 세대를 센다. */
+  /** Generation counter, since another switch can land during an async mount. */
   let generation = 0;
 
   function teardown(): void {
@@ -34,7 +34,7 @@ export function createViewHost(host: HTMLElement): ViewHost {
 
       await view.mount(host, fullContext);
 
-      // mount 를 기다리는 동안 다른 화면으로 전환됐다면 이 화면은 버린다
+      // Discard this screen if another was selected while its mount was pending
       if (myGeneration !== generation) {
         try {
           view.unmount();
