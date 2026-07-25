@@ -21,13 +21,13 @@ pub struct DatagsmProvider {
     scope: Option<String>,
 }
 
-/// `scope` is normally `None`.
+/// DataGSM scope strings are always `{applicationId}:{scopeName}`, so reading a user's own
+/// record is `datagsm:self_read` — not the `self:read` the public docs give, which is
+/// rejected with `invalid_scope`.
 ///
-/// DataGSM scope strings are always `{applicationId}:{scopeName}`, and omitting the
-/// parameter grants exactly the scopes the client is registered for — which is what we
-/// want. Set it only to request a narrower subset, using the full prefixed form (the
-/// built-in user-info scope is `{datagsmApplicationId}:self_read`). The `self:read`
-/// spelling in the public docs is rejected with `invalid_scope`.
+/// Passing `None` omits the parameter and grants every scope the client is registered for.
+/// We name the one we need instead, so registering another scope later does not silently
+/// widen this login.
 pub const fn create_datagsm_provider(
     http: reqwest::Client,
     client_id: String,
