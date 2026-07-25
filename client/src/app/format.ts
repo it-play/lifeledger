@@ -23,3 +23,11 @@ export const CONNECTION_LABEL: Record<string, string> = {
   reconnecting: '재연결 중',
   closed: '끊김',
 };
+
+/** 서버가 `?login_error=` 로 알려주는 로그인 실패 사유 (§4.5). */
+export const LOGIN_ERROR_LABEL: Record<string, string> = {
+  cancelled: '로그인을 취소했습니다.',
+  expired: '로그인 시간이 지났습니다. 다시 시도해 주세요.',
+  state_mismatch: '로그인 요청을 확인하지 못했습니다. 다시 시도해 주세요.',
+  invalid_response: '로그인 응답이 올바르지 않습니다. 다시 시도해 주세요.',
+};

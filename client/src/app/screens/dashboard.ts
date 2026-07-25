@@ -1,3 +1,4 @@
+import type { AuthApi } from '../../api/auth-api.js';
 import { STEP_DAYS, type StepUnit } from '../../api/contracts.js';
 import type { GameApi } from '../../api/game-api.js';
 import { el } from '../../lib/dom/index.js';
@@ -10,6 +11,7 @@ import { type AppState, paths } from '../state.js';
 export interface DashboardDeps {
   readonly store: Store<AppState>;
   readonly api: GameApi;
+  readonly auth: AuthApi;
 }
 
 /**
@@ -24,7 +26,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
 
     return {
       mount(host, ctx) {
-        const { store, api } = deps;
+        const { store, api, auth } = deps;
         const h = createHooks(ctx.bag);
 
         // 스토어의 특정 경로만 신호로 끌어온다 — 나머지 변경에는 반응하지 않는다
@@ -42,6 +44,13 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           paths.gameSnapshot,
           (s) => s.game.snapshot?.characterName ?? null,
         );
+        const authStatus = h.useStoreValue(store, paths.authStatus, (s) => s.auth.status);
+        const account = h.useStoreValue(store, paths.authUser, (s) => s.auth.user);
+        const accountText = h.useComputed(() => {
+          const user = account.get();
+          if (user === undefined) return '';
+          return user.displayName ?? user.email ?? '';
+        });
 
         const dateText = h.useComputed(() => {
           const current = snapshot.get();
@@ -60,6 +69,8 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         const cashValue = el('strong');
         const netWorthValue = el('strong');
         const statusValue = el('span', { class: 'status' });
+        const accountValue = el('span', { class: 'account' });
+        const logoutButton = el('button', { type: 'button', class: 'logout' }, '로그아웃');
 
         const stepButtons = (['day', 'week', 'month'] as const).map((unit) =>
           el('button', { type: 'button', dataset: { unit } }, stepLabel(unit)),
@@ -69,6 +80,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           'section',
           { class: 'dashboard' },
           el('h1', {}, 'LifeLedger'),
+          el('p', { class: 'account-line' }, accountValue, ' ', logoutButton),
           el('p', { class: 'connection' }, '스트림: ', statusValue),
           el(
             'dl',
@@ -90,6 +102,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         h.bindText(cashValue, () => cashText.get());
         h.bindText(netWorthValue, () => netWorthText.get());
         h.bindText(statusValue, () => statusText.get());
+        h.bindText(accountValue, () => accountText.get());
 
         for (const button of stepButtons) {
           h.bindAttribute(button, 'disabled', () => advancing.get());
@@ -100,8 +113,14 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           });
         }
 
+        h.useEventListener(logoutButton, 'click', () => {
+          void logout(auth);
+        });
+
+        // 스냅샷이 아직 없을 때(undefined) 와 캐릭터가 없을 때(null) 는 다르다.
+        // 로그인·조회가 끝나기 전에 보내면 생성 화면이 잠깐 번쩍인다
         h.useWatch(characterName, (name) => {
-          if (name === null) ctx.navigate('/new');
+          if (name === null && authStatus.get() === 'authenticated') ctx.navigate('/new');
         });
 
         // 탭이 숨으면 스트림을 끊고, 돌아오면 다시 붙는다 (모바일 배터리·서버 연결 절약)
@@ -125,6 +144,15 @@ const moneyText = (amount: number | undefined): string =>
 
 const stepLabel = (unit: StepUnit): string =>
   unit === 'day' ? '1일 진행' : unit === 'week' ? '1주 진행' : '1개월 진행';
+
+async function logout(auth: AuthApi): Promise<void> {
+  try {
+    await auth.logout();
+  } finally {
+    // 세션 쿠키가 사라진 상태를 확실히 반영하려면 새로 읽는 편이 안전하다
+    globalThis.location.assign('/');
+  }
+}
 
 async function advance(store: Store<AppState>, api: GameApi, days: number): Promise<void> {
   store.set(paths.gameAdvancing, true);

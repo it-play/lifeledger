@@ -90,12 +90,36 @@ export const ValidationFailureSchema = z.object({
   errors: z.array(z.object({ field: z.string(), message: z.string() })),
 });
 
+// ── 로그인 (계획 문서 §4.5) ──────────────────────────────────────────────
+
+export const ProviderKindSchema = z.enum(['datagsm', 'google']);
+
+/**
+ * 서버가 켜 둔 로그인 제공자. 자격증명이 없는 제공자는 목록에 들어오지 않으므로,
+ * 클라이언트는 받은 것만 그리면 된다.
+ */
+export const AuthProviderSchema = z.object({
+  id: ProviderKindSchema,
+  label: z.string(),
+});
+
+export const AuthProviderListSchema = z.array(AuthProviderSchema);
+
+export const MeSchema = z.object({
+  provider: ProviderKindSchema,
+  email: z.string().nullable(),
+  displayName: z.string().nullable(),
+});
+
 export type Health = z.infer<typeof HealthSchema>;
 export type GameSnapshot = z.infer<typeof GameSnapshotSchema>;
 export type AdvanceRequest = z.infer<typeof AdvanceRequestSchema>;
 export type CharacterDraft = z.infer<typeof CharacterDraftSchema>;
 export type Preset = z.infer<typeof PresetSchema>;
 export type ValidationFailure = z.infer<typeof ValidationFailureSchema>;
+export type ProviderKind = z.infer<typeof ProviderKindSchema>;
+export type AuthProvider = z.infer<typeof AuthProviderSchema>;
+export type Me = z.infer<typeof MeSchema>;
 
 /** 진행 단위. 서버가 아니라 UI 어휘라서 클라이언트에 둔다. */
 export const STEP_DAYS = { day: 1, week: 7, month: 30 } as const;
