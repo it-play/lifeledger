@@ -51,6 +51,7 @@ impl Providers {
                     http.clone(),
                     client_id,
                     client_secret,
+                    read_optional("DATAGSM_SCOPE"),
                 )),
                 ProviderKind::Google => Arc::new(google::create_google_provider(
                     http.clone(),
@@ -85,6 +86,11 @@ impl Providers {
     pub fn redirect_uri(&self, kind: ProviderKind) -> String {
         format!("{}/api/auth/{}/callback", self.public_origin, kind.as_str())
     }
+}
+
+/// Reads an optional setting, treating an empty value as absent.
+fn read_optional(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
 fn read_credentials(kind: ProviderKind) -> Result<Option<(String, String)>> {

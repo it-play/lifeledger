@@ -18,17 +18,27 @@ pub struct DatagsmProvider {
     http: reqwest::Client,
     client_id: String,
     client_secret: String,
+    scope: Option<String>,
 }
 
-pub fn create_datagsm_provider(
+/// `scope` is normally `None`.
+///
+/// DataGSM scope strings are always `{applicationId}:{scopeName}`, and omitting the
+/// parameter grants exactly the scopes the client is registered for — which is what we
+/// want. Set it only to request a narrower subset, using the full prefixed form (the
+/// built-in user-info scope is `{datagsmApplicationId}:self_read`). The `self:read`
+/// spelling in the public docs is rejected with `invalid_scope`.
+pub const fn create_datagsm_provider(
     http: reqwest::Client,
     client_id: String,
     client_secret: String,
+    scope: Option<String>,
 ) -> DatagsmProvider {
     DatagsmProvider {
         http,
         client_id,
         client_secret,
+        scope,
     }
 }
 
@@ -52,20 +62,20 @@ struct StudentInfo {
 
 #[async_trait]
 impl OAuthProvider for DatagsmProvider {
-    /// `scope` is deliberately omitted. DataGSM grants the default user-info flow when the
-    /// parameter is absent, but rejects an explicit `self:read` with `invalid_scope` unless
-    /// the scope is registered against the client.
     fn authorize_url(&self, state: &str, code_challenge: &str, redirect_uri: &str) -> String {
-        let query = super::query_string(&[
-            ("client_id", &self.client_id),
+        let mut pairs = vec![
+            ("client_id", self.client_id.as_str()),
             ("redirect_uri", redirect_uri),
             ("response_type", "code"),
             ("state", state),
             ("code_challenge", code_challenge),
             ("code_challenge_method", "S256"),
-        ]);
+        ];
+        if let Some(scope) = &self.scope {
+            pairs.push(("scope", scope));
+        }
 
-        format!("{AUTHORIZE_URL}?{query}")
+        format!("{AUTHORIZE_URL}?{}", super::query_string(&pairs))
     }
 
     async fn identify(
