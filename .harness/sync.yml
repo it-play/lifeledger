@@ -1,0 +1,40 @@
+groups:
+  - claude
+  - codex
+  - gemini
+
+overrides:
+  claude/skills/git-commit: false
+  codex/skills/git-commit: false
+
+  claude/skills/kotlin-spring-arch: false
+  claude/skills/java-spring-arch: false
+  claude/skills/kotest-guide: false
+  claude/skills/the-sdk: false
+  claude/agents/kotlin-convention-validator: false
+  claude/agents/kotlin-test-fixer: false
+  codex/skills/kotlin-spring-arch: false
+  codex/skills/java-spring-arch: false
+  codex/skills/kotest-guide: false
+  codex/skills/the-sdk: false
+  codex/agents/kotlin-convention-validator: false
+  codex/agents/kotlin-test-fixer: false
+
+  claude/hooks/dispatcher: true
+  claude/settings: true
+  claude/hooks/secret-guard: true
+  claude/hooks/command-guard: true
+  claude/hooks/biome: true
+  claude/hooks/ts-check: true
+
+  codex/hooks/dispatcher: true
+  codex/hooks-json: true
+  codex/hooks/secret-guard: true
+  codex/hooks/command-guard: true
+  codex/hooks/biome: true
+  codex/hooks/ts-check: true
+
+base_branch: main
+language: ko
+pr_label: false
+enabled: true
