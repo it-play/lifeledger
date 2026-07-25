@@ -84,6 +84,176 @@ textarea {
    Author's custom styles
    ========================================================================== */
 
+/*
+ * Palette taken from greenbar accounting paper: pale banded stock, a printed
+ * green rule, dark ink. Red is reserved for figures in deficit (적자) and is
+ * never used for decoration.
+ */
+:root {
+  --paper: #e9ede4;
+  --paper-lit: #f6f8f3;
+  --rule: #a6b9a0;
+  --ink: #1a211b;
+  --ink-soft: #5b6459;
+  --deficit: #a32c2c;
+
+  --sans:
+    system-ui, -apple-system, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif;
+  /* Amounts line up column-wise, the way a ledger requires. */
+  --mono: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+html {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  line-height: 1.6;
+}
+
+/* --------------------------------------------------------------------------
+   Not found — the request rendered as a ledger entry that was never written
+   -------------------------------------------------------------------------- */
+
+.not-found {
+  box-sizing: border-box;
+  max-width: 34rem;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.not-found__mark {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.not-found__ledger {
+  border-top: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+}
+
+.not-found__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.5rem 0;
+}
+
+/* The banded stock: header sits on the tinted band, the entry on the light one. */
+.not-found__row--head {
+  background: color-mix(in srgb, var(--rule) 34%, transparent);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+  padding-inline: 0.75rem;
+}
+
+.not-found__row--entry {
+  background: var(--paper-lit);
+  padding: 1.25rem 0.75rem;
+}
+
+.not-found__label {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.not-found__amount {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--deficit);
+}
+
+.not-found__note {
+  margin: 0;
+  max-width: 28rem;
+  color: var(--ink-soft);
+  word-break: keep-all;
+}
+
+.not-found__back {
+  align-self: start;
+  display: inline-block;
+  padding: 0.625rem 1.125rem;
+  background: var(--ink);
+  color: var(--paper-lit);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.not-found__back:hover,
+.not-found__back:focus-visible {
+  background: var(--deficit);
+}
+
+:where(a, button):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* --------------------------------------------------------------------------
+   Narrow screens are out of scope; send them to a desktop instead
+   -------------------------------------------------------------------------- */
+
+.narrow-gate {
+  display: none;
+}
+
+@media (width < 40rem) {
+  #app {
+    display: none;
+  }
+
+  .narrow-gate {
+    box-sizing: border-box;
+    min-height: 100dvh;
+    padding: 2rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.75rem;
+  }
+}
+
+.narrow-gate__mark {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.narrow-gate__title {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 700;
+  word-break: keep-all;
+}
+
+.narrow-gate__note {
+  margin: 0;
+  color: var(--ink-soft);
+  word-break: keep-all;
+}
+
 /* ==========================================================================
    Helper classes
    ========================================================================== */
