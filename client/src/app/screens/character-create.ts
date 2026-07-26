@@ -1,5 +1,5 @@
-import { CharacterDraftSchema, type Preset } from '../../api/contracts.js';
-import { CharacterRejectedError, type GameApi } from '../../api/game-api.js';
+import { type CharacterDraft, CharacterDraftSchema, type Preset } from '../../api/contracts.js';
+import { CharacterRejectedError, type GameApi, GameCommandError } from '../../api/game-api.js';
 import { asFormValidator } from '../../api/zod-adapters.js';
 import { el } from '../../lib/dom/index.js';
 import { type FieldSpec, type FormHandle, renderForm } from '../../lib/form/index.js';
@@ -7,12 +7,29 @@ import { createHooks } from '../../lib/hooks/index.js';
 import type { Store } from '../../lib/store/index.js';
 import type { ToastQueue } from '../../lib/toast/index.js';
 import type { View, ViewFactory } from '../../lib/view/index.js';
-import { type AppState, paths } from '../state.js';
+import {
+  type CharacterStartRetryPolicy,
+  createCharacterStartRetryPolicy,
+} from '../game-command-retry/index.js';
+import type { GameStateWriter } from '../game-state/index.js';
+import type { AppState } from '../state.js';
 
 export interface CharacterCreateDeps {
   readonly store: Store<AppState>;
+  readonly snapshots: GameStateWriter;
   readonly api: GameApi;
   readonly toasts: ToastQueue;
+  readonly createCommandId: () => string;
+}
+
+interface CharacterSubmitDeps {
+  readonly store: Store<AppState>;
+  readonly snapshots: GameStateWriter;
+  readonly api: GameApi;
+  readonly toasts: ToastQueue;
+  readonly retries: CharacterStartRetryPolicy;
+  readonly currentForm: () => FormHandle | undefined;
+  readonly navigate: (to: string) => void;
 }
 
 const FIELDS: readonly FieldSpec[] = [
@@ -102,12 +119,14 @@ const validator = asFormValidator(CharacterDraftSchema);
  * rules never live in two places.
  */
 export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactory {
+  const retries = createCharacterStartRetryPolicy({ createCommandId: deps.createCommandId });
+
   return (): View => {
     let form: FormHandle | undefined;
 
     return {
       async mount(host, ctx) {
-        const { store, api, toasts } = deps;
+        const { store, snapshots, api, toasts } = deps;
         const h = createHooks(ctx.bag);
 
         const presetBar = el('div', { class: 'presets' }, '프리셋 불러오는 중…');
@@ -139,24 +158,19 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
               health: 'normal',
               dependents: 0,
             },
-            onSubmit: async (draft) => {
-              try {
-                const snapshot = await api.createCharacter(draft);
-                store.set(paths.gameSnapshot, snapshot);
-                ctx.navigate('/');
-                // The host lives outside #app, so this survives the screen swap
-                toasts.show(`${snapshot.characterName ?? '캐릭터'}의 인생을 시작합니다`, {
-                  tone: 'success',
-                });
-              } catch (error) {
-                // Show the server's contradiction findings on the fields themselves
-                if (error instanceof CharacterRejectedError) {
-                  form?.setErrors(error.fieldErrors);
-                  return;
-                }
-                throw error;
-              }
-            },
+            onSubmit: (draft) =>
+              submitCharacter(
+                {
+                  store,
+                  snapshots,
+                  api,
+                  toasts,
+                  retries,
+                  currentForm: () => form,
+                  navigate: ctx.navigate,
+                },
+                draft,
+              ),
           },
         );
         ctx.bag.add(form);
@@ -185,6 +199,49 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
       },
     };
   };
+}
+
+async function submitCharacter(deps: CharacterSubmitDeps, draft: CharacterDraft): Promise<void> {
+  const current = deps.store.getState().game.snapshot;
+  if (current === undefined) {
+    deps.toasts.show('현재 게임 상태를 확인한 뒤 다시 시도해 주세요.', { tone: 'error' });
+    return;
+  }
+  const request = deps.retries.select(current, draft);
+  try {
+    const response = await deps.api.createCharacter(request);
+    deps.retries.clear(request);
+    deps.snapshots.apply(response.snapshot);
+    deps.navigate('/');
+    // The host lives outside #app, so this survives the screen swap.
+    const currentName = deps.store.getState().game.snapshot?.characterName;
+    const name = currentName ?? response.snapshot.characterName ?? '캐릭터';
+    deps.toasts.show(`${name}의 인생을 시작합니다`, { tone: 'success' });
+  } catch (error) {
+    if (handleKnownCharacterFailure(deps, request, error)) return;
+    deps.retries.retain(request);
+    deps.toasts.show('시작 결과를 확인하지 못했습니다. 같은 조건으로 다시 시도해 주세요.', {
+      tone: 'error',
+    });
+  }
+}
+
+function handleKnownCharacterFailure(
+  deps: CharacterSubmitDeps,
+  request: Parameters<CharacterStartRetryPolicy['clear']>[0],
+  error: unknown,
+): boolean {
+  if (error instanceof CharacterRejectedError) {
+    deps.retries.clear(request);
+    deps.currentForm()?.setErrors(error.fieldErrors);
+    return true;
+  }
+  if (error instanceof GameCommandError) {
+    deps.retries.clear(request);
+    deps.toasts.show(error.message, { tone: 'error' });
+    return true;
+  }
+  return false;
 }
 
 function presetButton(preset: Preset, onPick: () => void): HTMLElement {

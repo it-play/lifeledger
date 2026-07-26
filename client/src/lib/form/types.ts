@@ -1,6 +1,6 @@
 import type { Disposable } from '../core/types.js';
 
-export type FieldKind = 'text' | 'number' | 'select' | 'checkbox';
+export type FieldKind = 'text' | 'textarea' | 'number' | 'select' | 'checkbox';
 
 export interface SelectOption {
   readonly value: string;
@@ -32,6 +32,8 @@ export interface FormSpec<T> {
   readonly fields: readonly FieldSpec[];
   readonly validator: FormValidator<T>;
   readonly submitLabel: string;
+  /** Keeps label/input IDs unique when one screen mounts several forms. */
+  readonly idPrefix?: string;
 }
 
 export interface FormOptions<T> {

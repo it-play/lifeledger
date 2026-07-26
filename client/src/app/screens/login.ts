@@ -37,7 +37,7 @@ export function createLoginView(deps: LoginDeps): ViewFactory {
         });
 
         const errorLine = el('p', { class: 'login-error' });
-        const buttonList = el('div', { class: 'login-providers' });
+        const buttonList = el('div', { class: 'login-providers' }, '로그인 수단 불러오는 중…');
 
         root = el(
           'section',
@@ -52,10 +52,18 @@ export function createLoginView(deps: LoginDeps): ViewFactory {
         h.bindText(errorLine, () => errorText.get());
         h.bindAttribute(errorLine, 'hidden', () => errorText.get() === '');
 
-        // Leave the button area empty until the list arrives
         const providers = h.useAsync<readonly AuthProvider[]>(() => auth.listProviders());
-        h.useWatch(providers.state, (result) => {
+        h.useEffect(() => {
+          const result = providers.state.get();
+          if (result.status === 'error') {
+            buttonList.replaceChildren('로그인 수단을 불러오지 못했습니다. 새로고침해 주세요.');
+            return;
+          }
           if (result.status !== 'success') return;
+          if (result.value.length === 0) {
+            buttonList.replaceChildren('현재 사용할 수 있는 로그인 수단이 없습니다.');
+            return;
+          }
           buttonList.replaceChildren(
             ...result.value.map((provider) => providerButton(provider, redirect)),
           );

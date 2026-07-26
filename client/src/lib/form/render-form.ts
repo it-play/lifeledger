@@ -4,7 +4,7 @@ import type { FieldSpec, FormHandle, FormOptions, FormSpec } from './types.js';
 
 interface FieldBinding {
   readonly spec: FieldSpec;
-  readonly input: HTMLInputElement | HTMLSelectElement;
+  readonly input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
   readonly showError: (text: string) => void;
 }
 
@@ -18,34 +18,55 @@ function readValue(binding: FieldBinding): unknown {
 }
 
 /** Builds the input element for a field kind. The caller attaches the error node. */
-function buildInput(spec: FieldSpec, initial: unknown): HTMLInputElement | HTMLSelectElement {
-  let input: HTMLInputElement | HTMLSelectElement;
-  if (spec.kind === 'select') {
-    const select = el('select', { name: spec.name, id: `f-${spec.name}` });
-    for (const option of spec.options ?? []) {
-      const node = el('option', { value: option.value }, option.label);
-      if (initial !== undefined && String(initial) === option.value) node.selected = true;
-      select.appendChild(node);
-    }
-    input = select;
-  } else if (spec.kind === 'checkbox') {
-    const checkbox = el('input', { type: 'checkbox', name: spec.name, id: `f-${spec.name}` });
-    checkbox.checked = initial === true;
-    input = checkbox;
-  } else {
-    input = el('input', {
-      type: spec.kind === 'number' ? 'number' : 'text',
-      name: spec.name,
-      id: `f-${spec.name}`,
-      ...(initial === undefined ? {} : { value: String(initial) }),
-    });
-  }
-
-  return input;
+function buildInput(
+  spec: FieldSpec,
+  initial: unknown,
+  inputId: string,
+): HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement {
+  if (spec.kind === 'select') return buildSelect(spec, initial, inputId);
+  if (spec.kind === 'checkbox') return buildCheckbox(spec, initial, inputId);
+  if (spec.kind === 'textarea') return buildTextarea(spec, initial, inputId);
+  return buildTextInput(spec, initial, inputId);
 }
 
-function fieldRow(spec: FieldSpec, input: HTMLElement, errorNode: HTMLElement): HTMLElement {
-  const label = el('label', { attrs: { for: `f-${spec.name}` } }, spec.label);
+function buildSelect(spec: FieldSpec, initial: unknown, inputId: string): HTMLSelectElement {
+  const select = el('select', { name: spec.name, id: inputId });
+  for (const option of spec.options ?? []) {
+    const node = el('option', { value: option.value }, option.label);
+    if (initial !== undefined && String(initial) === option.value) node.selected = true;
+    select.appendChild(node);
+  }
+  return select;
+}
+
+function buildCheckbox(spec: FieldSpec, initial: unknown, inputId: string): HTMLInputElement {
+  const checkbox = el('input', { type: 'checkbox', name: spec.name, id: inputId });
+  checkbox.checked = initial === true;
+  return checkbox;
+}
+
+function buildTextarea(spec: FieldSpec, initial: unknown, inputId: string): HTMLTextAreaElement {
+  const textarea = el('textarea', { name: spec.name, id: inputId });
+  if (initial !== undefined) textarea.defaultValue = String(initial);
+  return textarea;
+}
+
+function buildTextInput(spec: FieldSpec, initial: unknown, inputId: string): HTMLInputElement {
+  return el('input', {
+    type: spec.kind === 'number' ? 'number' : 'text',
+    name: spec.name,
+    id: inputId,
+    ...(initial === undefined ? {} : { value: String(initial) }),
+  });
+}
+
+function fieldRow(
+  spec: FieldSpec,
+  input: HTMLElement,
+  inputId: string,
+  errorNode: HTMLElement,
+): HTMLElement {
+  const label = el('label', { attrs: { for: inputId } }, spec.label);
   const help = spec.help === undefined ? null : el('p', { class: 'field-help' }, spec.help);
   return el('div', { class: 'field' }, label, input, help, errorNode);
 }
@@ -57,11 +78,12 @@ export function renderForm<T>(spec: FormSpec<T>, options: FormOptions<T>): FormH
   const errorNodes = new Map<string, HTMLElement>();
 
   for (const fieldSpec of spec.fields) {
-    const input = buildInput(fieldSpec, options.initial?.[fieldSpec.name]);
+    const inputId = `${spec.idPrefix ?? 'f'}-${fieldSpec.name}`;
+    const input = buildInput(fieldSpec, options.initial?.[fieldSpec.name], inputId);
     const errorNode = el('p', { class: 'field-error' });
     errorNodes.set(fieldSpec.name, errorNode);
     bindings.push({ spec: fieldSpec, input, showError: bindText(errorNode) });
-    form.appendChild(fieldRow(fieldSpec, input, errorNode));
+    form.appendChild(fieldRow(fieldSpec, input, inputId, errorNode));
   }
 
   const formError = el('p', { class: 'form-error' });

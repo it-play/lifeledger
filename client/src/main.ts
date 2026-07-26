@@ -1,11 +1,15 @@
 import { type AuthApi, createAuthApi } from './api/auth-api.js';
+import { createCareerApi } from './api/career-api.js';
 import { createGameApi } from './api/game-api.js';
+import { createGameStateWriter, type GameStateWriter } from './app/game-state/index.js';
+import { createCareerView } from './app/screens/career.js';
 import { createCharacterCreateView } from './app/screens/character-create.js';
 import { createDashboardView } from './app/screens/dashboard.js';
 import { createLoginView } from './app/screens/login.js';
 import { createNotFoundView } from './app/screens/not-found.js';
 import { type AppState, initialState, paths } from './app/state.js';
-import { createConsoleLogger, type Logger } from './lib/core/index.js';
+import { createConsoleLogger, createDisposableBag, type Logger } from './lib/core/index.js';
+import { createHooks } from './lib/hooks/index.js';
 import { createHttpClient } from './lib/http/index.js';
 import { createRouter } from './lib/router/index.js';
 import { createSseClient } from './lib/sse/index.js';
@@ -26,6 +30,8 @@ function bootstrap(): void {
 
   const logger = createConsoleLogger({ minLevel: 'debug', scope: 'app' });
   const store = createStore<AppState>(initialState);
+  const snapshots = createGameStateWriter({ store });
+  const appBag = createDisposableBag();
 
   // Lives outside #app so a screen swap cannot take a message off the screen with it
   const toasts = createToastQueue();
@@ -34,27 +40,75 @@ function bootstrap(): void {
   const http = createHttpClient({ logger, credentials: 'same-origin' });
   const stream = createSseClient({ url: '/api/stream', logger, credentials: 'same-origin' });
   const auth = createAuthApi({ http });
+  const careerApi = createCareerApi({ http });
   const api = createGameApi({
     http,
     stream,
     onInvalidTick: (error) => logger.log('error', '틱 payload 가 계약과 다릅니다', { error }),
   });
+  appBag.add(stream);
 
   // Stream status and ticks reach screens only through the store
-  stream.onStatusChange((status) => {
-    store.set(paths.connectionStatus, status);
-    // Reconnects are routine and stay silent; only giving up is worth interrupting for
-    if (status === 'closed') {
-      toasts.show('서버와 연결이 끊겼습니다. 새로고침해 주세요.', { tone: 'error', durationMs: 0 });
-    }
-  });
-  api.onTick((snapshot) => store.set(paths.gameSnapshot, snapshot));
+  appBag.add(
+    stream.onStatusChange((status) => {
+      store.set(paths.connectionStatus, status);
+      // Reconnects are routine and stay silent; only giving up is worth interrupting for
+      if (status === 'closed' && document.visibilityState === 'visible') {
+        toasts.show('서버와 연결이 끊겼습니다. 새로고침해 주세요.', {
+          tone: 'error',
+          durationMs: 0,
+        });
+      }
+    }),
+  );
+  appBag.add(api.onTick((snapshot) => snapshots.apply(snapshot)));
+
+  // Visibility belongs to the authenticated app, not one screen: automatic progress must
+  // stop even when the player hides a character or error route.
+  const appHooks = createHooks(appBag);
+  const visible = appHooks.useVisibility();
+  let gameStreamEnabled = false;
+  const syncGameStream = (): void => {
+    if (!gameStreamEnabled || store.getState().auth.status !== 'authenticated') return;
+    if (visible.peek()) api.connectStream();
+    else api.disconnectStream();
+  };
+  appHooks.useWatch(visible, syncGameStream);
 
   const viewHost = createViewHost(mountPoint);
   const router = createRouter<ViewFactory>({
     routes: [
-      { pattern: '/', handler: createDashboardView({ store, api, auth, toasts }) },
-      { pattern: '/new', handler: createCharacterCreateView({ store, api, toasts }) },
+      {
+        pattern: '/',
+        handler: createDashboardView({
+          store,
+          snapshots,
+          api,
+          auth,
+          toasts,
+          createOrderId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/career',
+        handler: createCareerView({
+          store,
+          snapshots,
+          api: careerApi,
+          toasts,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/new',
+        handler: createCharacterCreateView({
+          store,
+          snapshots,
+          api,
+          toasts,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
       { pattern: LOGIN_PATH, handler: createLoginView({ store, auth }) },
     ],
     fallback: createNotFoundView(),
@@ -65,6 +119,12 @@ function bootstrap(): void {
         navigate: (to) => router.navigate(to),
       }),
   });
+  appBag.add(() => viewHost.clear());
+  appBag.add(router);
+
+  const disposeOnPageHide = (): void => appBag.dispose();
+  globalThis.addEventListener('pagehide', disposeOnPageHide, { once: true });
+  appBag.add(() => globalThis.removeEventListener('pagehide', disposeOnPageHide));
 
   // The server reports login failure by query parameter (§4.5); do not leave it in the URL
   takeLoginError(store);
@@ -72,7 +132,10 @@ function bootstrap(): void {
   router.start();
 
   // Check the session first: fetching game data while signed out only yields 401s
-  void resume(store, auth, api, router.navigate, logger, toasts);
+  void resume(store, snapshots, auth, api, router.navigate, logger, toasts, () => {
+    gameStreamEnabled = true;
+    syncGameStream();
+  });
 }
 
 /** Moves `?login_error=` into the store and strips it from the URL. */
@@ -91,11 +154,13 @@ type GameApi = ReturnType<typeof createGameApi>;
 /** Resumes the game when a session exists, otherwise routes to login. */
 async function resume(
   store: Store<AppState>,
+  snapshots: GameStateWriter,
   auth: AuthApi,
   api: GameApi,
   navigate: (to: string) => void,
   logger: Logger,
   toasts: ToastQueue,
+  enableGameStream: () => void,
 ): Promise<void> {
   let user: Awaited<ReturnType<AuthApi['me']>>;
   try {
@@ -116,12 +181,17 @@ async function resume(
   store.set(paths.authUser, user);
   store.set(paths.authStatus, 'authenticated');
 
-  api.connectStream();
+  if (globalThis.location.pathname === LOGIN_PATH) navigate('/');
+
   try {
-    store.set(paths.gameSnapshot, await api.getSnapshot());
+    snapshots.apply(await api.getSnapshot());
   } catch (error) {
     logger.log('warn', '초기 상태를 불러오지 못했습니다', { error });
     toasts.show('게임 상태를 불러오지 못했습니다.', { tone: 'error' });
+  } finally {
+    // Fetch first, then subscribe. The stream's initial snapshot is ordered after this
+    // response and can safely catch up anything that changed during the request.
+    enableGameStream();
   }
 }
 

@@ -1,4 +1,5 @@
 const path = require('node:path');
+const CopyPlugin = require('copy-webpack-plugin');
 
 module.exports = {
   entry: {
@@ -28,4 +29,9 @@ module.exports = {
       },
     ],
   },
+  plugins: [
+    new CopyPlugin({
+      patterns: [{ from: 'node_modules/uplot/dist/uPlot.min.css', to: 'css/uPlot.min.css' }],
+    }),
+  ],
 };

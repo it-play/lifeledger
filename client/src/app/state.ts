@@ -22,13 +22,14 @@ export interface AppState {
   readonly game: {
     readonly snapshot: GameSnapshot | undefined;
     readonly advancing: boolean;
+    readonly ordering: boolean;
   };
 }
 
 export const initialState: AppState = {
   auth: { status: 'unknown', user: undefined, error: undefined },
   connection: { status: 'idle', lastError: undefined },
-  game: { snapshot: undefined, advancing: false },
+  game: { snapshot: undefined, advancing: false, ordering: false },
 };
 
 /** Common subscription paths as constants, so a typo cannot silently kill a subscription. */
@@ -38,5 +39,7 @@ export const paths = {
   authError: 'auth.error',
   connectionStatus: 'connection.status',
   gameSnapshot: 'game.snapshot',
+  gameCareer: 'game.snapshot.career',
   gameAdvancing: 'game.advancing',
+  gameOrdering: 'game.ordering',
 } as const;
