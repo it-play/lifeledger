@@ -35,7 +35,8 @@ ctx.bag.add(form);                 // 정리 등록
 container.appendChild(form.element);
 ```
 
-`kind` 는 `text` · `number` · `select` · `checkbox`. `number` 는 빈 값을 `undefined` 로 읽어
+`kind` 는 `text` · `textarea` · `number` · `select` · `checkbox`. `textarea` 는 여러 줄 문자열을,
+`number` 는 빈 값을 `undefined` 로 읽어
 검증기가 "필수" 오류를 낼 수 있게 한다.
 
 ### 핸들 API
