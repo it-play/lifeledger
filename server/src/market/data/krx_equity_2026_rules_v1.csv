@@ -1,0 +1,712 @@
+# calendarId=krx-equity-2026-rules-v1
+# coverageStart=2026-01-01
+# coverageEnd=2060-12-31
+# verifiedThrough=2026-12-31
+# projectedRange=2027-01-01/2060-12-31
+# ruleSetVersion=kr-public-holidays-and-krx-closures-2026-v1
+# lunarAnchorVersion=korean-lunisolar-anchors-2026-2060-v1
+# sourceKrx=https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T1.jsp
+# sourceKasi=https://www.kasi.re.kr/kor/post/newsMaterial/32031
+# sourceNec=https://www.nec.go.kr/common/board/Download.do?bcIdx=227983&cbIdx=1129&streFileNm=4d70b48b-4072-4daa-b2fd-4f674c542639.pdf
+# generatedBy=generate_krx_calendar.py
+date,provenance,label
+2026-01-01,krxPublished,신정
+2026-02-16,krxPublished,설날
+2026-02-17,krxPublished,설날
+2026-02-18,krxPublished,설날
+2026-03-01,krxPublished,삼일절
+2026-03-02,krxPublished,대체공휴일(삼일절)
+2026-05-01,krxPublished,근로자의 날
+2026-05-05,krxPublished,어린이날
+2026-05-24,krxPublished,부처님오신날
+2026-05-25,krxPublished,대체공휴일(부처님오신날)
+2026-06-03,krxPublished,제9회 전국동시지방선거
+2026-06-06,krxPublished,현충일
+2026-08-15,krxPublished,광복절
+2026-08-17,krxPublished,대체공휴일(광복절)
+2026-09-24,krxPublished,추석
+2026-09-25,krxPublished,추석
+2026-09-26,krxPublished,추석
+2026-10-03,krxPublished,개천절
+2026-10-05,krxPublished,대체공휴일(개천절)
+2026-10-09,krxPublished,한글날
+2026-12-25,krxPublished,기독탄신일
+2026-12-31,krxPublished,연말 휴장일
+2027-01-01,statutoryProjected,신정
+2027-02-06,statutoryProjected,설날
+2027-02-07,statutoryProjected,설날
+2027-02-08,statutoryProjected,설날
+2027-02-09,statutoryProjected,대체공휴일(설날)
+2027-03-01,statutoryProjected,삼일절
+2027-05-01,krxRuleProjected,근로자의 날
+2027-05-05,statutoryProjected,어린이날
+2027-05-13,statutoryProjected,부처님오신날
+2027-06-06,statutoryProjected,현충일
+2027-08-15,statutoryProjected,광복절
+2027-08-16,statutoryProjected,대체공휴일(광복절)
+2027-09-14,statutoryProjected,추석
+2027-09-15,statutoryProjected,추석
+2027-09-16,statutoryProjected,추석
+2027-10-03,statutoryProjected,개천절
+2027-10-04,statutoryProjected,대체공휴일(개천절)
+2027-10-09,statutoryProjected,한글날
+2027-10-11,statutoryProjected,대체공휴일(한글날)
+2027-12-25,statutoryProjected,기독탄신일
+2027-12-27,statutoryProjected,대체공휴일(기독탄신일)
+2027-12-31,krxRuleProjected,연말 휴장일
+2028-01-01,statutoryProjected,신정
+2028-01-26,statutoryProjected,설날
+2028-01-27,statutoryProjected,설날
+2028-01-28,statutoryProjected,설날
+2028-03-01,statutoryProjected,삼일절
+2028-05-01,krxRuleProjected,근로자의 날
+2028-05-02,statutoryProjected,부처님오신날
+2028-05-05,statutoryProjected,어린이날
+2028-06-06,statutoryProjected,현충일
+2028-08-15,statutoryProjected,광복절
+2028-10-02,statutoryProjected,추석
+2028-10-03,statutoryProjected,개천절
+2028-10-03,statutoryProjected,추석
+2028-10-04,statutoryProjected,추석
+2028-10-05,statutoryProjected,대체공휴일(추석·개천절)
+2028-10-09,statutoryProjected,한글날
+2028-12-25,statutoryProjected,기독탄신일
+2028-12-29,krxRuleProjected,연말 휴장일
+2029-01-01,statutoryProjected,신정
+2029-02-12,statutoryProjected,설날
+2029-02-13,statutoryProjected,설날
+2029-02-14,statutoryProjected,설날
+2029-03-01,statutoryProjected,삼일절
+2029-05-01,krxRuleProjected,근로자의 날
+2029-05-05,statutoryProjected,어린이날
+2029-05-07,statutoryProjected,대체공휴일(어린이날)
+2029-05-20,statutoryProjected,부처님오신날
+2029-05-21,statutoryProjected,대체공휴일(부처님오신날)
+2029-06-06,statutoryProjected,현충일
+2029-08-15,statutoryProjected,광복절
+2029-09-21,statutoryProjected,추석
+2029-09-22,statutoryProjected,추석
+2029-09-23,statutoryProjected,추석
+2029-09-24,statutoryProjected,대체공휴일(추석)
+2029-10-03,statutoryProjected,개천절
+2029-10-09,statutoryProjected,한글날
+2029-12-25,statutoryProjected,기독탄신일
+2029-12-31,krxRuleProjected,연말 휴장일
+2030-01-01,statutoryProjected,신정
+2030-02-02,statutoryProjected,설날
+2030-02-03,statutoryProjected,설날
+2030-02-04,statutoryProjected,설날
+2030-02-05,statutoryProjected,대체공휴일(설날)
+2030-03-01,statutoryProjected,삼일절
+2030-05-01,krxRuleProjected,근로자의 날
+2030-05-05,statutoryProjected,어린이날
+2030-05-06,statutoryProjected,대체공휴일(어린이날)
+2030-05-09,statutoryProjected,부처님오신날
+2030-06-06,statutoryProjected,현충일
+2030-08-15,statutoryProjected,광복절
+2030-09-11,statutoryProjected,추석
+2030-09-12,statutoryProjected,추석
+2030-09-13,statutoryProjected,추석
+2030-10-03,statutoryProjected,개천절
+2030-10-09,statutoryProjected,한글날
+2030-12-25,statutoryProjected,기독탄신일
+2030-12-31,krxRuleProjected,연말 휴장일
+2031-01-01,statutoryProjected,신정
+2031-01-22,statutoryProjected,설날
+2031-01-23,statutoryProjected,설날
+2031-01-24,statutoryProjected,설날
+2031-03-01,statutoryProjected,삼일절
+2031-03-03,statutoryProjected,대체공휴일(삼일절)
+2031-05-01,krxRuleProjected,근로자의 날
+2031-05-05,statutoryProjected,어린이날
+2031-05-28,statutoryProjected,부처님오신날
+2031-06-06,statutoryProjected,현충일
+2031-08-15,statutoryProjected,광복절
+2031-09-30,statutoryProjected,추석
+2031-10-01,statutoryProjected,추석
+2031-10-02,statutoryProjected,추석
+2031-10-03,statutoryProjected,개천절
+2031-10-09,statutoryProjected,한글날
+2031-12-25,statutoryProjected,기독탄신일
+2031-12-31,krxRuleProjected,연말 휴장일
+2032-01-01,statutoryProjected,신정
+2032-02-10,statutoryProjected,설날
+2032-02-11,statutoryProjected,설날
+2032-02-12,statutoryProjected,설날
+2032-03-01,statutoryProjected,삼일절
+2032-05-01,krxRuleProjected,근로자의 날
+2032-05-05,statutoryProjected,어린이날
+2032-05-16,statutoryProjected,부처님오신날
+2032-05-17,statutoryProjected,대체공휴일(부처님오신날)
+2032-06-06,statutoryProjected,현충일
+2032-08-15,statutoryProjected,광복절
+2032-08-16,statutoryProjected,대체공휴일(광복절)
+2032-09-18,statutoryProjected,추석
+2032-09-19,statutoryProjected,추석
+2032-09-20,statutoryProjected,추석
+2032-09-21,statutoryProjected,대체공휴일(추석)
+2032-10-03,statutoryProjected,개천절
+2032-10-04,statutoryProjected,대체공휴일(개천절)
+2032-10-09,statutoryProjected,한글날
+2032-10-11,statutoryProjected,대체공휴일(한글날)
+2032-12-25,statutoryProjected,기독탄신일
+2032-12-27,statutoryProjected,대체공휴일(기독탄신일)
+2032-12-31,krxRuleProjected,연말 휴장일
+2033-01-01,statutoryProjected,신정
+2033-01-30,statutoryProjected,설날
+2033-01-31,statutoryProjected,설날
+2033-02-01,statutoryProjected,설날
+2033-02-02,statutoryProjected,대체공휴일(설날)
+2033-03-01,statutoryProjected,삼일절
+2033-05-01,krxRuleProjected,근로자의 날
+2033-05-05,statutoryProjected,어린이날
+2033-05-06,statutoryProjected,부처님오신날
+2033-06-06,statutoryProjected,현충일
+2033-08-15,statutoryProjected,광복절
+2033-09-07,statutoryProjected,추석
+2033-09-08,statutoryProjected,추석
+2033-09-09,statutoryProjected,추석
+2033-10-03,statutoryProjected,개천절
+2033-10-09,statutoryProjected,한글날
+2033-10-10,statutoryProjected,대체공휴일(한글날)
+2033-12-25,statutoryProjected,기독탄신일
+2033-12-26,statutoryProjected,대체공휴일(기독탄신일)
+2033-12-30,krxRuleProjected,연말 휴장일
+2034-01-01,statutoryProjected,신정
+2034-02-18,statutoryProjected,설날
+2034-02-19,statutoryProjected,설날
+2034-02-20,statutoryProjected,설날
+2034-02-21,statutoryProjected,대체공휴일(설날)
+2034-03-01,statutoryProjected,삼일절
+2034-05-01,krxRuleProjected,근로자의 날
+2034-05-05,statutoryProjected,어린이날
+2034-05-25,statutoryProjected,부처님오신날
+2034-06-06,statutoryProjected,현충일
+2034-08-15,statutoryProjected,광복절
+2034-09-26,statutoryProjected,추석
+2034-09-27,statutoryProjected,추석
+2034-09-28,statutoryProjected,추석
+2034-10-03,statutoryProjected,개천절
+2034-10-09,statutoryProjected,한글날
+2034-12-25,statutoryProjected,기독탄신일
+2034-12-29,krxRuleProjected,연말 휴장일
+2035-01-01,statutoryProjected,신정
+2035-02-07,statutoryProjected,설날
+2035-02-08,statutoryProjected,설날
+2035-02-09,statutoryProjected,설날
+2035-03-01,statutoryProjected,삼일절
+2035-05-01,krxRuleProjected,근로자의 날
+2035-05-05,statutoryProjected,어린이날
+2035-05-07,statutoryProjected,대체공휴일(어린이날)
+2035-05-15,statutoryProjected,부처님오신날
+2035-06-06,statutoryProjected,현충일
+2035-08-15,statutoryProjected,광복절
+2035-09-15,statutoryProjected,추석
+2035-09-16,statutoryProjected,추석
+2035-09-17,statutoryProjected,추석
+2035-09-18,statutoryProjected,대체공휴일(추석)
+2035-10-03,statutoryProjected,개천절
+2035-10-09,statutoryProjected,한글날
+2035-12-25,statutoryProjected,기독탄신일
+2035-12-31,krxRuleProjected,연말 휴장일
+2036-01-01,statutoryProjected,신정
+2036-01-27,statutoryProjected,설날
+2036-01-28,statutoryProjected,설날
+2036-01-29,statutoryProjected,설날
+2036-01-30,statutoryProjected,대체공휴일(설날)
+2036-03-01,statutoryProjected,삼일절
+2036-03-03,statutoryProjected,대체공휴일(삼일절)
+2036-05-01,krxRuleProjected,근로자의 날
+2036-05-03,statutoryProjected,부처님오신날
+2036-05-05,statutoryProjected,어린이날
+2036-05-06,statutoryProjected,대체공휴일(부처님오신날)
+2036-06-06,statutoryProjected,현충일
+2036-08-15,statutoryProjected,광복절
+2036-10-03,statutoryProjected,개천절
+2036-10-03,statutoryProjected,추석
+2036-10-04,statutoryProjected,추석
+2036-10-05,statutoryProjected,추석
+2036-10-06,statutoryProjected,대체공휴일(추석·개천절)
+2036-10-09,statutoryProjected,한글날
+2036-12-25,statutoryProjected,기독탄신일
+2036-12-31,krxRuleProjected,연말 휴장일
+2037-01-01,statutoryProjected,신정
+2037-02-14,statutoryProjected,설날
+2037-02-15,statutoryProjected,설날
+2037-02-16,statutoryProjected,설날
+2037-02-17,statutoryProjected,대체공휴일(설날)
+2037-03-01,statutoryProjected,삼일절
+2037-03-02,statutoryProjected,대체공휴일(삼일절)
+2037-05-01,krxRuleProjected,근로자의 날
+2037-05-05,statutoryProjected,어린이날
+2037-05-22,statutoryProjected,부처님오신날
+2037-06-06,statutoryProjected,현충일
+2037-08-15,statutoryProjected,광복절
+2037-08-17,statutoryProjected,대체공휴일(광복절)
+2037-09-23,statutoryProjected,추석
+2037-09-24,statutoryProjected,추석
+2037-09-25,statutoryProjected,추석
+2037-10-03,statutoryProjected,개천절
+2037-10-05,statutoryProjected,대체공휴일(개천절)
+2037-10-09,statutoryProjected,한글날
+2037-12-25,statutoryProjected,기독탄신일
+2037-12-31,krxRuleProjected,연말 휴장일
+2038-01-01,statutoryProjected,신정
+2038-02-03,statutoryProjected,설날
+2038-02-04,statutoryProjected,설날
+2038-02-05,statutoryProjected,설날
+2038-03-01,statutoryProjected,삼일절
+2038-05-01,krxRuleProjected,근로자의 날
+2038-05-05,statutoryProjected,어린이날
+2038-05-11,statutoryProjected,부처님오신날
+2038-06-06,statutoryProjected,현충일
+2038-08-15,statutoryProjected,광복절
+2038-08-16,statutoryProjected,대체공휴일(광복절)
+2038-09-12,statutoryProjected,추석
+2038-09-13,statutoryProjected,추석
+2038-09-14,statutoryProjected,추석
+2038-09-15,statutoryProjected,대체공휴일(추석)
+2038-10-03,statutoryProjected,개천절
+2038-10-04,statutoryProjected,대체공휴일(개천절)
+2038-10-09,statutoryProjected,한글날
+2038-10-11,statutoryProjected,대체공휴일(한글날)
+2038-12-25,statutoryProjected,기독탄신일
+2038-12-27,statutoryProjected,대체공휴일(기독탄신일)
+2038-12-31,krxRuleProjected,연말 휴장일
+2039-01-01,statutoryProjected,신정
+2039-01-23,statutoryProjected,설날
+2039-01-24,statutoryProjected,설날
+2039-01-25,statutoryProjected,설날
+2039-01-26,statutoryProjected,대체공휴일(설날)
+2039-03-01,statutoryProjected,삼일절
+2039-04-30,statutoryProjected,부처님오신날
+2039-05-01,krxRuleProjected,근로자의 날
+2039-05-02,statutoryProjected,대체공휴일(부처님오신날)
+2039-05-05,statutoryProjected,어린이날
+2039-06-06,statutoryProjected,현충일
+2039-08-15,statutoryProjected,광복절
+2039-10-01,statutoryProjected,추석
+2039-10-02,statutoryProjected,추석
+2039-10-03,statutoryProjected,개천절
+2039-10-03,statutoryProjected,추석
+2039-10-04,statutoryProjected,대체공휴일(추석·개천절)
+2039-10-09,statutoryProjected,한글날
+2039-10-10,statutoryProjected,대체공휴일(한글날)
+2039-12-25,statutoryProjected,기독탄신일
+2039-12-26,statutoryProjected,대체공휴일(기독탄신일)
+2039-12-30,krxRuleProjected,연말 휴장일
+2040-01-01,statutoryProjected,신정
+2040-02-11,statutoryProjected,설날
+2040-02-12,statutoryProjected,설날
+2040-02-13,statutoryProjected,설날
+2040-02-14,statutoryProjected,대체공휴일(설날)
+2040-03-01,statutoryProjected,삼일절
+2040-05-01,krxRuleProjected,근로자의 날
+2040-05-05,statutoryProjected,어린이날
+2040-05-07,statutoryProjected,대체공휴일(어린이날)
+2040-05-18,statutoryProjected,부처님오신날
+2040-06-06,statutoryProjected,현충일
+2040-08-15,statutoryProjected,광복절
+2040-09-20,statutoryProjected,추석
+2040-09-21,statutoryProjected,추석
+2040-09-22,statutoryProjected,추석
+2040-10-03,statutoryProjected,개천절
+2040-10-09,statutoryProjected,한글날
+2040-12-25,statutoryProjected,기독탄신일
+2040-12-31,krxRuleProjected,연말 휴장일
+2041-01-01,statutoryProjected,신정
+2041-01-31,statutoryProjected,설날
+2041-02-01,statutoryProjected,설날
+2041-02-02,statutoryProjected,설날
+2041-03-01,statutoryProjected,삼일절
+2041-05-01,krxRuleProjected,근로자의 날
+2041-05-05,statutoryProjected,어린이날
+2041-05-06,statutoryProjected,대체공휴일(어린이날)
+2041-05-07,statutoryProjected,부처님오신날
+2041-06-06,statutoryProjected,현충일
+2041-08-15,statutoryProjected,광복절
+2041-09-09,statutoryProjected,추석
+2041-09-10,statutoryProjected,추석
+2041-09-11,statutoryProjected,추석
+2041-10-03,statutoryProjected,개천절
+2041-10-09,statutoryProjected,한글날
+2041-12-25,statutoryProjected,기독탄신일
+2041-12-31,krxRuleProjected,연말 휴장일
+2042-01-01,statutoryProjected,신정
+2042-01-21,statutoryProjected,설날
+2042-01-22,statutoryProjected,설날
+2042-01-23,statutoryProjected,설날
+2042-03-01,statutoryProjected,삼일절
+2042-03-03,statutoryProjected,대체공휴일(삼일절)
+2042-05-01,krxRuleProjected,근로자의 날
+2042-05-05,statutoryProjected,어린이날
+2042-05-26,statutoryProjected,부처님오신날
+2042-06-06,statutoryProjected,현충일
+2042-08-15,statutoryProjected,광복절
+2042-09-27,statutoryProjected,추석
+2042-09-28,statutoryProjected,추석
+2042-09-29,statutoryProjected,추석
+2042-09-30,statutoryProjected,대체공휴일(추석)
+2042-10-03,statutoryProjected,개천절
+2042-10-09,statutoryProjected,한글날
+2042-12-25,statutoryProjected,기독탄신일
+2042-12-31,krxRuleProjected,연말 휴장일
+2043-01-01,statutoryProjected,신정
+2043-02-09,statutoryProjected,설날
+2043-02-10,statutoryProjected,설날
+2043-02-11,statutoryProjected,설날
+2043-03-01,statutoryProjected,삼일절
+2043-03-02,statutoryProjected,대체공휴일(삼일절)
+2043-05-01,krxRuleProjected,근로자의 날
+2043-05-05,statutoryProjected,어린이날
+2043-05-16,statutoryProjected,부처님오신날
+2043-05-18,statutoryProjected,대체공휴일(부처님오신날)
+2043-06-06,statutoryProjected,현충일
+2043-08-15,statutoryProjected,광복절
+2043-08-17,statutoryProjected,대체공휴일(광복절)
+2043-09-16,statutoryProjected,추석
+2043-09-17,statutoryProjected,추석
+2043-09-18,statutoryProjected,추석
+2043-10-03,statutoryProjected,개천절
+2043-10-05,statutoryProjected,대체공휴일(개천절)
+2043-10-09,statutoryProjected,한글날
+2043-12-25,statutoryProjected,기독탄신일
+2043-12-31,krxRuleProjected,연말 휴장일
+2044-01-01,statutoryProjected,신정
+2044-01-29,statutoryProjected,설날
+2044-01-30,statutoryProjected,설날
+2044-01-31,statutoryProjected,설날
+2044-02-01,statutoryProjected,대체공휴일(설날)
+2044-03-01,statutoryProjected,삼일절
+2044-05-01,krxRuleProjected,근로자의 날
+2044-05-05,statutoryProjected,부처님오신날
+2044-05-05,statutoryProjected,어린이날
+2044-05-06,statutoryProjected,대체공휴일(어린이날·부처님오신날)
+2044-06-06,statutoryProjected,현충일
+2044-08-15,statutoryProjected,광복절
+2044-10-03,statutoryProjected,개천절
+2044-10-04,statutoryProjected,추석
+2044-10-05,statutoryProjected,추석
+2044-10-06,statutoryProjected,추석
+2044-10-09,statutoryProjected,한글날
+2044-10-10,statutoryProjected,대체공휴일(한글날)
+2044-12-25,statutoryProjected,기독탄신일
+2044-12-26,statutoryProjected,대체공휴일(기독탄신일)
+2044-12-30,krxRuleProjected,연말 휴장일
+2045-01-01,statutoryProjected,신정
+2045-02-16,statutoryProjected,설날
+2045-02-17,statutoryProjected,설날
+2045-02-18,statutoryProjected,설날
+2045-03-01,statutoryProjected,삼일절
+2045-05-01,krxRuleProjected,근로자의 날
+2045-05-05,statutoryProjected,어린이날
+2045-05-24,statutoryProjected,부처님오신날
+2045-06-06,statutoryProjected,현충일
+2045-08-15,statutoryProjected,광복절
+2045-09-24,statutoryProjected,추석
+2045-09-25,statutoryProjected,추석
+2045-09-26,statutoryProjected,추석
+2045-09-27,statutoryProjected,대체공휴일(추석)
+2045-10-03,statutoryProjected,개천절
+2045-10-09,statutoryProjected,한글날
+2045-12-25,statutoryProjected,기독탄신일
+2045-12-29,krxRuleProjected,연말 휴장일
+2046-01-01,statutoryProjected,신정
+2046-02-05,statutoryProjected,설날
+2046-02-06,statutoryProjected,설날
+2046-02-07,statutoryProjected,설날
+2046-03-01,statutoryProjected,삼일절
+2046-05-01,krxRuleProjected,근로자의 날
+2046-05-05,statutoryProjected,어린이날
+2046-05-07,statutoryProjected,대체공휴일(어린이날)
+2046-05-13,statutoryProjected,부처님오신날
+2046-05-14,statutoryProjected,대체공휴일(부처님오신날)
+2046-06-06,statutoryProjected,현충일
+2046-08-15,statutoryProjected,광복절
+2046-09-14,statutoryProjected,추석
+2046-09-15,statutoryProjected,추석
+2046-09-16,statutoryProjected,추석
+2046-09-17,statutoryProjected,대체공휴일(추석)
+2046-10-03,statutoryProjected,개천절
+2046-10-09,statutoryProjected,한글날
+2046-12-25,statutoryProjected,기독탄신일
+2046-12-31,krxRuleProjected,연말 휴장일
+2047-01-01,statutoryProjected,신정
+2047-01-25,statutoryProjected,설날
+2047-01-26,statutoryProjected,설날
+2047-01-27,statutoryProjected,설날
+2047-01-28,statutoryProjected,대체공휴일(설날)
+2047-03-01,statutoryProjected,삼일절
+2047-05-01,krxRuleProjected,근로자의 날
+2047-05-02,statutoryProjected,부처님오신날
+2047-05-05,statutoryProjected,어린이날
+2047-05-06,statutoryProjected,대체공휴일(어린이날)
+2047-06-06,statutoryProjected,현충일
+2047-08-15,statutoryProjected,광복절
+2047-10-03,statutoryProjected,개천절
+2047-10-03,statutoryProjected,추석
+2047-10-04,statutoryProjected,추석
+2047-10-05,statutoryProjected,추석
+2047-10-07,statutoryProjected,대체공휴일(추석·개천절)
+2047-10-09,statutoryProjected,한글날
+2047-12-25,statutoryProjected,기독탄신일
+2047-12-31,krxRuleProjected,연말 휴장일
+2048-01-01,statutoryProjected,신정
+2048-02-13,statutoryProjected,설날
+2048-02-14,statutoryProjected,설날
+2048-02-15,statutoryProjected,설날
+2048-03-01,statutoryProjected,삼일절
+2048-03-02,statutoryProjected,대체공휴일(삼일절)
+2048-05-01,krxRuleProjected,근로자의 날
+2048-05-05,statutoryProjected,어린이날
+2048-05-20,statutoryProjected,부처님오신날
+2048-06-06,statutoryProjected,현충일
+2048-08-15,statutoryProjected,광복절
+2048-08-17,statutoryProjected,대체공휴일(광복절)
+2048-09-21,statutoryProjected,추석
+2048-09-22,statutoryProjected,추석
+2048-09-23,statutoryProjected,추석
+2048-10-03,statutoryProjected,개천절
+2048-10-05,statutoryProjected,대체공휴일(개천절)
+2048-10-09,statutoryProjected,한글날
+2048-12-25,statutoryProjected,기독탄신일
+2048-12-31,krxRuleProjected,연말 휴장일
+2049-01-01,statutoryProjected,신정
+2049-02-01,statutoryProjected,설날
+2049-02-02,statutoryProjected,설날
+2049-02-03,statutoryProjected,설날
+2049-03-01,statutoryProjected,삼일절
+2049-05-01,krxRuleProjected,근로자의 날
+2049-05-05,statutoryProjected,어린이날
+2049-05-09,statutoryProjected,부처님오신날
+2049-05-10,statutoryProjected,대체공휴일(부처님오신날)
+2049-06-06,statutoryProjected,현충일
+2049-08-15,statutoryProjected,광복절
+2049-08-16,statutoryProjected,대체공휴일(광복절)
+2049-09-10,statutoryProjected,추석
+2049-09-11,statutoryProjected,추석
+2049-09-12,statutoryProjected,추석
+2049-09-13,statutoryProjected,대체공휴일(추석)
+2049-10-03,statutoryProjected,개천절
+2049-10-04,statutoryProjected,대체공휴일(개천절)
+2049-10-09,statutoryProjected,한글날
+2049-10-11,statutoryProjected,대체공휴일(한글날)
+2049-12-25,statutoryProjected,기독탄신일
+2049-12-27,statutoryProjected,대체공휴일(기독탄신일)
+2049-12-31,krxRuleProjected,연말 휴장일
+2050-01-01,statutoryProjected,신정
+2050-01-22,statutoryProjected,설날
+2050-01-23,statutoryProjected,설날
+2050-01-24,statutoryProjected,설날
+2050-01-25,statutoryProjected,대체공휴일(설날)
+2050-03-01,statutoryProjected,삼일절
+2050-05-01,krxRuleProjected,근로자의 날
+2050-05-05,statutoryProjected,어린이날
+2050-05-28,statutoryProjected,부처님오신날
+2050-05-30,statutoryProjected,대체공휴일(부처님오신날)
+2050-06-06,statutoryProjected,현충일
+2050-08-15,statutoryProjected,광복절
+2050-09-29,statutoryProjected,추석
+2050-09-30,statutoryProjected,추석
+2050-10-01,statutoryProjected,추석
+2050-10-03,statutoryProjected,개천절
+2050-10-09,statutoryProjected,한글날
+2050-10-10,statutoryProjected,대체공휴일(한글날)
+2050-12-25,statutoryProjected,기독탄신일
+2050-12-26,statutoryProjected,대체공휴일(기독탄신일)
+2050-12-30,krxRuleProjected,연말 휴장일
+2051-01-01,statutoryProjected,신정
+2051-02-10,statutoryProjected,설날
+2051-02-11,statutoryProjected,설날
+2051-02-12,statutoryProjected,설날
+2051-02-13,statutoryProjected,대체공휴일(설날)
+2051-03-01,statutoryProjected,삼일절
+2051-05-01,krxRuleProjected,근로자의 날
+2051-05-05,statutoryProjected,어린이날
+2051-05-17,statutoryProjected,부처님오신날
+2051-06-06,statutoryProjected,현충일
+2051-08-15,statutoryProjected,광복절
+2051-09-18,statutoryProjected,추석
+2051-09-19,statutoryProjected,추석
+2051-09-20,statutoryProjected,추석
+2051-10-03,statutoryProjected,개천절
+2051-10-09,statutoryProjected,한글날
+2051-12-25,statutoryProjected,기독탄신일
+2051-12-29,krxRuleProjected,연말 휴장일
+2052-01-01,statutoryProjected,신정
+2052-01-31,statutoryProjected,설날
+2052-02-01,statutoryProjected,설날
+2052-02-02,statutoryProjected,설날
+2052-03-01,statutoryProjected,삼일절
+2052-05-01,krxRuleProjected,근로자의 날
+2052-05-05,statutoryProjected,어린이날
+2052-05-06,statutoryProjected,부처님오신날
+2052-05-07,statutoryProjected,대체공휴일(어린이날)
+2052-06-06,statutoryProjected,현충일
+2052-08-15,statutoryProjected,광복절
+2052-09-06,statutoryProjected,추석
+2052-09-07,statutoryProjected,추석
+2052-09-08,statutoryProjected,추석
+2052-09-09,statutoryProjected,대체공휴일(추석)
+2052-10-03,statutoryProjected,개천절
+2052-10-09,statutoryProjected,한글날
+2052-12-25,statutoryProjected,기독탄신일
+2052-12-31,krxRuleProjected,연말 휴장일
+2053-01-01,statutoryProjected,신정
+2053-02-18,statutoryProjected,설날
+2053-02-19,statutoryProjected,설날
+2053-02-20,statutoryProjected,설날
+2053-03-01,statutoryProjected,삼일절
+2053-03-03,statutoryProjected,대체공휴일(삼일절)
+2053-05-01,krxRuleProjected,근로자의 날
+2053-05-05,statutoryProjected,어린이날
+2053-05-25,statutoryProjected,부처님오신날
+2053-05-26,statutoryProjected,대체공휴일(부처님오신날)
+2053-06-06,statutoryProjected,현충일
+2053-08-15,statutoryProjected,광복절
+2053-09-25,statutoryProjected,추석
+2053-09-26,statutoryProjected,추석
+2053-09-27,statutoryProjected,추석
+2053-10-03,statutoryProjected,개천절
+2053-10-09,statutoryProjected,한글날
+2053-12-25,statutoryProjected,기독탄신일
+2053-12-31,krxRuleProjected,연말 휴장일
+2054-01-01,statutoryProjected,신정
+2054-02-07,statutoryProjected,설날
+2054-02-08,statutoryProjected,설날
+2054-02-09,statutoryProjected,설날
+2054-02-10,statutoryProjected,대체공휴일(설날)
+2054-03-01,statutoryProjected,삼일절
+2054-03-02,statutoryProjected,대체공휴일(삼일절)
+2054-05-01,krxRuleProjected,근로자의 날
+2054-05-05,statutoryProjected,어린이날
+2054-05-15,statutoryProjected,부처님오신날
+2054-06-06,statutoryProjected,현충일
+2054-08-15,statutoryProjected,광복절
+2054-08-17,statutoryProjected,대체공휴일(광복절)
+2054-09-15,statutoryProjected,추석
+2054-09-16,statutoryProjected,추석
+2054-09-17,statutoryProjected,추석
+2054-10-03,statutoryProjected,개천절
+2054-10-05,statutoryProjected,대체공휴일(개천절)
+2054-10-09,statutoryProjected,한글날
+2054-12-25,statutoryProjected,기독탄신일
+2054-12-31,krxRuleProjected,연말 휴장일
+2055-01-01,statutoryProjected,신정
+2055-01-27,statutoryProjected,설날
+2055-01-28,statutoryProjected,설날
+2055-01-29,statutoryProjected,설날
+2055-03-01,statutoryProjected,삼일절
+2055-05-01,krxRuleProjected,근로자의 날
+2055-05-04,statutoryProjected,부처님오신날
+2055-05-05,statutoryProjected,어린이날
+2055-06-06,statutoryProjected,현충일
+2055-08-15,statutoryProjected,광복절
+2055-08-16,statutoryProjected,대체공휴일(광복절)
+2055-10-03,statutoryProjected,개천절
+2055-10-04,statutoryProjected,추석
+2055-10-05,statutoryProjected,추석
+2055-10-06,statutoryProjected,추석
+2055-10-07,statutoryProjected,대체공휴일(개천절)
+2055-10-09,statutoryProjected,한글날
+2055-10-11,statutoryProjected,대체공휴일(한글날)
+2055-12-25,statutoryProjected,기독탄신일
+2055-12-27,statutoryProjected,대체공휴일(기독탄신일)
+2055-12-31,krxRuleProjected,연말 휴장일
+2056-01-01,statutoryProjected,신정
+2056-02-14,statutoryProjected,설날
+2056-02-15,statutoryProjected,설날
+2056-02-16,statutoryProjected,설날
+2056-03-01,statutoryProjected,삼일절
+2056-05-01,krxRuleProjected,근로자의 날
+2056-05-05,statutoryProjected,어린이날
+2056-05-22,statutoryProjected,부처님오신날
+2056-06-06,statutoryProjected,현충일
+2056-08-15,statutoryProjected,광복절
+2056-09-23,statutoryProjected,추석
+2056-09-24,statutoryProjected,추석
+2056-09-25,statutoryProjected,추석
+2056-09-26,statutoryProjected,대체공휴일(추석)
+2056-10-03,statutoryProjected,개천절
+2056-10-09,statutoryProjected,한글날
+2056-12-25,statutoryProjected,기독탄신일
+2056-12-29,krxRuleProjected,연말 휴장일
+2057-01-01,statutoryProjected,신정
+2057-02-03,statutoryProjected,설날
+2057-02-04,statutoryProjected,설날
+2057-02-05,statutoryProjected,설날
+2057-02-06,statutoryProjected,대체공휴일(설날)
+2057-03-01,statutoryProjected,삼일절
+2057-05-01,krxRuleProjected,근로자의 날
+2057-05-05,statutoryProjected,어린이날
+2057-05-07,statutoryProjected,대체공휴일(어린이날)
+2057-05-11,statutoryProjected,부처님오신날
+2057-06-06,statutoryProjected,현충일
+2057-08-15,statutoryProjected,광복절
+2057-09-12,statutoryProjected,추석
+2057-09-13,statutoryProjected,추석
+2057-09-14,statutoryProjected,추석
+2057-10-03,statutoryProjected,개천절
+2057-10-09,statutoryProjected,한글날
+2057-12-25,statutoryProjected,기독탄신일
+2057-12-31,krxRuleProjected,연말 휴장일
+2058-01-01,statutoryProjected,신정
+2058-01-23,statutoryProjected,설날
+2058-01-24,statutoryProjected,설날
+2058-01-25,statutoryProjected,설날
+2058-03-01,statutoryProjected,삼일절
+2058-04-30,statutoryProjected,부처님오신날
+2058-05-01,krxRuleProjected,근로자의 날
+2058-05-05,statutoryProjected,어린이날
+2058-05-06,statutoryProjected,대체공휴일(어린이날)
+2058-06-06,statutoryProjected,현충일
+2058-08-15,statutoryProjected,광복절
+2058-10-01,statutoryProjected,추석
+2058-10-02,statutoryProjected,추석
+2058-10-03,statutoryProjected,개천절
+2058-10-03,statutoryProjected,추석
+2058-10-04,statutoryProjected,대체공휴일(추석·개천절)
+2058-10-09,statutoryProjected,한글날
+2058-12-25,statutoryProjected,기독탄신일
+2058-12-31,krxRuleProjected,연말 휴장일
+2059-01-01,statutoryProjected,신정
+2059-02-11,statutoryProjected,설날
+2059-02-12,statutoryProjected,설날
+2059-02-13,statutoryProjected,설날
+2059-03-01,statutoryProjected,삼일절
+2059-03-03,statutoryProjected,대체공휴일(삼일절)
+2059-05-01,krxRuleProjected,근로자의 날
+2059-05-05,statutoryProjected,어린이날
+2059-05-19,statutoryProjected,부처님오신날
+2059-06-06,statutoryProjected,현충일
+2059-08-15,statutoryProjected,광복절
+2059-09-20,statutoryProjected,추석
+2059-09-21,statutoryProjected,추석
+2059-09-22,statutoryProjected,추석
+2059-09-23,statutoryProjected,대체공휴일(추석)
+2059-10-03,statutoryProjected,개천절
+2059-10-09,statutoryProjected,한글날
+2059-12-25,statutoryProjected,기독탄신일
+2059-12-31,krxRuleProjected,연말 휴장일
+2060-01-01,statutoryProjected,신정
+2060-02-01,statutoryProjected,설날
+2060-02-02,statutoryProjected,설날
+2060-02-03,statutoryProjected,설날
+2060-02-04,statutoryProjected,대체공휴일(설날)
+2060-03-01,statutoryProjected,삼일절
+2060-05-01,krxRuleProjected,근로자의 날
+2060-05-05,statutoryProjected,어린이날
+2060-05-07,statutoryProjected,부처님오신날
+2060-06-06,statutoryProjected,현충일
+2060-08-15,statutoryProjected,광복절
+2060-08-16,statutoryProjected,대체공휴일(광복절)
+2060-09-08,statutoryProjected,추석
+2060-09-09,statutoryProjected,추석
+2060-09-10,statutoryProjected,추석
+2060-10-03,statutoryProjected,개천절
+2060-10-04,statutoryProjected,대체공휴일(개천절)
+2060-10-09,statutoryProjected,한글날
+2060-10-11,statutoryProjected,대체공휴일(한글날)
+2060-12-25,statutoryProjected,기독탄신일
+2060-12-27,statutoryProjected,대체공휴일(기독탄신일)
+2060-12-31,krxRuleProjected,연말 휴장일

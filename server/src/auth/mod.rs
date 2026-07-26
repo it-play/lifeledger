@@ -142,11 +142,18 @@ async fn read_json<T: serde::de::DeserializeOwned>(response: reqwest::Response) 
         .await
         .context("응답 본문을 읽지 못했습니다")?;
 
+    decode_provider_response(status, &body)
+}
+
+fn decode_provider_response<T: serde::de::DeserializeOwned>(
+    status: reqwest::StatusCode,
+    body: &str,
+) -> Result<T> {
     if !status.is_success() {
-        bail!("제공자가 {status} 를 응답했습니다: {body}");
+        bail!("제공자가 {status} 를 응답했습니다");
     }
 
-    serde_json::from_str(&body).with_context(|| format!("응답을 해석하지 못했습니다: {body}"))
+    serde_json::from_str(body).context("응답을 해석하지 못했습니다")
 }
 
 #[cfg(test)]
@@ -202,6 +209,39 @@ mod tests {
         #[test]
         fn given_an_unknown_segment_when_parsed_then_nothing_is_returned() {
             assert_eq!(ProviderKind::parse("kakao"), None);
+        }
+    }
+
+    mod context_a_provider_response_contains_sensitive_data {
+        use super::*;
+
+        const SENSITIVE_BODY: &str = "access_token=provider-secret";
+
+        fn assert_error_does_not_expose_sensitive_body(error: &anyhow::Error) {
+            assert!(!format!("{error}").contains(SENSITIVE_BODY));
+            assert!(!format!("{error:?}").contains(SENSITIVE_BODY));
+        }
+
+        #[test]
+        fn given_an_error_status_when_decoded_then_the_body_is_not_exposed() {
+            let error = decode_provider_response::<serde_json::Value>(
+                reqwest::StatusCode::UNAUTHORIZED,
+                SENSITIVE_BODY,
+            )
+            .expect_err("an error response must fail");
+
+            assert_error_does_not_expose_sensitive_body(&error);
+        }
+
+        #[test]
+        fn given_malformed_json_when_decoded_then_the_body_is_not_exposed() {
+            let error = decode_provider_response::<serde_json::Value>(
+                reqwest::StatusCode::OK,
+                SENSITIVE_BODY,
+            )
+            .expect_err("malformed JSON must fail");
+
+            assert_error_does_not_expose_sensitive_body(&error);
         }
     }
 }

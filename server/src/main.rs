@@ -1,9 +1,14 @@
 mod auth;
+pub mod career;
 mod character;
+pub mod day;
 mod error;
+pub mod finance;
+pub mod market;
 mod routes;
 mod state;
 mod store;
+pub mod trading;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -39,9 +44,39 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("migrations applied");
 
     let providers = auth::Providers::from_env(public_origin())?;
-    let saves = store::create_mysql_save_store(pool.clone());
+    let market_generators = market::create_market_generator_registry()
+        .context("failed to create the market generator registry")?;
+    let markets = Arc::new(store::create_mysql_market_store(
+        pool.clone(),
+        market_generators,
+    ));
+    let finance_rules = finance::create_finance_rules();
+    let saves = Arc::new(store::create_mysql_save_store(
+        pool.clone(),
+        finance_rules.clone(),
+    ));
+    let finances = Arc::new(store::create_mysql_finance_store(
+        pool.clone(),
+        finance_rules.clone(),
+    ));
+    let careers = Arc::new(store::create_mysql_career_store(
+        pool.clone(),
+        finance_rules,
+    ));
     let users = store::create_mysql_user_store(pool);
-    let state = state::AppState::new(Arc::new(saves), Arc::new(users), providers);
+    let games = day::create_daily_pipeline(saves.clone(), markets.clone(), careers.clone());
+    let app_stores = state::create_app_stores(state::AppStoreDependencies {
+        games,
+        trades: saves,
+        finances: finances.clone(),
+        cash_products: finances.clone(),
+        assets: finances.clone(),
+        tax_accounts: finances,
+        careers,
+        markets,
+        users: Arc::new(users),
+    });
+    let state = state::AppState::new(app_stores, providers);
 
     let app = Router::new()
         .merge(routes::router(state))

@@ -10,11 +10,13 @@ use utoipa::ToSchema;
 const SCHOOL_ENTRY_AGE: u32 = 6;
 const MIN_AGE: u32 = 19;
 const MAX_AGE: u32 = 50;
+const MAX_NAME_CHARACTERS: usize = 20;
 /// Age at which unserved status is treated as exempt in practice (§3.5).
 const DE_FACTO_EXEMPT_AGE: u32 = 40;
 /// Safety ceiling until the point budget lands (M5).
 const MAX_STARTING_CASH_KRW: i64 = 10_000_000_000;
 const MAX_CAREER_YEARS: u32 = 30;
+const MAX_CERTIFICATIONS: u32 = 50;
 const MAX_DEPENDENTS: u32 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -108,8 +110,8 @@ impl MilitaryStatus {
 }
 
 /// Starting conditions as sent by a client, before validation.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterDraft {
     pub name: String,
     pub age: u32,
@@ -146,11 +148,6 @@ pub struct Character {
     pub dependents: u32,
 }
 
-/// Net worth, kept in one place so the state layer and the domain agree.
-pub const fn net_worth_krw(cash_krw: i64, debt_krw: i64) -> i64 {
-    cash_krw - debt_krw
-}
-
 /// Says which field combination is contradictory and why (§3.5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -174,8 +171,14 @@ impl ValidationError {
 pub fn create_character(draft: CharacterDraft) -> Result<Character, Vec<ValidationError>> {
     let mut errors = Vec::new();
 
-    if draft.name.trim().is_empty() {
+    let name = draft.name.trim();
+    if name.is_empty() {
         errors.push(ValidationError::new("name", "이름을 입력하세요"));
+    } else if name.chars().count() > MAX_NAME_CHARACTERS {
+        errors.push(ValidationError::new(
+            "name",
+            format!("이름은 {MAX_NAME_CHARACTERS}자를 넘을 수 없습니다"),
+        ));
     }
     if !(MIN_AGE..=MAX_AGE).contains(&draft.age) {
         errors.push(ValidationError::new(
@@ -189,6 +192,12 @@ pub fn create_character(draft: CharacterDraft) -> Result<Character, Vec<Validati
             format!("경력은 {MAX_CAREER_YEARS}년을 넘을 수 없습니다"),
         ));
     }
+    if draft.certifications > MAX_CERTIFICATIONS {
+        errors.push(ValidationError::new(
+            "certifications",
+            format!("자격증은 {MAX_CERTIFICATIONS}개를 넘을 수 없습니다"),
+        ));
+    }
     if draft.dependents > MAX_DEPENDENTS {
         errors.push(ValidationError::new(
             "dependents",
@@ -197,6 +206,16 @@ pub fn create_character(draft: CharacterDraft) -> Result<Character, Vec<Validati
     }
 
     errors.extend(validate_money(&draft));
+    let debt_krw = match draft.student_loan_krw.checked_add(draft.credit_loan_krw) {
+        Some(total) => total,
+        None => {
+            errors.push(ValidationError::new(
+                "creditLoanKrw",
+                "합산 부채가 허용 범위를 넘었습니다",
+            ));
+            0
+        }
+    };
     // Age-dependent rules only run on a valid age, so one cause yields one error
     if (MIN_AGE..=MAX_AGE).contains(&draft.age) {
         errors.extend(validate_military(&draft));
@@ -219,7 +238,7 @@ pub fn create_character(draft: CharacterDraft) -> Result<Character, Vec<Validati
         career_years: draft.career_years,
         certifications: draft.certifications,
         cash_krw: draft.starting_cash_krw,
-        debt_krw: draft.student_loan_krw + draft.credit_loan_krw,
+        debt_krw,
         health: draft.health,
         dependents: draft.dependents,
     })
@@ -474,16 +493,6 @@ mod tests {
         }
 
         #[test]
-        fn given_cash_and_debt_when_created_then_net_worth_is_the_difference() {
-            let character = create_character(given_valid_draft()).expect("통과해야 한다");
-
-            assert_eq!(
-                net_worth_krw(character.cash_krw, character.debt_krw),
-                -10_000_000
-            );
-        }
-
-        #[test]
         fn given_name_with_spaces_when_created_then_it_is_trimmed() {
             let mut draft = given_valid_draft();
             draft.name = "  김앤디  ".to_owned();
@@ -667,6 +676,45 @@ mod tests {
             assert!(fields.contains(&"name"));
             assert!(fields.contains(&"startingCashKrw"));
             assert!(fields.contains(&"dependents"));
+        }
+
+        #[test]
+        fn given_debts_whose_sum_overflows_when_creating_then_rejected() {
+            let mut draft = given_valid_draft();
+            draft.student_loan_krw = i64::MAX;
+            draft.credit_loan_krw = 1;
+
+            let errors = create_character(draft).expect_err("합산할 수 없는 부채는 거부된다");
+
+            assert!(fields_of(&errors).contains(&"creditLoanKrw"));
+        }
+    }
+
+    mod context_name_is_out_of_range {
+        use super::*;
+
+        #[test]
+        fn given_name_longer_than_database_limit_when_creating_then_rejected() {
+            let mut draft = given_valid_draft();
+            draft.name = "가".repeat(21);
+
+            let errors = create_character(draft).expect_err("DB 한도를 넘는 이름은 거부된다");
+
+            assert!(fields_of(&errors).contains(&"name"));
+        }
+    }
+
+    mod context_certification_count_is_out_of_range {
+        use super::*;
+
+        #[test]
+        fn given_자격증이_50개를_넘을때_when_캐릭터를_만들면_then_거절한다() {
+            let mut draft = given_valid_draft();
+            draft.certifications = 51;
+
+            let errors = create_character(draft).expect_err("bridge 상한을 넘으면 거부해야 한다");
+
+            assert!(fields_of(&errors).contains(&"certifications"));
         }
     }
 }
