@@ -15,6 +15,8 @@ const MAX_NAME_CHARACTERS: usize = 20;
 const DE_FACTO_EXEMPT_AGE: u32 = 40;
 /// Safety ceiling until the point budget lands (M5).
 const MAX_STARTING_CASH_KRW: i64 = 10_000_000_000;
+const MAX_STUDENT_LOAN_KRW: i64 = 50_000_000;
+const MAX_CREDIT_LOAN_KRW: i64 = 200_000_000;
 const MAX_CAREER_YEARS: u32 = 30;
 const MAX_CERTIFICATIONS: u32 = 50;
 const MAX_DEPENDENTS: u32 = 6;
@@ -271,11 +273,21 @@ fn validate_money(draft: &CharacterDraft) -> Vec<ValidationError> {
             "studentLoanKrw",
             "학자금 부채는 음수가 될 수 없습니다",
         ));
+    } else if draft.student_loan_krw > MAX_STUDENT_LOAN_KRW {
+        errors.push(ValidationError::new(
+            "studentLoanKrw",
+            "학자금 부채가 시작 대출 한도를 넘었습니다",
+        ));
     }
     if draft.credit_loan_krw < 0 {
         errors.push(ValidationError::new(
             "creditLoanKrw",
             "신용 부채는 음수가 될 수 없습니다",
+        ));
+    } else if draft.credit_loan_krw > MAX_CREDIT_LOAN_KRW {
+        errors.push(ValidationError::new(
+            "creditLoanKrw",
+            "신용 부채가 시작 대출 한도를 넘었습니다",
         ));
     }
     errors
@@ -685,6 +697,26 @@ mod tests {
             draft.credit_loan_krw = 1;
 
             let errors = create_character(draft).expect_err("합산할 수 없는 부채는 거부된다");
+
+            assert!(fields_of(&errors).contains(&"creditLoanKrw"));
+        }
+
+        #[test]
+        fn given_학자금_대출이_상품_한도를_넘음_when_캐릭터를_생성함_then_거부됨() {
+            let mut draft = given_valid_draft();
+            draft.student_loan_krw = MAX_STUDENT_LOAN_KRW + 1;
+
+            let errors = create_character(draft).expect_err("학자금 대출 한도를 지켜야 한다");
+
+            assert!(fields_of(&errors).contains(&"studentLoanKrw"));
+        }
+
+        #[test]
+        fn given_신용_대출이_상품_한도를_넘음_when_캐릭터를_생성함_then_거부됨() {
+            let mut draft = given_valid_draft();
+            draft.credit_loan_krw = MAX_CREDIT_LOAN_KRW + 1;
+
+            let errors = create_character(draft).expect_err("신용 대출 한도를 지켜야 한다");
 
             assert!(fields_of(&errors).contains(&"creditLoanKrw"));
         }

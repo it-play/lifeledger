@@ -22,7 +22,10 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 mod auth;
 
 use crate::auth::{AuthUser, SESSION_COOKIE};
-use crate::career::{ArtifactDraft, ArtifactKind, CareerFailureCode, Industry, LinkedinFields};
+use crate::career::{
+    ArtifactDraft, ArtifactKind, CareerFailureCode, Industry, LinkedinFields,
+    MAX_MILITARY_MONEY_KRW,
+};
 use crate::character;
 use crate::error::AppError;
 use crate::finance::{
@@ -32,44 +35,131 @@ use crate::finance::{
     OpenCashProductCommand, OpenCmaAccountCommand, OpenGoldAccountCommand,
     PensionWithdrawalRequestKind, ResourceId, TransferCommand, TransferDirection,
 };
+use crate::life::{HousingLeaseOfferKind, LifeRegionKey, LivingCostCategory, LoanProductKind};
 use crate::state::{
-    AdvanceCommandSnapshot, AdvanceResponse, AppState, AssetCommandResult, AutoSpeed,
-    BondOrderResponse, CareerActivitiesResponse, CareerActivityCatalogSnapshot,
-    CareerActivityHistorySnapshot, CareerActivityResponse, CareerActivityResultSnapshot,
-    CareerActivitySnapshot, CareerApplicationResponse, CareerApplicationResultSnapshot,
-    CareerApplicationSnapshot, CareerApplicationsResponse, CareerArtifactResponse,
-    CareerArtifactResultSnapshot, CareerArtifactSnapshot, CareerArtifactVersionSnapshot,
-    CareerArtifactsResponse, CareerCommandResult, CareerEmploymentContractSnapshot,
-    CareerEmploymentResponse, CareerEvidenceSnapshot, CareerFocusResponse,
-    CareerFocusResultSnapshot, CareerInvitationResponse, CareerInvitationResultSnapshot,
-    CareerInvitationSnapshot, CareerJobSnapshot, CareerJobsResponse, CareerOfferResponse,
-    CareerOfferResultSnapshot, CareerOfferSnapshot, CareerOpenApplicationSnapshot,
-    CareerScoresSnapshot, CareerSnapshot, CareerSpecsResponse, CashContractSnapshot,
-    CashProductCatalogResponse, CashProductCommandResult, CashProductVersionSnapshot,
-    CharacterStartResponse, CharacterStartSnapshot, CmaAccountCloseResponse,
-    CmaAccountCloseSnapshot, CmaAccountOpenResponse, CmaAccountOpenSnapshot, CmaAccountSnapshot,
-    DepositCloseResponse, DepositCloseSnapshot, DepositKindSnapshot, DepositOpenResponse,
-    DepositOpenSnapshot, DepositProtectionSnapshot, FinanceAccountsResponse, FinanceCommandResult,
-    FinanceSnapshot, FinanceTransferResponse, FinanceTransferSnapshot, FinancialAccountSnapshot,
-    FinancialIncomeAssessmentSnapshot, FinancialIncomeSourceSnapshot, FinancialIncomeYearSnapshot,
-    FinancialIncomeYearStatusSnapshot, FinancialInstitutionSnapshot, GameCommandCursorSnapshot,
-    GameLoopError, GameSnapshot, GoldAccountOpenResponse, GoldOrderResponse,
-    GoldWithdrawalResponse, IsaAccountSnapshot, IsaCloseResponse, IsaCloseSnapshot,
-    LedgerPageResponse, LedgerPostingSnapshot, LedgerTransactionSnapshot, M2MarketFactorsSnapshot,
-    MarketHistoryPoint, MarketHistoryResponse, MarketIndexSnapshot, MarketRatesSnapshot,
-    MarketSnapshot, PendingSettlementSnapshot, PensionAccountSnapshot, PensionStartResponse,
-    PensionStartSnapshot, PensionTaxLayersSnapshot, PensionWithdrawalResponse,
-    PensionWithdrawalSnapshot, PlaceOrderResult, PolicySetSnapshot, PortfolioOrderResponse,
+    ActiveHousingLeaseSnapshot, ActiveLeaseTermSnapshot, ActiveMilitarySavingsStatusSnapshot,
+    ActiveMilitarySavingsSummarySnapshot, ActiveMilitaryServiceStatusSnapshot,
+    ActiveMilitaryServiceSummarySnapshot, ActiveWelfareApplicationSnapshot,
+    ActiveWelfareApplicationStatusSnapshot, AdvanceCommandSnapshot, AdvanceResponse, AppState,
+    AssetCommandResult, AutoSpeed, BondOrderResponse, CareerActivitiesResponse,
+    CareerActivityCatalogSnapshot, CareerActivityHistorySnapshot, CareerActivityResponse,
+    CareerActivityResultSnapshot, CareerActivitySnapshot, CareerApplicationResponse,
+    CareerApplicationResultSnapshot, CareerApplicationSnapshot, CareerApplicationsResponse,
+    CareerArtifactResponse, CareerArtifactResultSnapshot, CareerArtifactSnapshot,
+    CareerArtifactVersionSnapshot, CareerArtifactsResponse, CareerCommandResult,
+    CareerEmploymentContractSnapshot, CareerEmploymentResponse, CareerEmploymentTaxYearSnapshot,
+    CareerEmploymentTaxYearSourceSnapshot, CareerEmploymentTaxYearStatusSnapshot,
+    CareerEvidenceSnapshot, CareerFocusResponse, CareerFocusResultSnapshot,
+    CareerInvitationResponse, CareerInvitationResultSnapshot, CareerInvitationSnapshot,
+    CareerJobSnapshot, CareerJobsResponse, CareerOfferResponse, CareerOfferResultSnapshot,
+    CareerOfferSnapshot, CareerOpenApplicationSnapshot, CareerPayrollResponse,
+    CareerPayrollSnapshot, CareerPendingScheduleItemSnapshot, CareerRewardPaymentSnapshot,
+    CareerScheduledActionKindSnapshot, CareerScheduledSettlementKindSnapshot, CareerScoresSnapshot,
+    CareerSnapshot, CareerSpecsResponse, CashContractSnapshot, CashProductCatalogResponse,
+    CashProductCommandResult, CashProductVersionSnapshot, CharacterStartResponse,
+    CharacterStartSnapshot, CmaAccountCloseResponse, CmaAccountCloseSnapshot,
+    CmaAccountOpenResponse, CmaAccountOpenSnapshot, CmaAccountSnapshot, CreditBandSnapshot,
+    CreditReasonSnapshot, CreditResponse, DepositCloseResponse, DepositCloseSnapshot,
+    DepositKindSnapshot, DepositLoanExecutionSnapshot, DepositOpenResponse, DepositOpenSnapshot,
+    DepositProtectionSnapshot, EssentialArrearPaymentResponse,
+    EssentialArrearPaymentResultSnapshot, EssentialArrearSnapshot, FinanceAccountsResponse,
+    FinanceCommandResult, FinanceSnapshot, FinanceTransferResponse, FinanceTransferSnapshot,
+    FinancialAccountSnapshot, FinancialIncomeAssessmentSnapshot, FinancialIncomeSourceSnapshot,
+    FinancialIncomeYearSnapshot, FinancialIncomeYearStatusSnapshot, FinancialInstitutionSnapshot,
+    GameCommandCursorSnapshot, GameLoopError, GameSnapshot, GoldAccountOpenResponse,
+    GoldOrderResponse, GoldWithdrawalResponse, HousingLeaseArrearRepaymentRuleSnapshot,
+    HousingLeaseCapabilitySnapshot, HousingLeaseCurrentResponse, HousingLeaseMoveResponse,
+    HousingLeaseMoveResultSnapshot, HousingLeaseOfferKindSnapshot, HousingLeaseRenewalRuleSnapshot,
+    HousingLeaseRoleSnapshot, HousingLeaseTerminationReviewRuleSnapshot, HousingListingSnapshot,
+    HousingListingsResponse, HousingMovingCostSnapshot, HousingOfferSnapshot,
+    HousingPropertyHoldingsResponse, HousingPropertyTypeSnapshot,
+    HousingPurchaseCapabilitySnapshot, HousingRateStatusSnapshot, HousingRegionKeySnapshot,
+    HousingRegionSnapshot, HousingRentChargeRuleSnapshot, InsuranceCancellationResponse,
+    InsuranceCancellationResultSnapshot, InsuranceCapabilitySnapshot,
+    InsuranceClaimAllocationSnapshot, InsuranceClaimHistoryItemSnapshot, InsuranceClaimResponse,
+    InsuranceClaimResultSnapshot, InsuranceContractSnapshot, InsuranceContractStatusSnapshot,
+    InsuranceContractsResponse, InsuranceEligibilityReasonSnapshot,
+    InsuranceEligibilityStatusSnapshot, InsuranceEnrollmentResponse,
+    InsuranceEnrollmentResultSnapshot, InsuranceProductSnapshot, IsaAccountSnapshot,
+    IsaCloseResponse, IsaCloseSnapshot, JeonseHousingLeaseOfferKindSnapshot,
+    LeaseArrearPaymentResponse, LeaseArrearPaymentResultSnapshot, LeaseArrearSnapshot,
+    LeaseDepositLoanAffordabilitySnapshot, LeaseDepositLoanQuoteDecisionSnapshot,
+    LeaseDepositLoanQuoteReasonSnapshot, LeaseDepositLoanQuoteResponse,
+    LeaseDepositLoanQuoteResultSnapshot, LeaseLifecycleTermsSnapshot, LeaseRenewalNoticeSnapshot,
+    LeaseTerminationReviewSnapshot, LeaseTerminationReviewStatusSnapshot, LedgerPageResponse,
+    LedgerPostingSnapshot, LedgerTransactionSnapshot, LifeBudgetBandSnapshot, LifeBudgetResponse,
+    LifeBudgetSelectionSnapshot, LifeBudgetUpdateResponse, LifeBudgetUpdateResultSnapshot,
+    LifeCommandResult, LifeEventCapabilitySnapshot, LifeEventChoiceResponse,
+    LifeEventChoiceResultSnapshot, LifeEventChoiceSnapshot, LifeEventDecisionKindSnapshot,
+    LifeEventEffectSummarySnapshot, LifeEventHistoryItemSnapshot, LifeEventResolutionKindSnapshot,
+    LifeEventsResponse, LifeHouseholdSnapshot, LifeRateStatusSnapshot, LifeResidenceSnapshot,
+    LifeSnapshot, LivingCostCategorySnapshot, LivingCostMonthItemSnapshot, LivingCostMonthSnapshot,
+    LoanContractStatusSnapshot, LoanDayCountRuleSnapshot, LoanDetailResponse,
+    LoanExecutionResponse, LoanExecutionResultSnapshot, LoanInstallmentsResponse,
+    LoanLenderSectorSnapshot, LoanPaymentCalendarSnapshot, LoanPrepaymentEffectSnapshot,
+    LoanPrepaymentNextInstallmentSnapshot, LoanPrepaymentResponse, LoanPrepaymentResultSnapshot,
+    LoanPrepaymentStatusSnapshot, LoanProductCatalogResponse, LoanProductKindSnapshot,
+    LoanProductProvenanceSnapshot, LoanProductSnapshot, LoanQuoteDecisionSnapshot,
+    LoanQuoteDsrSnapshot, LoanQuoteFirstInstallmentSnapshot, LoanQuoteReasonSnapshot,
+    LoanQuoteResponse, LoanQuoteResultSnapshot, LoanQuotedTermsSnapshot, LoanRateReferenceSnapshot,
+    LoanRateResetRuleSnapshot, LoanRateStatusSnapshot, LoanRateTypeSnapshot,
+    LoanRepaymentMethodSnapshot, LoanSummarySnapshot, M2MarketFactorsSnapshot, MarketHistoryPoint,
+    MarketHistoryResponse, MarketIndexSnapshot, MarketRatesSnapshot, MarketSnapshot,
+    MilitaryCompensationKindSnapshot, MilitaryExperienceCreditSnapshot,
+    MilitaryHardRequirementsSnapshot, MilitaryOptionIneligibilityReasonSnapshot,
+    MilitaryOptionSnapshot, MilitaryOptionsResponse, MilitaryPayScheduleSnapshot,
+    MilitaryPayStageSnapshot, MilitarySavingsClosureReasonSnapshot, MilitarySavingsCommandResponse,
+    MilitarySavingsContractStatusSnapshot, MilitarySavingsDayCountConventionSnapshot,
+    MilitarySavingsHistoryItemSnapshot, MilitarySavingsHistoryResponse,
+    MilitarySavingsIneligibilityReasonSnapshot, MilitarySavingsInstallmentSnapshot,
+    MilitarySavingsInstallmentStatusSnapshot, MilitarySavingsInterestRoundingSnapshot,
+    MilitarySavingsInterestTierSnapshot, MilitarySavingsMaturityProjectionSnapshot,
+    MilitarySavingsProductSnapshot, MilitarySavingsProductsResponse,
+    MilitarySavingsProjectionAssumptionSnapshot, MilitarySavingsResultSnapshot,
+    MilitaryServiceCommandResponse, MilitaryServiceHistorySnapshot, MilitaryServiceResponse,
+    MilitaryServiceResultSnapshot, MilitaryServiceSourceKindSnapshot,
+    MilitaryServiceStatusSnapshot, MilitaryServiceTypeSnapshot, MilitaryStatusSnapshot,
+    MonthlyRentTerminationReviewTermsSnapshot, MonthlyRentTermsSnapshot, MortgageExecutionSnapshot,
+    MortgageLtvRegionClassSnapshot, MortgageLtvSnapshot, MortgageQuoteDecisionSnapshot,
+    MortgageQuoteReasonSnapshot, MortgageQuoteResponse, MortgageQuoteResultSnapshot,
+    MortgageStressTreatmentSnapshot, NextLoanInstallmentSnapshot, PendingInsuranceClaimSnapshot,
+    PendingLifeEventSnapshot, PendingSettlementSnapshot, PensionAccountSnapshot,
+    PensionStartResponse, PensionStartSnapshot, PensionTaxLayersSnapshot,
+    PensionWithdrawalResponse, PensionWithdrawalSnapshot, PlaceOrderResult, PolicySetSnapshot,
+    PortfolioOrderResponse, PropertyHoldingPurposeSnapshot, PropertyHoldingSnapshot,
+    PropertyHoldingStatusSnapshot, PropertyPurchaseResponse, PropertyPurchaseResultSnapshot,
+    PropertySaleExecutionSnapshot, PropertySaleOrderCancellationResponse,
+    PropertySaleOrderCancellationResultSnapshot, PropertySaleOrderListingResponse,
+    PropertySaleOrderListingResultSnapshot, PropertySaleOrderRejectionReasonSnapshot,
+    PropertySaleOrderRevisionKindSnapshot, PropertySaleOrderStatusSnapshot,
+    PropertySaleOrderSummarySnapshot, PropertySaleOrdersResponse, PropertyTaxComponentSnapshot,
+    PropertyTaxEventKindSnapshot, PropertyTaxEventSnapshot, PropertyTaxEventStatusSnapshot,
+    PropertyTaxEventsResponse, PropertyTaxPaymentSnapshot, PropertyTaxPaymentStatusSnapshot,
+    RegulatoryDsrAppliedSnapshot, RepaidDepositLoanSnapshot, ResidenceTenureKindSnapshot,
     StreamConnection, TaxAccountCommandResult, TaxAccountOpenResponse, TaxAccountOpenSnapshot,
+    VerifiedIncomeSourceSnapshot, WelfareApplicationResponse, WelfareApplicationResultSnapshot,
+    WelfareApplicationStatusSnapshot, WelfareApplicationSummarySnapshot,
+    WelfareConditionOutcomeSnapshot, WelfareConditionResultSnapshot,
+    WelfareEvaluationStatusSnapshot, WelfarePaymentSnapshot, WelfarePaymentStatusSnapshot,
+    WelfareProgramSnapshot, WelfareProgramsResponse, YearMonthSnapshot,
 };
 use crate::store::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, ApplyCareerCommand,
-    CancelCareerActivityCommand, CareerArtifactPageQuery, CareerJobsPageQuery, CareerPageQuery,
-    CareerPlatform, CloseIsaAccountCommand, ConfirmCareerInterviewCommand,
-    DeclineCareerInvitationCommand, DeclineCareerOfferCommand, FocusCareerCommand,
-    InterviewDecision, ManualAdvanceCommand, OpenTaxAccountCommand, PensionWithdrawalCommand,
-    PublishCareerArtifactCommand, StartCareerActivityCommand, StartGameCommand,
-    StartPensionCommand, WithdrawCareerApplicationCommand,
+    ApplyWelfareProgramCommand, CancelCareerActivityCommand, CancelInsuranceContractCommand,
+    CancelPropertySaleOrderCommand, CareerArtifactPageQuery, CareerJobsPageQuery, CareerPageQuery,
+    CareerPlatform, CloseIsaAccountCommand, CloseMilitarySavingsCommand,
+    ConfirmCareerInterviewCommand, CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand,
+    CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand, DeclineCareerInvitationCommand,
+    DeclineCareerOfferCommand, EnrollInsuranceContractCommand, ExecuteLoanCommand,
+    FileInsuranceClaimCommand, FocusCareerCommand, HousingListingsQueryState, InsuranceQueryState,
+    InterviewDecision, LifeBudgetSelectionState, LifeEventsQueryState, LifeFailureCode,
+    LoanInstallmentPageCursor, LoanInstallmentPageQuery, ManualAdvanceCommand,
+    OpenMilitarySavingsCommand, OpenTaxAccountCommand, PayEssentialArrearCommand,
+    PayLeaseArrearCommand, PensionWithdrawalCommand, PrepayLoanCommand, PropertySaleOrderPageQuery,
+    PropertyTaxEventPageQuery, PublishCareerArtifactCommand, PurchasePropertyCommand,
+    RepricePropertySaleOrderCommand, ResolveLifeEventCommand, StartCareerActivityCommand,
+    StartGameCommand, StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
+    StartingLoanCommand, UpdateLifeBudgetCommand, WithdrawCareerApplicationCommand,
 };
 use crate::trading::{
     OrderSide, Portfolio, PortfolioPosition, TradeExecution, TradeFailure, TradeFailureCode,
@@ -86,6 +176,11 @@ const DEFAULT_LEDGER_PAGE_SIZE: u32 = 50;
 const MAX_LEDGER_PAGE_SIZE: u32 = 200;
 const DEFAULT_CAREER_PAGE_SIZE: u32 = 50;
 const MAX_CAREER_PAGE_SIZE: u32 = 200;
+const DEFAULT_LOAN_INSTALLMENT_PAGE_SIZE: u8 = 50;
+const MAX_LOAN_INSTALLMENT_PAGE_SIZE: u8 = 50;
+const DEFAULT_PROPERTY_HISTORY_PAGE_SIZE: u8 = 20;
+const MAX_PROPERTY_HISTORY_PAGE_SIZE: u8 = 20;
+const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// API docs, mounted under `/api` because that is the prefix nginx forwards.
 #[derive(OpenApi)]
@@ -118,6 +213,37 @@ const MAX_CAREER_PAGE_SIZE: u32 = 200;
         finance_tax_year,
         finance_transfer,
         finance_ledger,
+        welfare_programs,
+        apply_welfare_program,
+        life_events,
+        resolve_life_event,
+        insurance_contracts,
+        enroll_insurance_contract,
+        cancel_insurance_contract,
+        file_insurance_claim,
+        housing_listings,
+        housing_lease_current,
+        housing_property_holdings,
+        property_sale_orders,
+        create_property_sale_order,
+        reprice_property_sale_order,
+        cancel_property_sale_order,
+        property_tax_events,
+        start_housing_lease,
+        quote_lease_deposit_loan,
+        quote_mortgage,
+        purchase_property,
+        life_budget,
+        loan_products,
+        loan_detail,
+        loan_installments,
+        quote_loan,
+        execute_loan,
+        prepay_loan,
+        credit,
+        update_life_budget,
+        pay_essential_arrear,
+        pay_lease_arrear,
         career_specs,
         career_activities,
         career_artifacts,
@@ -128,6 +254,12 @@ const MAX_CAREER_PAGE_SIZE: u32 = 200;
         career_jobs,
         career_applications,
         career_employment,
+        career_payroll,
+        career_employment_tax_year,
+        military_options,
+        military_service,
+        military_savings_products,
+        military_savings,
         apply_career,
         confirm_career_interview,
         withdraw_career_application,
@@ -135,6 +267,9 @@ const MAX_CAREER_PAGE_SIZE: u32 = 200;
         decline_career_invitation,
         accept_career_offer,
         decline_career_offer,
+        start_military_service,
+        open_military_savings,
+        close_military_savings,
         market_history,
         clock,
         stream,
@@ -174,6 +309,53 @@ const MAX_CAREER_PAGE_SIZE: u32 = 200;
         CareerEmploymentContractSnapshot,
         CareerApplicationsResponse,
         CareerEmploymentResponse,
+        CareerPayrollSnapshot,
+        CareerRewardPaymentSnapshot,
+        CareerPayrollResponse,
+        CareerEmploymentTaxYearSnapshot,
+        CareerEmploymentTaxYearStatusSnapshot,
+        CareerEmploymentTaxYearSourceSnapshot,
+        MilitaryStatusSnapshot,
+        MilitaryServiceTypeSnapshot,
+        MilitaryServiceStatusSnapshot,
+        ActiveMilitaryServiceStatusSnapshot,
+        MilitaryServiceSourceKindSnapshot,
+        MilitaryCompensationKindSnapshot,
+        MilitaryPayScheduleSnapshot,
+        MilitaryOptionIneligibilityReasonSnapshot,
+        MilitarySavingsIneligibilityReasonSnapshot,
+        MilitarySavingsContractStatusSnapshot,
+        ActiveMilitarySavingsStatusSnapshot,
+        MilitarySavingsInstallmentStatusSnapshot,
+        MilitarySavingsClosureReasonSnapshot,
+        MilitarySavingsDayCountConventionSnapshot,
+        MilitarySavingsInterestRoundingSnapshot,
+        MilitarySavingsProjectionAssumptionSnapshot,
+        MilitaryHardRequirementsSnapshot,
+        MilitaryPayStageSnapshot,
+        MilitaryExperienceCreditSnapshot,
+        MilitaryOptionSnapshot,
+        MilitaryOptionsResponse,
+        ActiveMilitaryServiceSummarySnapshot,
+        MilitaryServiceHistorySnapshot,
+        MilitaryServiceResponse,
+        MilitarySavingsInterestTierSnapshot,
+        MilitarySavingsProductSnapshot,
+        MilitarySavingsProductsResponse,
+        ActiveMilitarySavingsSummarySnapshot,
+        MilitarySavingsInstallmentSnapshot,
+        MilitarySavingsMaturityProjectionSnapshot,
+        MilitarySavingsHistoryItemSnapshot,
+        MilitarySavingsHistoryResponse,
+        MilitaryServiceResultSnapshot,
+        MilitarySavingsResultSnapshot,
+        MilitaryServiceCommandResponse,
+        MilitarySavingsCommandResponse,
+        CareerScheduledActionKindSnapshot,
+        CareerScheduledSettlementKindSnapshot,
+        CareerPendingScheduleItemSnapshot,
+        MilitaryServiceStartRequest,
+        MilitarySavingsEnrollmentRequest,
         CareerApplicationResultSnapshot,
         CareerInvitationResultSnapshot,
         CareerOfferResultSnapshot,
@@ -281,6 +463,190 @@ const MAX_CAREER_PAGE_SIZE: u32 = 200;
         LedgerPageResponse,
         LedgerTransactionSnapshot,
         LedgerPostingSnapshot,
+        LifeSnapshot,
+        LifeRateStatusSnapshot,
+        WelfareEvaluationStatusSnapshot,
+        WelfareConditionOutcomeSnapshot,
+        WelfareApplicationStatusSnapshot,
+        ActiveWelfareApplicationStatusSnapshot,
+        WelfarePaymentStatusSnapshot,
+        WelfareConditionResultSnapshot,
+        WelfarePaymentSnapshot,
+        WelfareApplicationSummarySnapshot,
+        WelfareProgramSnapshot,
+        WelfareProgramsResponse,
+        ActiveWelfareApplicationSnapshot,
+        LifeEventCapabilitySnapshot,
+        InsuranceCapabilitySnapshot,
+        LifeEventDecisionKindSnapshot,
+        LifeEventResolutionKindSnapshot,
+        LifeEventEffectSummarySnapshot,
+        LifeEventChoiceSnapshot,
+        PendingLifeEventSnapshot,
+        LifeEventHistoryItemSnapshot,
+        LifeEventsResponse,
+        LifeEventChoiceRequest,
+        LifeEventChoiceResultSnapshot,
+        LifeEventChoiceResponse,
+        InsuranceEligibilityStatusSnapshot,
+        InsuranceEligibilityReasonSnapshot,
+        InsuranceContractStatusSnapshot,
+        InsuranceProductSnapshot,
+        InsuranceContractSnapshot,
+        InsuranceClaimAllocationSnapshot,
+        PendingInsuranceClaimSnapshot,
+        InsuranceClaimHistoryItemSnapshot,
+        InsuranceContractsResponse,
+        InsuranceEnrollmentRequest,
+        InsuranceEnrollmentResultSnapshot,
+        InsuranceEnrollmentResponse,
+        InsuranceCancellationRequest,
+        InsuranceCancellationResultSnapshot,
+        InsuranceCancellationResponse,
+        InsuranceClaimRequest,
+        InsuranceClaimResultSnapshot,
+        InsuranceClaimResponse,
+        WelfareApplicationRequest,
+        WelfareApplicationResultSnapshot,
+        WelfareApplicationResponse,
+        HousingRegionKeySnapshot,
+        HousingRateStatusSnapshot,
+        HousingPropertyTypeSnapshot,
+        HousingOfferSnapshot,
+        HousingRegionSnapshot,
+        HousingListingSnapshot,
+        HousingListingsResponse,
+        HousingLeaseCapabilitySnapshot,
+        HousingLeaseRenewalRuleSnapshot,
+        HousingLeaseTerminationReviewRuleSnapshot,
+        HousingLeaseRoleSnapshot,
+        HousingLeaseOfferKindSnapshot,
+        JeonseHousingLeaseOfferKindSnapshot,
+        HousingRentChargeRuleSnapshot,
+        HousingLeaseArrearRepaymentRuleSnapshot,
+        HousingMovingCostSnapshot,
+        ActiveHousingLeaseSnapshot,
+        ActiveLeaseTermSnapshot,
+        MonthlyRentTermsSnapshot,
+        MonthlyRentTerminationReviewTermsSnapshot,
+        LeaseLifecycleTermsSnapshot,
+        LeaseRenewalNoticeSnapshot,
+        LeaseTerminationReviewStatusSnapshot,
+        LeaseTerminationReviewSnapshot,
+        LeaseArrearSnapshot,
+        HousingLeaseCurrentResponse,
+        HousingLeaseOfferKindRequest,
+        JeonseHousingLeaseOfferKindRequest,
+        StartHousingLeaseRequest,
+        StartHousingLeaseCashRequest,
+        StartHousingLeaseFinancedRequest,
+        HousingLeaseMoveResultSnapshot,
+        HousingLeaseMoveResponse,
+        DepositLoanExecutionSnapshot,
+        RepaidDepositLoanSnapshot,
+        HousingPurchaseCapabilitySnapshot,
+        PropertyHoldingStatusSnapshot,
+        PropertyHoldingPurposeSnapshot,
+        PropertyHoldingSnapshot,
+        HousingPropertyHoldingsResponse,
+        MortgageQuoteRequest,
+        MortgageQuoteDecisionSnapshot,
+        MortgageQuoteReasonSnapshot,
+        MortgageLtvRegionClassSnapshot,
+        MortgageStressTreatmentSnapshot,
+        MortgageLtvSnapshot,
+        MortgageQuoteResultSnapshot,
+        MortgageQuoteResponse,
+        PropertyPurchaseRequest,
+        MortgageExecutionSnapshot,
+        PropertyPurchaseResultSnapshot,
+        PropertyPurchaseResponse,
+        PropertySaleOrderCreateRequest,
+        PropertySaleOrderRepriceRequest,
+        PropertySaleOrderCancelRequest,
+        PropertySaleOrderStatusSnapshot,
+        PropertySaleOrderRevisionKindSnapshot,
+        PropertySaleOrderRejectionReasonSnapshot,
+        PropertySaleOrderListingResultSnapshot,
+        PropertySaleOrderCancellationResultSnapshot,
+        PropertySaleOrderListingResponse,
+        PropertySaleOrderCancellationResponse,
+        PropertySaleExecutionSnapshot,
+        PropertySaleOrderSummarySnapshot,
+        PropertySaleOrdersResponse,
+        PropertyTaxEventKindSnapshot,
+        PropertyTaxEventStatusSnapshot,
+        PropertyTaxPaymentStatusSnapshot,
+        PropertyTaxComponentSnapshot,
+        PropertyTaxPaymentSnapshot,
+        PropertyTaxEventSnapshot,
+        PropertyTaxEventsResponse,
+        LeaseDepositLoanQuoteRequest,
+        LeaseDepositLoanQuoteDecisionSnapshot,
+        LeaseDepositLoanQuoteReasonSnapshot,
+        LeaseDepositLoanAffordabilitySnapshot,
+        LeaseDepositLoanQuoteResultSnapshot,
+        LeaseDepositLoanQuoteResponse,
+        RegulatoryDsrAppliedSnapshot,
+        LeaseArrearPaymentRequest,
+        LeaseArrearPaymentResultSnapshot,
+        LeaseArrearPaymentResponse,
+        CreditBandSnapshot,
+        CreditReasonSnapshot,
+        CreditResponse,
+        LoanProductCatalogResponse,
+        LoanProductSnapshot,
+        LoanLenderSectorSnapshot,
+        LoanRateTypeSnapshot,
+        LoanRateReferenceSnapshot,
+        LoanRateResetRuleSnapshot,
+        LoanDayCountRuleSnapshot,
+        LoanRepaymentMethodSnapshot,
+        LoanPaymentCalendarSnapshot,
+        LoanPrepaymentEffectSnapshot,
+        LoanProductProvenanceSnapshot,
+        LoanProductKindSnapshot,
+        LoanRateStatusSnapshot,
+        LoanContractStatusSnapshot,
+        LoanSummarySnapshot,
+        NextLoanInstallmentSnapshot,
+        LoanQuoteRequest,
+        LoanQuoteDecisionSnapshot,
+        LoanQuoteReasonSnapshot,
+        VerifiedIncomeSourceSnapshot,
+        LoanQuoteDsrSnapshot,
+        LoanQuoteFirstInstallmentSnapshot,
+        LoanQuotedTermsSnapshot,
+        LoanQuoteResultSnapshot,
+        LoanQuoteResponse,
+        LoanExecutionRequest,
+        LoanExecutionResultSnapshot,
+        LoanExecutionResponse,
+        LoanPrepaymentRequest,
+        LoanPrepaymentStatusSnapshot,
+        LoanPrepaymentNextInstallmentSnapshot,
+        LoanPrepaymentResultSnapshot,
+        LoanPrepaymentResponse,
+        LifeHouseholdSnapshot,
+        LifeResidenceSnapshot,
+        ResidenceTenureKindSnapshot,
+        LivingCostCategorySnapshot,
+        YearMonthSnapshot,
+        LifeBudgetBandSnapshot,
+        LifeBudgetSelectionSnapshot,
+        LivingCostMonthItemSnapshot,
+        LivingCostMonthSnapshot,
+        EssentialArrearSnapshot,
+        LifeBudgetResponse,
+        LifeBudgetSelectionRequest,
+        LifeBudgetUpdateRequest,
+        EssentialArrearPaymentRequest,
+        LifeBudgetUpdateResultSnapshot,
+        LifeBudgetUpdateResponse,
+        EssentialArrearPaymentResultSnapshot,
+        EssentialArrearPaymentResponse,
+        LifeFailure,
+        LifeFailureCodeSnapshot,
         MarketHistoryResponse,
         MarketHistoryPoint,
         TradeOrderRequest,
@@ -354,6 +720,64 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/finance/tax-years/{year}", get(finance_tax_year))
         .route("/api/finance/transfers", post(finance_transfer))
         .route("/api/finance/ledger", get(finance_ledger))
+        .route("/api/welfare/programs", get(welfare_programs))
+        .route("/api/welfare/applications", post(apply_welfare_program))
+        .route("/api/life/events", get(life_events))
+        .route(
+            "/api/life/events/{eventId}/choices",
+            post(resolve_life_event),
+        )
+        .route(
+            "/api/insurance/contracts",
+            get(insurance_contracts).post(enroll_insurance_contract),
+        )
+        .route(
+            "/api/insurance/contracts/{contractId}/cancellations",
+            post(cancel_insurance_contract),
+        )
+        .route("/api/insurance/claims", post(file_insurance_claim))
+        .route("/api/housing/listings", get(housing_listings))
+        .route("/api/housing/leases/current", get(housing_lease_current))
+        .route("/api/housing/leases", post(start_housing_lease))
+        .route("/api/housing/holdings", get(housing_property_holdings))
+        .route(
+            "/api/housing/sales",
+            get(property_sale_orders).post(create_property_sale_order),
+        )
+        .route(
+            "/api/housing/sales/{orderId}/reprice",
+            post(reprice_property_sale_order),
+        )
+        .route(
+            "/api/housing/sales/{orderId}/cancel",
+            post(cancel_property_sale_order),
+        )
+        .route(
+            "/api/housing/holdings/{holdingId}/tax-events",
+            get(property_tax_events),
+        )
+        .route("/api/housing/mortgage-quotes", post(quote_mortgage))
+        .route("/api/housing/purchases", post(purchase_property))
+        .route(
+            "/api/housing/lease-deposit-loan-quotes",
+            post(quote_lease_deposit_loan),
+        )
+        .route(
+            "/api/housing/lease-arrears/{id}/payments",
+            post(pay_lease_arrear),
+        )
+        .route("/api/loans/products", get(loan_products))
+        .route("/api/loans/quotes", post(quote_loan))
+        .route("/api/loans", post(execute_loan))
+        .route("/api/loans/{loanId}", get(loan_detail))
+        .route("/api/loans/{loanId}/installments", get(loan_installments))
+        .route("/api/loans/{loanId}/prepayments", post(prepay_loan))
+        .route("/api/credit", get(credit))
+        .route("/api/life/budget", get(life_budget).put(update_life_budget))
+        .route(
+            "/api/life/arrears/{id}/payments",
+            post(pay_essential_arrear),
+        )
         .route("/api/career/specs", get(career_specs))
         .route(
             "/api/career/activities",
@@ -395,6 +819,28 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(decline_career_offer),
         )
         .route("/api/career/employment", get(career_employment))
+        .route("/api/career/payroll", get(career_payroll))
+        .route(
+            "/api/career/tax-years/{year}",
+            get(career_employment_tax_year),
+        )
+        .route("/api/military/options", get(military_options))
+        .route(
+            "/api/military/service",
+            get(military_service).post(start_military_service),
+        )
+        .route(
+            "/api/military/savings-products",
+            get(military_savings_products),
+        )
+        .route(
+            "/api/military/savings",
+            get(military_savings).post(open_military_savings),
+        )
+        .route(
+            "/api/military/savings/{id}/close",
+            post(close_military_savings),
+        )
         .route("/api/markets/LLX/history", get(market_history))
         .route("/api/clock", post(clock))
         .route("/api/stream", get(stream))
@@ -419,8 +865,15 @@ async fn presets() -> Json<&'static [character::Preset]> {
 }
 
 #[derive(Deserialize, ToSchema)]
+#[serde(untagged)]
+enum CharacterStartRequest {
+    V2(CharacterStartV2Request),
+    V1(CharacterStartV1Request),
+}
+
+#[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CharacterStartRequest {
+struct CharacterStartV1Request {
     #[schema(
         format = "uuid",
         min_length = 36,
@@ -434,18 +887,181 @@ struct CharacterStartRequest {
     character: character::CharacterDraft,
 }
 
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CharacterStartV2Request {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    character: CharacterStartProfile,
+    #[schema(max_items = 2)]
+    starting_loans: Vec<CharacterStartingLoan>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CharacterStartProfile {
+    name: String,
+    age: u32,
+    gender: character::Gender,
+    military: character::MilitaryStatus,
+    region: character::Region,
+    background: character::FamilyBackground,
+    education: character::Education,
+    career_years: u32,
+    certifications: u32,
+    starting_cash_krw: i64,
+    health: character::Health,
+    dependents: u32,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum CharacterStartingLoanKind {
+    StudentLoan,
+    UnsecuredLoan,
+}
+
+impl CharacterStartingLoanKind {
+    const fn order(self) -> u8 {
+        match self {
+            Self::StudentLoan => 0,
+            Self::UnsecuredLoan => 1,
+        }
+    }
+
+    const fn product_kind(self) -> LoanProductKind {
+        match self {
+            Self::StudentLoan => LoanProductKind::StudentLoan,
+            Self::UnsecuredLoan => LoanProductKind::UnsecuredLoan,
+        }
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CharacterStartingLoan {
+    kind: CharacterStartingLoanKind,
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]{0,19}$")]
+    product_version_id: String,
+    #[schema(minimum = 1)]
+    principal_krw: i64,
+}
+
 impl CharacterStartRequest {
     fn into_command(self) -> Result<StartGameCommand, GameLoopError> {
+        match self {
+            Self::V1(request) => request.into_command(),
+            Self::V2(request) => request.into_command(),
+        }
+    }
+}
+
+impl CharacterStartV1Request {
+    fn into_command(self) -> Result<StartGameCommand, GameLoopError> {
         Ok(StartGameCommand {
-            command_id: CommandId::parse(self.command_id)
-                .map_err(|_| GameLoopError::InvalidCommand)?,
-            cursor: CommandCursor {
-                expected_run_revision: self.expected_run_revision,
-                expected_state_revision: self.expected_state_revision,
-                expected_game_day: self.expected_game_day,
-            },
+            command_id: parse_start_command_id(self.command_id)?,
+            cursor: start_cursor(
+                self.expected_run_revision,
+                self.expected_state_revision,
+                self.expected_game_day,
+            ),
             draft: self.character,
+            starting_loans: None,
         })
+    }
+}
+
+impl CharacterStartV2Request {
+    fn into_command(self) -> Result<StartGameCommand, GameLoopError> {
+        if self.starting_loans.len() > 2 {
+            return Err(GameLoopError::InvalidCommand);
+        }
+        let mut prior_order = None;
+        let mut student_loan_krw = 0_i64;
+        let mut credit_loan_krw = 0_i64;
+        let mut starting_loans = Vec::with_capacity(self.starting_loans.len());
+        for loan in self.starting_loans {
+            let order = loan.kind.order();
+            if loan.principal_krw <= 0 || prior_order.is_some_and(|prior| order <= prior) {
+                return Err(GameLoopError::InvalidCommand);
+            }
+            let product_version_id = loan
+                .product_version_id
+                .parse::<u64>()
+                .ok()
+                .filter(|id| *id > 0)
+                .map(ResourceId::from_u64)
+                .ok_or(GameLoopError::InvalidCommand)?;
+            match loan.kind {
+                CharacterStartingLoanKind::StudentLoan => {
+                    student_loan_krw = loan.principal_krw;
+                }
+                CharacterStartingLoanKind::UnsecuredLoan => {
+                    credit_loan_krw = loan.principal_krw;
+                }
+            }
+            starting_loans.push(StartingLoanCommand {
+                product_version_id,
+                product_kind: loan.kind.product_kind(),
+                principal_krw: loan.principal_krw,
+            });
+            prior_order = Some(order);
+        }
+        Ok(StartGameCommand {
+            command_id: parse_start_command_id(self.command_id)?,
+            cursor: start_cursor(
+                self.expected_run_revision,
+                self.expected_state_revision,
+                self.expected_game_day,
+            ),
+            draft: self.character.into_draft(student_loan_krw, credit_loan_krw),
+            starting_loans: Some(starting_loans),
+        })
+    }
+}
+
+impl CharacterStartProfile {
+    fn into_draft(self, student_loan_krw: i64, credit_loan_krw: i64) -> character::CharacterDraft {
+        character::CharacterDraft {
+            name: self.name,
+            age: self.age,
+            gender: self.gender,
+            military: self.military,
+            region: self.region,
+            background: self.background,
+            education: self.education,
+            career_years: self.career_years,
+            certifications: self.certifications,
+            starting_cash_krw: self.starting_cash_krw,
+            student_loan_krw,
+            credit_loan_krw,
+            health: self.health,
+            dependents: self.dependents,
+        }
+    }
+}
+
+fn parse_start_command_id(raw: String) -> Result<CommandId, GameLoopError> {
+    CommandId::parse(raw).map_err(|_| GameLoopError::InvalidCommand)
+}
+
+const fn start_cursor(
+    expected_run_revision: u32,
+    expected_state_revision: u64,
+    expected_game_day: u32,
+) -> CommandCursor {
+    CommandCursor {
+        expected_run_revision,
+        expected_state_revision,
+        expected_game_day,
     }
 }
 
@@ -1863,6 +2479,2245 @@ async fn finance_ledger(
     Ok(Json(state.finance_ledger(user.id, before, limit).await?))
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoanQuoteRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    product_version_id: String,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    principal_krw: i64,
+}
+
+impl TryFrom<LoanQuoteRequest> for CreateLoanQuoteCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: LoanQuoteRequest) -> Result<Self, Self::Error> {
+        if request.principal_krw <= 0 || request.principal_krw > MAX_JSON_SAFE_INTEGER as i64 {
+            return Err(LifeFailureCode::InvalidCommand);
+        }
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let product_version_id = ResourceId::parse(&request.product_version_id)
+            .map_err(|_| LifeFailureCode::InvalidCommand)?;
+
+        Ok(Self {
+            command_id,
+            cursor,
+            product_version_id,
+            principal_krw: request.principal_krw,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoanExecutionRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    quote_id: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoanPrepaymentRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    principal_krw: i64,
+}
+
+fn prepay_loan_command(
+    loan_id: &str,
+    request: LoanPrepaymentRequest,
+) -> Result<PrepayLoanCommand, LifeFailureCode> {
+    if request.principal_krw <= 0 || request.principal_krw > MAX_JSON_SAFE_INTEGER as i64 {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let loan_id = ResourceId::parse(loan_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    Ok(PrepayLoanCommand {
+        command_id,
+        cursor,
+        loan_id,
+        principal_krw: request.principal_krw,
+    })
+}
+
+impl TryFrom<LoanExecutionRequest> for ExecuteLoanCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: LoanExecutionRequest) -> Result<Self, Self::Error> {
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let quote_id =
+            ResourceId::parse(&request.quote_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+
+        Ok(Self {
+            command_id,
+            cursor,
+            quote_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum LivingCostCategoryRequest {
+    Housing,
+    Food,
+    Transport,
+    Communication,
+    Utilities,
+    Healthcare,
+    Education,
+    DependentCare,
+    Discretionary,
+}
+
+impl From<LivingCostCategoryRequest> for LivingCostCategory {
+    fn from(category: LivingCostCategoryRequest) -> Self {
+        match category {
+            LivingCostCategoryRequest::Housing => Self::Housing,
+            LivingCostCategoryRequest::Food => Self::Food,
+            LivingCostCategoryRequest::Transport => Self::Transport,
+            LivingCostCategoryRequest::Communication => Self::Communication,
+            LivingCostCategoryRequest::Utilities => Self::Utilities,
+            LivingCostCategoryRequest::Healthcare => Self::Healthcare,
+            LivingCostCategoryRequest::Education => Self::Education,
+            LivingCostCategoryRequest::DependentCare => Self::DependentCare,
+            LivingCostCategoryRequest::Discretionary => Self::Discretionary,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LifeBudgetSelectionRequest {
+    category: LivingCostCategoryRequest,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    band_id: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LifeBudgetUpdateRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(min_items = 9, max_items = 9)]
+    selections: Vec<LifeBudgetSelectionRequest>,
+}
+
+impl TryFrom<LifeBudgetUpdateRequest> for UpdateLifeBudgetCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: LifeBudgetUpdateRequest) -> Result<Self, Self::Error> {
+        if request.selections.len() != LivingCostCategory::ALL.len()
+            || request
+                .selections
+                .iter()
+                .map(|selection| selection.category)
+                .collect::<HashSet<_>>()
+                .len()
+                != LivingCostCategory::ALL.len()
+        {
+            return Err(LifeFailureCode::InvalidCommand);
+        }
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let mut selections = request
+            .selections
+            .into_iter()
+            .map(|selection| {
+                Ok(LifeBudgetSelectionState {
+                    category: selection.category.into(),
+                    band_id: ResourceId::parse(&selection.band_id)
+                        .map_err(|_| LifeFailureCode::InvalidCommand)?,
+                })
+            })
+            .collect::<Result<Vec<_>, LifeFailureCode>>()?;
+        selections.sort_by_key(|selection| selection.category.order());
+
+        Ok(Self {
+            command_id,
+            cursor,
+            selections,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct EssentialArrearPaymentRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    amount_krw: i64,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LeaseArrearPaymentRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    amount_krw: i64,
+}
+
+fn life_command_parts(
+    command_id: String,
+    expected_run_revision: u32,
+    expected_state_revision: u64,
+    expected_game_day: u32,
+) -> Result<(CommandId, CommandCursor), LifeFailureCode> {
+    if expected_state_revision > MAX_JSON_SAFE_INTEGER {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    Ok((
+        CommandId::parse(command_id).map_err(|_| LifeFailureCode::InvalidCommand)?,
+        CommandCursor {
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+        },
+    ))
+}
+
+fn essential_arrear_payment_command(
+    arrear_id: ResourceId,
+    request: EssentialArrearPaymentRequest,
+) -> Result<PayEssentialArrearCommand, LifeFailureCode> {
+    if request.amount_krw <= 0 || request.amount_krw > MAX_JSON_SAFE_INTEGER as i64 {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    Ok(PayEssentialArrearCommand {
+        command_id,
+        cursor,
+        arrear_id,
+        amount_krw: request.amount_krw,
+    })
+}
+
+fn lease_arrear_payment_command(
+    arrear_id: ResourceId,
+    request: LeaseArrearPaymentRequest,
+) -> Result<PayLeaseArrearCommand, LifeFailureCode> {
+    if request.amount_krw <= 0 || request.amount_krw > MAX_JSON_SAFE_INTEGER as i64 {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    Ok(PayLeaseArrearCommand {
+        command_id,
+        cursor,
+        arrear_id,
+        amount_krw: request.amount_krw,
+    })
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct LifeFailure {
+    code: LifeFailureCodeSnapshot,
+    message: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum LifeFailureCodeSnapshot {
+    InvalidCommand,
+    CharacterRequired,
+    InsufficientWalletCash,
+    RateUnavailable,
+    CreditRestricted,
+    IncomeUnavailable,
+    DebtServiceLimit,
+    CollateralLimit,
+    AffordabilityLimit,
+    ContractConflict,
+    IdempotencyConflict,
+    SettlementConflict,
+    HousingResourceNotFound,
+    WelfareResourceNotFound,
+    EventNotFound,
+    EventExpired,
+    InsuranceResourceNotFound,
+    ClaimNotCovered,
+    Ineligible,
+    ValuationUnavailable,
+    PolicyUnsupported,
+    Busy,
+}
+
+impl From<LifeFailureCode> for LifeFailureCodeSnapshot {
+    fn from(code: LifeFailureCode) -> Self {
+        match code {
+            LifeFailureCode::InvalidCommand => Self::InvalidCommand,
+            LifeFailureCode::CharacterRequired => Self::CharacterRequired,
+            LifeFailureCode::InsufficientWalletCash => Self::InsufficientWalletCash,
+            LifeFailureCode::RateUnavailable => Self::RateUnavailable,
+            LifeFailureCode::CreditRestricted => Self::CreditRestricted,
+            LifeFailureCode::IncomeUnavailable => Self::IncomeUnavailable,
+            LifeFailureCode::DebtServiceLimit => Self::DebtServiceLimit,
+            LifeFailureCode::CollateralLimit => Self::CollateralLimit,
+            LifeFailureCode::AffordabilityLimit => Self::AffordabilityLimit,
+            LifeFailureCode::ContractConflict => Self::ContractConflict,
+            LifeFailureCode::IdempotencyConflict => Self::IdempotencyConflict,
+            LifeFailureCode::SettlementConflict => Self::SettlementConflict,
+            LifeFailureCode::HousingResourceNotFound => Self::HousingResourceNotFound,
+            LifeFailureCode::WelfareResourceNotFound => Self::WelfareResourceNotFound,
+            LifeFailureCode::EventNotFound => Self::EventNotFound,
+            LifeFailureCode::EventExpired => Self::EventExpired,
+            LifeFailureCode::InsuranceResourceNotFound => Self::InsuranceResourceNotFound,
+            LifeFailureCode::ClaimNotCovered => Self::ClaimNotCovered,
+            LifeFailureCode::Ineligible => Self::Ineligible,
+            LifeFailureCode::ValuationUnavailable => Self::ValuationUnavailable,
+            LifeFailureCode::PolicyUnsupported => Self::PolicyUnsupported,
+            LifeFailureCode::Busy => Self::Busy,
+        }
+    }
+}
+
+enum LifeRouteError {
+    Rejected(LifeFailureCode),
+    Internal(AppError),
+}
+
+impl From<LifeFailureCode> for LifeRouteError {
+    fn from(code: LifeFailureCode) -> Self {
+        Self::Rejected(code)
+    }
+}
+
+impl From<anyhow::Error> for LifeRouteError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(AppError::from(error))
+    }
+}
+
+impl axum::response::IntoResponse for LifeRouteError {
+    fn into_response(self) -> axum::response::Response {
+        let code = match self {
+            Self::Rejected(code) => code,
+            Self::Internal(error) => return error.into_response(),
+        };
+        let status = match code {
+            LifeFailureCode::InvalidCommand => StatusCode::BAD_REQUEST,
+            LifeFailureCode::HousingResourceNotFound
+            | LifeFailureCode::WelfareResourceNotFound
+            | LifeFailureCode::EventNotFound
+            | LifeFailureCode::InsuranceResourceNotFound => StatusCode::NOT_FOUND,
+            _ => StatusCode::CONFLICT,
+        };
+        (
+            status,
+            Json(LifeFailure {
+                code: code.into(),
+                message: life_failure_message(code),
+            }),
+        )
+            .into_response()
+    }
+}
+
+const fn life_failure_message(code: LifeFailureCode) -> &'static str {
+    match code {
+        LifeFailureCode::InvalidCommand => "요청 형식이 올바르지 않습니다",
+        LifeFailureCode::CharacterRequired => "먼저 캐릭터를 생성해야 합니다",
+        LifeFailureCode::InsufficientWalletCash => "지갑 현금이 부족합니다",
+        LifeFailureCode::RateUnavailable => "현재 월드에는 필요한 생활·대출·주거 규칙이 없습니다",
+        LifeFailureCode::CreditRestricted => "현재 신용 상태로는 대출을 실행할 수 없습니다",
+        LifeFailureCode::IncomeUnavailable => "검증된 소득이 없어 대출을 실행할 수 없습니다",
+        LifeFailureCode::DebtServiceLimit => "총부채원리금상환비율 한도를 초과했습니다",
+        LifeFailureCode::CollateralLimit => "요청한 대출 원금이 보증금 한도를 초과했습니다",
+        LifeFailureCode::AffordabilityLimit => "전세자금대출 상환여력 한도를 초과했습니다",
+        LifeFailureCode::ContractConflict => "현재 상태에서 이 계약 요청을 처리할 수 없습니다",
+        LifeFailureCode::IdempotencyConflict => "같은 명령 ID가 다른 요청에 사용되었습니다",
+        LifeFailureCode::SettlementConflict => "이미 처리 중이거나 완료된 생활비 정산입니다",
+        LifeFailureCode::HousingResourceNotFound => {
+            "현재 run의 주택 또는 매도 주문을 찾을 수 없습니다"
+        }
+        LifeFailureCode::WelfareResourceNotFound => {
+            "현재 run에서 사용할 수 있는 복지 프로그램을 찾을 수 없습니다"
+        }
+        LifeFailureCode::EventNotFound => "현재 run의 생애 사건을 찾을 수 없습니다",
+        LifeFailureCode::EventExpired => "생애 사건의 선택 기한이 지났거나 이미 해결되었습니다",
+        LifeFailureCode::InsuranceResourceNotFound => {
+            "현재 run의 보험 상품, 계약 또는 청구를 찾을 수 없습니다"
+        }
+        LifeFailureCode::ClaimNotCovered => {
+            "이 청구는 보장되지 않거나 지급 기한 또는 상태가 유효하지 않습니다"
+        }
+        LifeFailureCode::Ineligible => "현재 조건으로는 이 복지 프로그램을 신청할 수 없습니다",
+        LifeFailureCode::ValuationUnavailable => {
+            "현재 자산 평가 정보로는 복지 자격을 판정할 수 없습니다"
+        }
+        LifeFailureCode::PolicyUnsupported => "현재 부동산 세금 정책이 이 상태를 지원하지 않습니다",
+        LifeFailureCode::Busy => "게임 상태가 변경되었습니다. 최신 상태에서 다시 시도하세요",
+    }
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+struct LifeEventsQuery {
+    #[param(required = false, max_length = 512)]
+    cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LifeEventChoiceRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    choice_id: String,
+}
+
+fn life_event_choice_command(
+    event_id: String,
+    request: LifeEventChoiceRequest,
+) -> Result<ResolveLifeEventCommand, LifeFailureCode> {
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let event_id = ResourceId::parse(&event_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let choice_id =
+        ResourceId::parse(&request.choice_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    Ok(ResolveLifeEventCommand {
+        command_id,
+        cursor,
+        event_id,
+        choice_id,
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/life/events",
+    params(LifeEventsQuery),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 생애 사건 기능, 선택 대기 사건과 최근 기록", body = LifeEventsResponse),
+        (status = 400, description = "생애 사건 cursor 또는 query 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터와 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "생애 사건 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn life_events(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    query: Result<Query<LifeEventsQuery>, QueryRejection>,
+) -> Result<Json<LifeEventsResponse>, LifeRouteError> {
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    if query
+        .cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 512 || !cursor.is_ascii())
+    {
+        return Err(LifeFailureCode::InvalidCommand.into());
+    }
+    match state
+        .life_events(
+            user.id,
+            LifeEventsQueryState {
+                cursor: query.cursor,
+            },
+        )
+        .await?
+    {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/life/events/{eventId}/choices",
+    params(
+        ("eventId" = String, Path, description = "현재 run 생애 사건 ID", pattern = "^[1-9][0-9]*$")
+    ),
+    request_body = LifeEventChoiceRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "생애 사건 선택 결과 또는 멱등 재조회", body = LifeEventChoiceResponse),
+        (status = 400, description = "사건 ID, 선택 또는 cursor 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 사건을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "기한·선택·현금·cursor 또는 계약 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "생애 사건 선택 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn resolve_life_event(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(event_id): Path<String>,
+    request: Result<Json<LifeEventChoiceRequest>, JsonRejection>,
+) -> Result<Json<LifeEventChoiceResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = life_event_choice_command(event_id, request)?;
+    match state.resolve_life_event(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+struct InsuranceContractsQuery {
+    #[param(required = false, max_length = 512)]
+    cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InsuranceEnrollmentRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    product_version_id: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InsuranceCancellationRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InsuranceClaimRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    claim_id: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/insurance/contracts",
+    params(InsuranceContractsQuery),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 보험 상품, 계약, pending claim과 최근 결과", body = InsuranceContractsResponse),
+        (status = 400, description = "보험 cursor 또는 query 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터와 현재 run 또는 지원 보험 component가 필요함", body = LifeFailure),
+        (status = 500, description = "보험 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn insurance_contracts(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    query: Result<Query<InsuranceContractsQuery>, QueryRejection>,
+) -> Result<Json<InsuranceContractsResponse>, LifeRouteError> {
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    if query
+        .cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 512 || !cursor.is_ascii())
+    {
+        return Err(LifeFailureCode::InvalidCommand.into());
+    }
+    match state
+        .insurance(
+            user.id,
+            InsuranceQueryState {
+                cursor: query.cursor,
+            },
+        )
+        .await?
+    {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/insurance/contracts",
+    request_body = InsuranceEnrollmentRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "보험 가입과 초회 보험료 결제 또는 멱등 재조회", body = InsuranceEnrollmentResponse),
+        (status = 400, description = "보험 가입 body 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 보험 상품을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "자격·잔액·cursor 또는 계약 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "보험 가입 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn enroll_insurance_contract(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<InsuranceEnrollmentRequest>, JsonRejection>,
+) -> Result<Json<InsuranceEnrollmentResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let product_version_id = ResourceId::parse(&request.product_version_id)
+        .map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = EnrollInsuranceContractCommand {
+        command_id,
+        cursor,
+        product_version_id,
+    };
+    match state.enroll_insurance_contract(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/insurance/contracts/{contractId}/cancellations",
+    params(
+        ("contractId" = String, Path, description = "현재 run 보험 계약 ID", pattern = "^[1-9][0-9]*$")
+    ),
+    request_body = InsuranceCancellationRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "active 보험 계약 중도 취소 또는 멱등 재조회", body = InsuranceCancellationResponse),
+        (status = 400, description = "계약 ID 또는 취소 body 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 보험 계약을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "cursor 또는 계약 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "보험 취소 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn cancel_insurance_contract(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(contract_id): Path<String>,
+    request: Result<Json<InsuranceCancellationRequest>, JsonRejection>,
+) -> Result<Json<InsuranceCancellationResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let contract_id =
+        ResourceId::parse(&contract_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = CancelInsuranceContractCommand {
+        command_id,
+        cursor,
+        contract_id,
+    };
+    match state.cancel_insurance_contract(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/insurance/claims",
+    request_body = InsuranceClaimRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "ready 보험 claim 지급 또는 멱등 재조회", body = InsuranceClaimResponse),
+        (status = 400, description = "claim body 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 claim을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "보장·기한·cursor 또는 claim 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "claim 지급 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn file_insurance_claim(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<InsuranceClaimRequest>, JsonRejection>,
+) -> Result<Json<InsuranceClaimResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let claim_id =
+        ResourceId::parse(&request.claim_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = FileInsuranceClaimCommand {
+        command_id,
+        cursor,
+        claim_id,
+    };
+    match state.file_insurance_claim(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WelfareProgramsQuery {}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WelfareApplicationRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    program_version_id: String,
+}
+
+impl TryFrom<WelfareApplicationRequest> for ApplyWelfareProgramCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: WelfareApplicationRequest) -> Result<Self, Self::Error> {
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let program_version_id = ResourceId::parse(&request.program_version_id)
+            .map_err(|_| LifeFailureCode::InvalidCommand)?;
+        Ok(Self {
+            command_id,
+            cursor,
+            program_version_id,
+        })
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/welfare/programs",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 복지 프로그램과 서버 권위 자격 판정", body = WelfareProgramsResponse),
+        (status = 400, description = "복지 프로그램 query 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터와 현재 run이 필요하거나 자산 평가를 완료할 수 없음", body = LifeFailure),
+        (status = 500, description = "복지 프로그램 평가 또는 조회 실패"),
+    )
+)]
+async fn welfare_programs(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    query: Result<Query<WelfareProgramsQuery>, QueryRejection>,
+) -> Result<Json<WelfareProgramsResponse>, LifeRouteError> {
+    let Query(_query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    state
+        .welfare_programs(user.id)
+        .await?
+        .map(Json)
+        .ok_or_else(|| LifeFailureCode::CharacterRequired.into())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/welfare/applications",
+    request_body = WelfareApplicationRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "복지 신청 승인과 D+1 지급 예약 또는 멱등 재조회", body = WelfareApplicationResponse),
+        (status = 400, description = "복지 신청 요청 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 복지 프로그램을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "신청 자격·평가·cursor 또는 계약 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "복지 신청 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn apply_welfare_program(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<WelfareApplicationRequest>, JsonRejection>,
+) -> Result<Json<WelfareApplicationResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = ApplyWelfareProgramCommand::try_from(request)?;
+    match state.apply_welfare_program(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum HousingRegionRequest {
+    CapitalArea,
+    Metropolitan,
+    SmallCity,
+    Rural,
+}
+
+impl From<HousingRegionRequest> for LifeRegionKey {
+    fn from(region: HousingRegionRequest) -> Self {
+        match region {
+            HousingRegionRequest::CapitalArea => Self::CapitalArea,
+            HousingRegionRequest::Metropolitan => Self::Metropolitan,
+            HousingRegionRequest::SmallCity => Self::SmallCity,
+            HousingRegionRequest::Rural => Self::Rural,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+struct HousingListingsQuery {
+    #[param(required = false)]
+    region: Option<HousingRegionRequest>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/housing/listings",
+    params(HousingListingsQuery),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 월과 지역의 부동산 지수·유한 매물", body = HousingListingsResponse),
+        (status = 400, description = "지역 또는 query 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터와 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "부동산 지수·매물 조회 실패"),
+    )
+)]
+async fn housing_listings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    query: Result<Query<HousingListingsQuery>, QueryRejection>,
+) -> Result<Json<HousingListingsResponse>, LifeRouteError> {
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let query = HousingListingsQueryState {
+        region: query.region.map(Into::into),
+    };
+    state
+        .housing_listings(user.id, query)
+        .await?
+        .map(Json)
+        .ok_or_else(|| LifeFailureCode::CharacterRequired.into())
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/housing/holdings",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 주택 매수 capability와 활성 보유주택", body = HousingPropertyHoldingsResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터와 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "보유주택 조회 실패"),
+    )
+)]
+async fn housing_property_holdings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<HousingPropertyHoldingsResponse>, LifeRouteError> {
+    state
+        .housing_property_holdings(user.id)
+        .await?
+        .map(Json)
+        .ok_or_else(|| LifeFailureCode::CharacterRequired.into())
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum HousingLeaseOfferKindRequest {
+    Jeonse,
+    MonthlyRent,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum JeonseHousingLeaseOfferKindRequest {
+    Jeonse,
+}
+
+impl From<HousingLeaseOfferKindRequest> for HousingLeaseOfferKind {
+    fn from(offer_kind: HousingLeaseOfferKindRequest) -> Self {
+        match offer_kind {
+            HousingLeaseOfferKindRequest::Jeonse => Self::Jeonse,
+            HousingLeaseOfferKindRequest::MonthlyRent => Self::MonthlyRent,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LeaseDepositLoanQuoteRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    listing_id: String,
+    offer_kind: JeonseHousingLeaseOfferKindRequest,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    product_version_id: String,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    principal_krw: i64,
+}
+
+impl TryFrom<LeaseDepositLoanQuoteRequest> for CreateLeaseDepositLoanQuoteCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: LeaseDepositLoanQuoteRequest) -> Result<Self, Self::Error> {
+        let JeonseHousingLeaseOfferKindRequest::Jeonse = request.offer_kind;
+        if request.principal_krw <= 0 || request.principal_krw > MAX_JSON_SAFE_INTEGER as i64 {
+            return Err(LifeFailureCode::InvalidCommand);
+        }
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let listing_id =
+            ResourceId::parse(&request.listing_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+        let product_version_id = ResourceId::parse(&request.product_version_id)
+            .map_err(|_| LifeFailureCode::InvalidCommand)?;
+
+        Ok(Self {
+            command_id,
+            cursor,
+            listing_id,
+            offer_kind: HousingLeaseOfferKind::Jeonse,
+            product_version_id,
+            principal_krw: request.principal_krw,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MortgageQuoteRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    listing_id: String,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    product_version_id: String,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    principal_krw: i64,
+}
+
+impl TryFrom<MortgageQuoteRequest> for CreateMortgageQuoteCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: MortgageQuoteRequest) -> Result<Self, Self::Error> {
+        if request.principal_krw <= 0 || request.principal_krw > MAX_JSON_SAFE_INTEGER as i64 {
+            return Err(LifeFailureCode::InvalidCommand);
+        }
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let listing_id =
+            ResourceId::parse(&request.listing_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+        let product_version_id = ResourceId::parse(&request.product_version_id)
+            .map_err(|_| LifeFailureCode::InvalidCommand)?;
+
+        Ok(Self {
+            command_id,
+            cursor,
+            listing_id,
+            product_version_id,
+            principal_krw: request.principal_krw,
+        })
+    }
+}
+
+fn deserialize_required_nullable_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PropertyPurchaseRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    listing_id: String,
+    #[serde(deserialize_with = "deserialize_required_nullable_string")]
+    #[schema(
+        required = true,
+        nullable,
+        value_type = Option<String>,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    mortgage_quote_id: Option<String>,
+}
+
+impl TryFrom<PropertyPurchaseRequest> for PurchasePropertyCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: PropertyPurchaseRequest) -> Result<Self, Self::Error> {
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let listing_id =
+            ResourceId::parse(&request.listing_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+        let mortgage_quote_id = request
+            .mortgage_quote_id
+            .as_deref()
+            .map(ResourceId::parse)
+            .transpose()
+            .map_err(|_| LifeFailureCode::InvalidCommand)?;
+
+        Ok(Self {
+            command_id,
+            cursor,
+            listing_id,
+            mortgage_quote_id,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PropertySaleOrderCreateRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    holding_id: String,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    asking_price_krw: i64,
+}
+
+impl TryFrom<PropertySaleOrderCreateRequest> for CreatePropertySaleOrderCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: PropertySaleOrderCreateRequest) -> Result<Self, Self::Error> {
+        if request.asking_price_krw <= 0 || request.asking_price_krw > MAX_JSON_SAFE_INTEGER as i64
+        {
+            return Err(LifeFailureCode::InvalidCommand);
+        }
+        let (command_id, cursor) = life_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        let holding_id =
+            ResourceId::parse(&request.holding_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+        Ok(Self {
+            command_id,
+            cursor,
+            holding_id,
+            asking_price_krw: request.asking_price_krw,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PropertySaleOrderRepriceRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    asking_price_krw: i64,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PropertySaleOrderCancelRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+}
+
+fn reprice_property_sale_order_command(
+    order_id: ResourceId,
+    request: PropertySaleOrderRepriceRequest,
+) -> Result<RepricePropertySaleOrderCommand, LifeFailureCode> {
+    if request.asking_price_krw <= 0 || request.asking_price_krw > MAX_JSON_SAFE_INTEGER as i64 {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    Ok(RepricePropertySaleOrderCommand {
+        command_id,
+        cursor,
+        order_id,
+        asking_price_krw: request.asking_price_krw,
+    })
+}
+
+fn cancel_property_sale_order_command(
+    order_id: ResourceId,
+    request: PropertySaleOrderCancelRequest,
+) -> Result<CancelPropertySaleOrderCommand, LifeFailureCode> {
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    Ok(CancelPropertySaleOrderCommand {
+        command_id,
+        cursor,
+        order_id,
+    })
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+struct PropertyHistoryQuery {
+    #[param(required = false, value_type = Option<String>, pattern = "^[1-9][0-9]*$")]
+    before: Option<String>,
+    #[param(required = false, value_type = Option<u8>, minimum = 1, maximum = 20)]
+    limit: Option<String>,
+}
+
+fn property_history_page(
+    query: PropertyHistoryQuery,
+) -> Result<(Option<ResourceId>, u8), LifeFailureCode> {
+    let before = query
+        .before
+        .as_deref()
+        .map(ResourceId::parse)
+        .transpose()
+        .map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let limit = query
+        .limit
+        .as_deref()
+        .map(str::parse::<u8>)
+        .transpose()
+        .map_err(|_| LifeFailureCode::InvalidCommand)?
+        .unwrap_or(DEFAULT_PROPERTY_HISTORY_PAGE_SIZE);
+    if !(1..=MAX_PROPERTY_HISTORY_PAGE_SIZE).contains(&limit) {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    Ok((before, limit))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(untagged)]
+enum StartHousingLeaseRequest {
+    Cash(StartHousingLeaseCashRequest),
+    Financed(StartHousingLeaseFinancedRequest),
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StartHousingLeaseCashRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    listing_id: String,
+    offer_kind: HousingLeaseOfferKindRequest,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StartHousingLeaseFinancedRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    listing_id: String,
+    offer_kind: JeonseHousingLeaseOfferKindRequest,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    loan_quote_id: String,
+}
+
+impl TryFrom<StartHousingLeaseRequest> for StartHousingLeaseCommand {
+    type Error = LifeFailureCode;
+
+    fn try_from(request: StartHousingLeaseRequest) -> Result<Self, Self::Error> {
+        let (
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            listing_id,
+            offer_kind,
+            loan_quote_id,
+        ) = match request {
+            StartHousingLeaseRequest::Cash(request) => (
+                request.command_id,
+                request.expected_run_revision,
+                request.expected_state_revision,
+                request.expected_game_day,
+                request.listing_id,
+                request.offer_kind,
+                None,
+            ),
+            StartHousingLeaseRequest::Financed(request) => {
+                let JeonseHousingLeaseOfferKindRequest::Jeonse = request.offer_kind;
+                let loan_quote_id = ResourceId::parse(&request.loan_quote_id)
+                    .map_err(|_| LifeFailureCode::InvalidCommand)?;
+                (
+                    request.command_id,
+                    request.expected_run_revision,
+                    request.expected_state_revision,
+                    request.expected_game_day,
+                    request.listing_id,
+                    HousingLeaseOfferKindRequest::Jeonse,
+                    Some(loan_quote_id),
+                )
+            }
+        };
+        let (command_id, cursor) = life_command_parts(
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+        )?;
+        let listing_id =
+            ResourceId::parse(&listing_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+
+        Ok(Self {
+            command_id,
+            cursor,
+            listing_id,
+            offer_kind: offer_kind.into(),
+            loan_quote_id,
+        })
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/housing/leases/current",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 임대차 capability와 활성 계약", body = HousingLeaseCurrentResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터와 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "현재 임대차 계약 조회 실패"),
+    )
+)]
+async fn housing_lease_current(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<HousingLeaseCurrentResponse>, LifeRouteError> {
+    state
+        .housing_lease_current(user.id)
+        .await?
+        .map(Json)
+        .ok_or_else(|| LifeFailureCode::CharacterRequired.into())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/mortgage-quotes",
+    request_body = MortgageQuoteRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "주택담보대출 견적 생성 또는 멱등 재조회", body = MortgageQuoteResponse),
+        (status = 400, description = "주택담보대출 견적 요청 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 주택담보대출 견적을 만들 수 없음", body = LifeFailure),
+        (status = 500, description = "주택담보대출 견적 저장 실패"),
+    )
+)]
+async fn quote_mortgage(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<MortgageQuoteRequest>, JsonRejection>,
+) -> Result<Json<MortgageQuoteResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = CreateMortgageQuoteCommand::try_from(request)?;
+    match state.quote_mortgage(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/purchases",
+    request_body = PropertyPurchaseRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현금 또는 주택담보대출 매수와 owner 이사", body = PropertyPurchaseResponse),
+        (status = 400, description = "주택 매수 요청 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 주택을 매수할 수 없음", body = LifeFailure),
+        (status = 500, description = "주택 매수 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn purchase_property(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<PropertyPurchaseRequest>, JsonRejection>,
+) -> Result<Json<PropertyPurchaseResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = PurchasePropertyCommand::try_from(request)?;
+    match state.purchase_property(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/housing/sales",
+    params(PropertyHistoryQuery),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 부동산 매도 주문 이력", body = PropertySaleOrdersResponse),
+        (status = 400, description = "매도 주문 cursor 또는 limit이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터와 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "매도 주문 이력 조회 실패"),
+    )
+)]
+async fn property_sale_orders(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    query: Result<Query<PropertyHistoryQuery>, QueryRejection>,
+) -> Result<Json<PropertySaleOrdersResponse>, LifeRouteError> {
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let (before, limit) = property_history_page(query)?;
+    match state
+        .property_sale_orders(user.id, PropertySaleOrderPageQuery { before, limit })
+        .await?
+    {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/sales",
+    request_body = PropertySaleOrderCreateRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "보유주택 매도 주문 생성 또는 멱등 재조회", body = PropertySaleOrderListingResponse),
+        (status = 400, description = "매도 주문 요청 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 보유주택을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "현재 상태에서 매도 주문을 만들 수 없음", body = LifeFailure),
+        (status = 500, description = "매도 주문 저장 실패"),
+    )
+)]
+async fn create_property_sale_order(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<PropertySaleOrderCreateRequest>, JsonRejection>,
+) -> Result<Json<PropertySaleOrderListingResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = CreatePropertySaleOrderCommand::try_from(request)?;
+    match state.create_property_sale_order(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/sales/{orderId}/reprice",
+    params(("orderId" = String, Path, pattern = "^[1-9][0-9]*$")),
+    request_body = PropertySaleOrderRepriceRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "매도 주문 가격 변경 또는 멱등 재조회", body = PropertySaleOrderListingResponse),
+        (status = 400, description = "주문 ID 또는 가격 변경 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 매도 주문을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "현재 상태에서 주문 가격을 바꿀 수 없음", body = LifeFailure),
+        (status = 500, description = "매도 주문 가격 변경 실패"),
+    )
+)]
+async fn reprice_property_sale_order(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(order_id): Path<String>,
+    request: Result<Json<PropertySaleOrderRepriceRequest>, JsonRejection>,
+) -> Result<Json<PropertySaleOrderListingResponse>, LifeRouteError> {
+    let order_id = ResourceId::parse(&order_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = reprice_property_sale_order_command(order_id, request)?;
+    match state.reprice_property_sale_order(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/sales/{orderId}/cancel",
+    params(("orderId" = String, Path, pattern = "^[1-9][0-9]*$")),
+    request_body = PropertySaleOrderCancelRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "매도 주문 취소 또는 멱등 재조회", body = PropertySaleOrderCancellationResponse),
+        (status = 400, description = "주문 ID 또는 취소 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 매도 주문을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "현재 상태에서 주문을 취소할 수 없음", body = LifeFailure),
+        (status = 500, description = "매도 주문 취소 실패"),
+    )
+)]
+async fn cancel_property_sale_order(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(order_id): Path<String>,
+    request: Result<Json<PropertySaleOrderCancelRequest>, JsonRejection>,
+) -> Result<Json<PropertySaleOrderCancellationResponse>, LifeRouteError> {
+    let order_id = ResourceId::parse(&order_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = cancel_property_sale_order_command(order_id, request)?;
+    match state.cancel_property_sale_order(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/housing/holdings/{holdingId}/tax-events",
+    params(
+        ("holdingId" = String, Path, pattern = "^[1-9][0-9]*$"),
+        PropertyHistoryQuery
+    ),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "보유주택의 취득·보유·양도세 이력", body = PropertyTaxEventsResponse),
+        (status = 400, description = "보유주택 ID나 cursor 또는 limit이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 보유주택을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "캐릭터와 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "부동산 세금 이력 조회 실패"),
+    )
+)]
+async fn property_tax_events(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(holding_id): Path<String>,
+    query: Result<Query<PropertyHistoryQuery>, QueryRejection>,
+) -> Result<Json<PropertyTaxEventsResponse>, LifeRouteError> {
+    let holding_id = ResourceId::parse(&holding_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let (before, limit) = property_history_page(query)?;
+    match state
+        .property_tax_events(
+            user.id,
+            holding_id,
+            PropertyTaxEventPageQuery { before, limit },
+        )
+        .await?
+    {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/lease-deposit-loan-quotes",
+    request_body = LeaseDepositLoanQuoteRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "전세자금대출 견적 생성 또는 멱등 재조회", body = LeaseDepositLoanQuoteResponse),
+        (status = 400, description = "전세자금대출 견적 요청 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 전세자금대출 견적을 만들 수 없음", body = LifeFailure),
+        (status = 500, description = "전세자금대출 견적 저장 실패"),
+    )
+)]
+async fn quote_lease_deposit_loan(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<LeaseDepositLoanQuoteRequest>, JsonRejection>,
+) -> Result<Json<LeaseDepositLoanQuoteResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = CreateLeaseDepositLoanQuoteCommand::try_from(request)?;
+    match state.quote_lease_deposit_loan(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/leases",
+    request_body = StartHousingLeaseRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현금 임대차 계약과 원자적 이사 또는 멱등 재조회", body = HousingLeaseMoveResponse),
+        (status = 400, description = "임대차 계약 요청 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 게임 상태에서 임대차 계약을 실행할 수 없음", body = LifeFailure),
+        (status = 500, description = "임대차 계약 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn start_housing_lease(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<StartHousingLeaseRequest>, JsonRejection>,
+) -> Result<Json<HousingLeaseMoveResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = StartHousingLeaseCommand::try_from(request)?;
+    match state.start_housing_lease(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/housing/lease-arrears/{id}/payments",
+    params(("id" = String, Path, pattern = "^[1-9][0-9]*$")),
+    request_body = LeaseArrearPaymentRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "월세 연체 일부 또는 전액 상환", body = LeaseArrearPaymentResponse),
+        (status = 400, description = "월세 연체 상환 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 월세 연체를 상환할 수 없음", body = LifeFailure),
+        (status = 500, description = "월세 연체 상환 저장 실패"),
+    )
+)]
+async fn pay_lease_arrear(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+    request: Result<Json<LeaseArrearPaymentRequest>, JsonRejection>,
+) -> Result<Json<LeaseArrearPaymentResponse>, LifeRouteError> {
+    let arrear_id = ResourceId::parse(&id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = lease_arrear_payment_command(arrear_id, request)?;
+    match state.pay_lease_arrear(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoanDetailQuery {}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+struct LoanInstallmentsQuery {
+    #[param(
+        value_type = String,
+        required = false,
+        min_length = 11,
+        max_length = 43,
+        pattern = "^v1\\.l[1-9][0-9]*\\.i(?:0|[1-9][0-9]*)\\.p(?:0|[1-9][0-9]*)$"
+    )]
+    before: Option<String>,
+    #[param(
+        value_type = u8,
+        required = false,
+        default = 50,
+        minimum = 1,
+        maximum = 50
+    )]
+    limit: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct LoanNotFoundFailure {
+    code: LoanNotFoundCodeSnapshot,
+    message: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum LoanNotFoundCodeSnapshot {
+    LoanNotFound,
+}
+
+enum LoanReadRouteError {
+    InvalidCommand,
+    LoanNotFound,
+    Internal(AppError),
+}
+
+impl From<anyhow::Error> for LoanReadRouteError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(AppError::from(error))
+    }
+}
+
+impl axum::response::IntoResponse for LoanReadRouteError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::InvalidCommand => (
+                StatusCode::BAD_REQUEST,
+                Json(LifeFailure {
+                    code: LifeFailureCodeSnapshot::InvalidCommand,
+                    message: life_failure_message(LifeFailureCode::InvalidCommand),
+                }),
+            )
+                .into_response(),
+            Self::LoanNotFound => (
+                StatusCode::NOT_FOUND,
+                Json(LoanNotFoundFailure {
+                    code: LoanNotFoundCodeSnapshot::LoanNotFound,
+                    message: "대출을 찾을 수 없습니다",
+                }),
+            )
+                .into_response(),
+            Self::Internal(error) => error.into_response(),
+        }
+    }
+}
+
+fn parse_loan_installment_cursor(
+    value: &str,
+    expected_loan_id: ResourceId,
+) -> Result<LoanInstallmentPageCursor, LifeFailureCode> {
+    if !(11..=43).contains(&value.len()) {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let remainder = value
+        .strip_prefix("v1.l")
+        .ok_or(LifeFailureCode::InvalidCommand)?;
+    let (loan_id, remainder) = remainder
+        .split_once(".i")
+        .ok_or(LifeFailureCode::InvalidCommand)?;
+    let (installment_before, payment_before) = remainder
+        .split_once(".p")
+        .ok_or(LifeFailureCode::InvalidCommand)?;
+    let loan_id = ResourceId::parse(loan_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    if loan_id != expected_loan_id {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let installment_before = parse_loan_cursor_u16(installment_before)?;
+    let payment_before = parse_loan_cursor_u32(payment_before)?;
+    let cursor = LoanInstallmentPageCursor {
+        loan_id,
+        installment_before,
+        payment_before,
+    };
+    let canonical = format!(
+        "v1.l{}.i{}.p{}",
+        cursor.loan_id,
+        cursor.installment_before.unwrap_or(0),
+        cursor.payment_before.unwrap_or(0)
+    );
+    if canonical != value {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    Ok(cursor)
+}
+
+fn parse_loan_cursor_u16(value: &str) -> Result<Option<u16>, LifeFailureCode> {
+    if value == "0" {
+        return Ok(None);
+    }
+    if value.is_empty()
+        || value.starts_with('0')
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    value
+        .parse::<u16>()
+        .map(Some)
+        .map_err(|_| LifeFailureCode::InvalidCommand)
+}
+
+fn parse_loan_cursor_u32(value: &str) -> Result<Option<u32>, LifeFailureCode> {
+    if value == "0" {
+        return Ok(None);
+    }
+    if value.is_empty()
+        || value.starts_with('0')
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    value
+        .parse::<u32>()
+        .map(Some)
+        .map_err(|_| LifeFailureCode::InvalidCommand)
+}
+
+fn loan_installment_page_query(
+    loan_id: ResourceId,
+    query: LoanInstallmentsQuery,
+) -> Result<LoanInstallmentPageQuery, LifeFailureCode> {
+    let before = query
+        .before
+        .as_deref()
+        .map(|value| parse_loan_installment_cursor(value, loan_id))
+        .transpose()?;
+    let limit = query
+        .limit
+        .as_deref()
+        .map(str::parse::<u8>)
+        .transpose()
+        .map_err(|_| LifeFailureCode::InvalidCommand)?
+        .unwrap_or(DEFAULT_LOAN_INSTALLMENT_PAGE_SIZE);
+    if !(1..=MAX_LOAN_INSTALLMENT_PAGE_SIZE).contains(&limit) {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    Ok(LoanInstallmentPageQuery { before, limit })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/loans/{loanId}",
+    params((
+        "loanId" = String,
+        Path,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$",
+        description = "조회할 대출 계약 ID"
+    )),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 대출 계약 상세", body = LoanDetailResponse),
+        (status = 400, description = "대출 계약 ID나 query가 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run에서 소유한 대출을 찾을 수 없음", body = LoanNotFoundFailure),
+        (status = 500, description = "대출 계약 상세 조회 실패"),
+    )
+)]
+async fn loan_detail(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(loan_id): Path<String>,
+    query: Result<Query<LoanDetailQuery>, QueryRejection>,
+) -> Result<Json<LoanDetailResponse>, LoanReadRouteError> {
+    let Query(_) = query.map_err(|_| LoanReadRouteError::InvalidCommand)?;
+    let loan_id = ResourceId::parse(&loan_id).map_err(|_| LoanReadRouteError::InvalidCommand)?;
+    state
+        .loan_detail(user.id, loan_id)
+        .await?
+        .map(Json)
+        .ok_or(LoanReadRouteError::LoanNotFound)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/loans/{loanId}/installments",
+    params(
+        (
+            "loanId" = String,
+            Path,
+            min_length = 1,
+            max_length = 20,
+            pattern = "^[1-9][0-9]*$",
+            description = "조회할 대출 계약 ID"
+        ),
+        LoanInstallmentsQuery
+    ),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "상환 회차와 납부 이력 dual window", body = LoanInstallmentsResponse),
+        (status = 400, description = "대출 ID, cursor 또는 limit이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run에서 소유한 대출을 찾을 수 없음", body = LoanNotFoundFailure),
+        (status = 500, description = "대출 상환 이력 조회 실패"),
+    )
+)]
+async fn loan_installments(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(loan_id): Path<String>,
+    query: Result<Query<LoanInstallmentsQuery>, QueryRejection>,
+) -> Result<Json<LoanInstallmentsResponse>, LoanReadRouteError> {
+    let loan_id = ResourceId::parse(&loan_id).map_err(|_| LoanReadRouteError::InvalidCommand)?;
+    let Query(query) = query.map_err(|_| LoanReadRouteError::InvalidCommand)?;
+    let query = loan_installment_page_query(loan_id, query)
+        .map_err(|_| LoanReadRouteError::InvalidCommand)?;
+    state
+        .loan_installments(user.id, loan_id, query)
+        .await?
+        .map(Json)
+        .ok_or(LoanReadRouteError::LoanNotFound)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/loans/products",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 시작 또는 run에 pin된 대출 상품", body = LoanProductCatalogResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "대출 상품 조회 실패"),
+    )
+)]
+async fn loan_products(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<LoanProductCatalogResponse>, AppError> {
+    Ok(Json(state.loan_products(user.id).await?))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/loans/quotes",
+    request_body = LoanQuoteRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "대출 견적 생성 또는 멱등 재조회", body = LoanQuoteResponse),
+        (status = 400, description = "대출 견적 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 대출 견적을 만들 수 없음", body = LifeFailure),
+        (status = 500, description = "대출 견적 저장 실패"),
+    )
+)]
+async fn quote_loan(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<LoanQuoteRequest>, JsonRejection>,
+) -> Result<Json<LoanQuoteResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = CreateLoanQuoteCommand::try_from(request)?;
+    match state.quote_loan(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/loans",
+    request_body = LoanExecutionRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "대출 실행 또는 멱등 재조회", body = LoanExecutionResponse),
+        (status = 400, description = "대출 실행 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 대출을 실행할 수 없음", body = LifeFailure),
+        (status = 500, description = "대출 실행 저장 실패"),
+    )
+)]
+async fn execute_loan(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<LoanExecutionRequest>, JsonRejection>,
+) -> Result<Json<LoanExecutionResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = ExecuteLoanCommand::try_from(request)?;
+    match state.execute_loan(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/loans/{loanId}/prepayments",
+    params((
+        "loanId" = String,
+        Path,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$",
+        description = "중도상환할 대출 계약 ID"
+    )),
+    request_body = LoanPrepaymentRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "대출 중도상환 또는 멱등 재조회", body = LoanPrepaymentResponse),
+        (status = 400, description = "대출 중도상환 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 대출을 중도상환할 수 없음", body = LifeFailure),
+        (status = 500, description = "대출 중도상환 저장 실패"),
+    )
+)]
+async fn prepay_loan(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(loan_id): Path<String>,
+    request: Result<Json<LoanPrepaymentRequest>, JsonRejection>,
+) -> Result<Json<LoanPrepaymentResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = prepay_loan_command(&loan_id, request)?;
+    match state.prepay_loan(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/credit",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 공개 신용 사유와 활성 대출 요약", body = CreditResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "신용 요약 조회 실패"),
+    )
+)]
+async fn credit(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<CreditResponse>, AppError> {
+    Ok(Json(state.credit(user.id).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/life/budget",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 생활비 산정 근거와 예산 선택", body = LifeBudgetResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "생활비 예산 조회 실패"),
+    )
+)]
+async fn life_budget(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<LifeBudgetResponse>, AppError> {
+    Ok(Json(state.life_budget(user.id).await?))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/life/budget",
+    request_body = LifeBudgetUpdateRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "예산 변경 또는 멱등 재조회", body = LifeBudgetUpdateResponse),
+        (status = 400, description = "예산 변경 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 예산을 변경할 수 없음", body = LifeFailure),
+        (status = 500, description = "예산 변경 저장 실패"),
+    )
+)]
+async fn update_life_budget(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<LifeBudgetUpdateRequest>, JsonRejection>,
+) -> Result<Json<LifeBudgetUpdateResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = UpdateLifeBudgetCommand::try_from(request)?;
+    match state.update_life_budget(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/life/arrears/{id}/payments",
+    params(("id" = String, Path, pattern = "^[1-9][0-9]*$")),
+    request_body = EssentialArrearPaymentRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "필수 생활비 미납 일부 또는 전액 상환", body = EssentialArrearPaymentResponse),
+        (status = 400, description = "미납 상환 요청이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 미납액을 상환할 수 없음", body = LifeFailure),
+        (status = 500, description = "미납 상환 저장 실패"),
+    )
+)]
+async fn pay_essential_arrear(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+    request: Result<Json<EssentialArrearPaymentRequest>, JsonRejection>,
+) -> Result<Json<EssentialArrearPaymentResponse>, LifeRouteError> {
+    let arrear_id = ResourceId::parse(&id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = essential_arrear_payment_command(arrear_id, request)?;
+    match state.pay_essential_arrear(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 enum CareerArtifactKindRequest {
@@ -2063,20 +4918,104 @@ struct CareerCursorRequest {
     )]
     command_id: String,
     expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
     expected_state_revision: u64,
     expected_game_day: u32,
 }
 
 impl CareerCursorRequest {
     fn into_parts(self) -> Result<(CommandId, CommandCursor), CareerFailureCode> {
-        Ok((
-            CommandId::parse(self.command_id).map_err(|_| CareerFailureCode::InvalidCommand)?,
-            CommandCursor {
-                expected_run_revision: self.expected_run_revision,
-                expected_state_revision: self.expected_state_revision,
-                expected_game_day: self.expected_game_day,
-            },
-        ))
+        career_command_parts(
+            self.command_id,
+            self.expected_run_revision,
+            self.expected_state_revision,
+            self.expected_game_day,
+        )
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MilitaryServiceStartRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]*$")]
+    military_option_version_id: String,
+}
+
+impl TryFrom<MilitaryServiceStartRequest> for StartMilitaryServiceCommand {
+    type Error = CareerFailureCode;
+
+    fn try_from(request: MilitaryServiceStartRequest) -> Result<Self, Self::Error> {
+        let (command_id, cursor) = career_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        Ok(Self {
+            command_id,
+            cursor,
+            military_option_version_id: ResourceId::parse(&request.military_option_version_id)
+                .map_err(|_| CareerFailureCode::InvalidCommand)?,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MilitarySavingsEnrollmentRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]*$")]
+    product_version_id: String,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    monthly_contribution_krw: i64,
+    #[schema(minimum = 1, maximum = 31)]
+    debit_day_of_month: u8,
+}
+
+impl TryFrom<MilitarySavingsEnrollmentRequest> for OpenMilitarySavingsCommand {
+    type Error = CareerFailureCode;
+
+    fn try_from(request: MilitarySavingsEnrollmentRequest) -> Result<Self, Self::Error> {
+        if !(1..=MAX_MILITARY_MONEY_KRW).contains(&request.monthly_contribution_krw)
+            || !(1..=31).contains(&request.debit_day_of_month)
+        {
+            return Err(CareerFailureCode::InvalidCommand);
+        }
+        let (command_id, cursor) = career_command_parts(
+            request.command_id,
+            request.expected_run_revision,
+            request.expected_state_revision,
+            request.expected_game_day,
+        )?;
+        Ok(Self {
+            command_id,
+            cursor,
+            product_version_id: ResourceId::parse(&request.product_version_id)
+                .map_err(|_| CareerFailureCode::InvalidCommand)?,
+            monthly_contribution_krw: request.monthly_contribution_krw,
+            debit_day_of_month: request.debit_day_of_month,
+        })
     }
 }
 
@@ -2089,12 +5028,24 @@ struct CareerApplicationRequest {
     expected_game_day: u32,
     #[schema(min_length = 64, max_length = 64, pattern = "^[0-9a-f]{64}$")]
     posting_key: String,
-    #[schema(required = false, nullable, pattern = "^[1-9][0-9]*$")]
+    #[serde(default, deserialize_with = "deserialize_optional_version_id")]
+    #[schema(required = false, nullable = false, pattern = "^[1-9][0-9]*$")]
     resume_version_id: Option<String>,
-    #[schema(required = false, nullable, pattern = "^[1-9][0-9]*$")]
+    #[serde(default, deserialize_with = "deserialize_optional_version_id")]
+    #[schema(required = false, nullable = false, pattern = "^[1-9][0-9]*$")]
     portfolio_version_id: Option<String>,
-    #[schema(required = false, nullable, pattern = "^[1-9][0-9]*$")]
+    #[serde(default, deserialize_with = "deserialize_optional_version_id")]
+    #[schema(required = false, nullable = false, pattern = "^[1-9][0-9]*$")]
     linkedin_profile_version_id: Option<String>,
+}
+
+fn deserialize_optional_version_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(Some)
+        .ok_or_else(|| serde::de::Error::custom("artifact version ID must be omitted, not null"))
 }
 
 impl TryFrom<CareerApplicationRequest> for ApplyCareerCommand {
@@ -2170,6 +5121,9 @@ fn career_command_parts(
     expected_state_revision: u64,
     expected_game_day: u32,
 ) -> Result<(CommandId, CommandCursor), CareerFailureCode> {
+    if expected_state_revision > MAX_JSON_SAFE_INTEGER {
+        return Err(CareerFailureCode::InvalidCommand);
+    }
     Ok((
         CommandId::parse(command_id).map_err(|_| CareerFailureCode::InvalidCommand)?,
         CommandCursor {
@@ -2614,6 +5568,126 @@ async fn career_employment(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/career/payroll",
+    params(CareerPageParams),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "급여 명세 페이지", body = CareerPayrollResponse),
+        (status = 400, description = "페이지 요청이 잘못됨", body = CareerFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "급여 명세 조회 실패"),
+    )
+)]
+async fn career_payroll(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    query: Result<Query<CareerPageParams>, QueryRejection>,
+) -> Result<Json<CareerPayrollResponse>, CareerRouteError> {
+    let Query(query) = query.map_err(|_| CareerFailureCode::InvalidCommand)?;
+    let query = career_page_query(query.before, query.limit)?;
+    Ok(Json(state.career_payroll(user.id, query).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/career/tax-years/{year}",
+    params(("year" = u16, Path, minimum = 1, maximum = 9999, description = "조회할 근로소득 귀속연도")),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "근로소득 연말정산 상태", body = CareerEmploymentTaxYearSnapshot),
+        (status = 400, description = "연도 형식이 잘못됨", body = CareerFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "근로소득 연말정산 조회 실패"),
+    )
+)]
+async fn career_employment_tax_year(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(year): Path<String>,
+) -> Result<Json<CareerEmploymentTaxYearSnapshot>, CareerRouteError> {
+    let year = year
+        .parse::<u16>()
+        .ok()
+        .filter(|year| *year > 0 && *year <= 9999)
+        .ok_or(CareerFailureCode::InvalidCommand)?;
+    Ok(Json(state.career_employment_tax_year(user.id, year).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/military/options",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 런에서 선택 가능한 병역 옵션", body = MilitaryOptionsResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "병역 옵션 조회 실패"),
+    )
+)]
+async fn military_options(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<MilitaryOptionsResponse>, CareerRouteError> {
+    Ok(Json(state.military_options(user.id).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/military/service",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 병역 상태와 복무 이력", body = MilitaryServiceResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "복무 상태 조회 실패"),
+    )
+)]
+async fn military_service(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<MilitaryServiceResponse>, CareerRouteError> {
+    Ok(Json(state.military_service(user.id).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/military/savings-products",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 가입 가능한 장병적금 상품", body = MilitarySavingsProductsResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "장병적금 상품 조회 실패"),
+    )
+)]
+async fn military_savings_products(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<MilitarySavingsProductsResponse>, CareerRouteError> {
+    Ok(Json(state.military_savings_products(user.id).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/military/savings",
+    params(CareerPageParams),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "장병적금 계약과 납입 이력 페이지", body = MilitarySavingsHistoryResponse),
+        (status = 400, description = "페이지 요청이 잘못됨", body = CareerFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "장병적금 이력 조회 실패"),
+    )
+)]
+async fn military_savings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    query: Result<Query<CareerPageParams>, QueryRejection>,
+) -> Result<Json<MilitarySavingsHistoryResponse>, CareerRouteError> {
+    let Query(query) = query.map_err(|_| CareerFailureCode::InvalidCommand)?;
+    let query = career_page_query(query.before, query.limit)?;
+    Ok(Json(state.military_savings(user.id, query).await?))
+}
+
+#[utoipa::path(
     post,
     path = "/api/career/applications",
     request_body = CareerApplicationRequest,
@@ -2768,6 +5842,92 @@ async fn decline_career_offer(
         offer_id,
     };
     match state.decline_career_offer(user.id, &command).await? {
+        CareerCommandResult::Applied(response) => Ok(Json(*response)),
+        CareerCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/military/service",
+    request_body = MilitaryServiceStartRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "복무 시작 예약 또는 멱등 재조회", body = MilitaryServiceCommandResponse),
+        (status = 400, description = "복무 시작 요청이 잘못됨", body = CareerFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 복무를 시작할 수 없음", body = CareerFailure),
+        (status = 500, description = "복무 시작 저장 실패"),
+    )
+)]
+async fn start_military_service(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<MilitaryServiceStartRequest>, JsonRejection>,
+) -> Result<Json<MilitaryServiceCommandResponse>, CareerRouteError> {
+    let Json(request) = request.map_err(|_| CareerFailureCode::InvalidCommand)?;
+    let command = StartMilitaryServiceCommand::try_from(request)?;
+    match state.start_military_service(user.id, &command).await? {
+        CareerCommandResult::Applied(response) => Ok(Json(*response)),
+        CareerCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/military/savings",
+    request_body = MilitarySavingsEnrollmentRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "장병적금 가입 또는 멱등 재조회", body = MilitarySavingsCommandResponse),
+        (status = 400, description = "장병적금 가입 요청이 잘못됨", body = CareerFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 장병적금에 가입할 수 없음", body = CareerFailure),
+        (status = 500, description = "장병적금 가입 저장 실패"),
+    )
+)]
+async fn open_military_savings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<MilitarySavingsEnrollmentRequest>, JsonRejection>,
+) -> Result<Json<MilitarySavingsCommandResponse>, CareerRouteError> {
+    let Json(request) = request.map_err(|_| CareerFailureCode::InvalidCommand)?;
+    let command = OpenMilitarySavingsCommand::try_from(request)?;
+    match state.open_military_savings(user.id, &command).await? {
+        CareerCommandResult::Applied(response) => Ok(Json(*response)),
+        CareerCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/military/savings/{id}/close",
+    request_body = CareerCursorRequest,
+    params(("id" = String, Path, min_length = 1, max_length = 20, pattern = "^[1-9][0-9]*$")),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "장병적금 중도해지 또는 멱등 재조회", body = MilitarySavingsCommandResponse),
+        (status = 400, description = "장병적금 중도해지 요청이 잘못됨", body = CareerFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "현재 상태에서 장병적금을 해지할 수 없음", body = CareerFailure),
+        (status = 500, description = "장병적금 중도해지 저장 실패"),
+    )
+)]
+async fn close_military_savings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+    request: Result<Json<CareerCursorRequest>, JsonRejection>,
+) -> Result<Json<MilitarySavingsCommandResponse>, CareerRouteError> {
+    let contract_id = ResourceId::parse(&id).map_err(|_| CareerFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| CareerFailureCode::InvalidCommand)?;
+    let (command_id, cursor) = request.into_parts()?;
+    let command = CloseMilitarySavingsCommand {
+        command_id,
+        cursor,
+        contract_id,
+    };
+    match state.close_military_savings(user.id, &command).await? {
         CareerCommandResult::Applied(response) => Ok(Json(*response)),
         CareerCommandResult::Rejected(code) => Err(code.into()),
     }
@@ -3370,7 +6530,19 @@ mod tests {
                     "bondCoupon",
                     "bondMaturity",
                     "llxDistribution",
-                    "financialIncomeFiling"
+                    "financialIncomeFiling",
+                    "employmentPayroll",
+                    "employmentReconciliation",
+                    "militaryPay",
+                    "militarySavingsInstallment",
+                    "militarySavingsMaturity",
+                    "militarySavingsGovernmentMatch",
+                    "loanInstallment",
+                    "leaseRent",
+                    "livingCostMonth",
+                    "propertyTaxPayment",
+                    "welfareBenefitPayment",
+                    "insurancePremium"
                 ]))
             );
             assert_eq!(
@@ -3386,6 +6558,30 @@ mod tests {
                     "interestAccrual",
                     "scheduledSettlement",
                     "specActivity",
+                    "employmentPayroll",
+                    "careerRewardPayment",
+                    "pensionCreditAllocation",
+                    "militaryPay",
+                    "militarySavingsInstallment",
+                    "militarySavingsMaturity",
+                    "militarySavingsGovernmentMatch",
+                    "militarySavingsEarlyClose",
+                    "livingCostMonth",
+                    "essentialArrearPayment",
+                    "loanOrigination",
+                    "loanInstallment",
+                    "loanPrepayment",
+                    "debtAuthorityBridge",
+                    "leaseMove",
+                    "leaseRent",
+                    "leaseArrearPayment",
+                    "propertyPurchase",
+                    "propertySale",
+                    "propertyTaxPayment",
+                    "welfareBenefitPayment",
+                    "lifeEventChoice",
+                    "insurancePremiumPayment",
+                    "insuranceClaimPayment",
                     "correction"
                 ]))
             );
@@ -3403,7 +6599,42 @@ mod tests {
                     "distributionIncome",
                     "realizedGainLoss",
                     "taxSettlement",
-                    "careerDevelopmentExpense"
+                    "careerDevelopmentExpense",
+                    "salaryIncome",
+                    "employeeNationalPensionExpense",
+                    "employeeHealthInsuranceExpense",
+                    "employeeLongTermCareExpense",
+                    "employeeEmploymentInsuranceExpense",
+                    "employmentIncomeTaxWithholding",
+                    "employmentLocalIncomeTaxWithholding",
+                    "otherIncomeReward",
+                    "otherIncomeTaxWithholding",
+                    "otherLocalIncomeTaxWithholding",
+                    "pensionTaxExcludedContribution",
+                    "pensionCreditedContribution",
+                    "militaryPayIncome",
+                    "militarySavingsPrincipal",
+                    "militarySavingsBankInterest",
+                    "militarySavingsGovernmentMatchIncome",
+                    "livingCostExpense",
+                    "essentialArrearLiability",
+                    "loanPrincipalLiability",
+                    "loanInterestExpense",
+                    "loanInterestLiability",
+                    "loanFeeExpense",
+                    "taxObligationLiability",
+                    "leaseDepositAsset",
+                    "movingExpense",
+                    "leaseRentExpense",
+                    "leaseArrearLiability",
+                    "propertyAsset",
+                    "acquisitionIncidentalExpense",
+                    "propertyDispositionExpense",
+                    "propertyTaxExpense",
+                    "welfareBenefitIncome",
+                    "lifeEventExpense",
+                    "insurancePremiumExpense",
+                    "insuranceClaimRecovery"
                 ]))
             );
         }
@@ -3680,12 +6911,48 @@ mod tests {
                 .expect("command schema must list required fields")
         }
 
+        fn given_v2_start_request() -> serde_json::Value {
+            serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 0,
+                "expectedStateRevision": 0,
+                "expectedGameDay": 0,
+                "character": {
+                    "name": "테스터",
+                    "age": 25,
+                    "gender": "other",
+                    "military": "exempted",
+                    "region": "capitalArea",
+                    "background": "independent",
+                    "education": "bachelor",
+                    "careerYears": 1,
+                    "certifications": 1,
+                    "startingCashKrw": 10000000,
+                    "health": "normal",
+                    "dependents": 0
+                },
+                "startingLoans": [
+                    {
+                        "kind": "studentLoan",
+                        "productVersionId": "11",
+                        "principalKrw": 20000000
+                    },
+                    {
+                        "kind": "unsecuredLoan",
+                        "productVersionId": "12",
+                        "principalKrw": 3000000
+                    }
+                ]
+            })
+        }
+
         #[test]
         fn given_start_and_advance_requests_when_read_then_every_command_cursor_field_is_required()
         {
             let document = given_openapi_document();
 
-            let start = required_fields(&document, "CharacterStartRequest");
+            let start_v1 = required_fields(&document, "CharacterStartV1Request");
+            let start_v2 = required_fields(&document, "CharacterStartV2Request");
             let advance = required_fields(&document, "AdvanceRequest");
 
             for field in [
@@ -3694,11 +6961,21 @@ mod tests {
                 "expectedStateRevision",
                 "expectedGameDay",
             ] {
-                assert!(start.contains(&serde_json::json!(field)));
+                assert!(start_v1.contains(&serde_json::json!(field)));
+                assert!(start_v2.contains(&serde_json::json!(field)));
                 assert!(advance.contains(&serde_json::json!(field)));
             }
-            assert!(start.contains(&serde_json::json!("character")));
+            assert!(start_v1.contains(&serde_json::json!("character")));
+            assert!(start_v2.contains(&serde_json::json!("character")));
+            assert!(start_v2.contains(&serde_json::json!("startingLoans")));
             assert!(advance.contains(&serde_json::json!("days")));
+            assert_eq!(
+                document
+                    .pointer("/components/schemas/CharacterStartRequest/oneOf")
+                    .and_then(serde_json::Value::as_array)
+                    .map(Vec::len),
+                Some(2)
+            );
             assert_eq!(
                 document.pointer("/components/schemas/AdvanceRequest/properties/days/minimum"),
                 Some(&serde_json::json!(1))
@@ -3716,7 +6993,8 @@ mod tests {
                 serde_json::json!("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
 
             for pointer in [
-                "/components/schemas/CharacterStartRequest/properties/commandId",
+                "/components/schemas/CharacterStartV1Request/properties/commandId",
+                "/components/schemas/CharacterStartV2Request/properties/commandId",
                 "/components/schemas/AdvanceRequest/properties/commandId",
                 "/components/schemas/CharacterStartSnapshot/properties/commandId",
                 "/components/schemas/AdvanceCommandSnapshot/properties/commandId",
@@ -3851,6 +7129,71 @@ mod tests {
             assert_eq!(command.draft.name, "");
             assert_eq!(command.draft.age, 18);
         }
+
+        #[test]
+        fn given_v2_시작대출_when_명령으로변환하면_then_상품과원금을보존한다() {
+            let request = serde_json::from_value::<CharacterStartRequest>(given_v2_start_request())
+                .expect("v2 시작 요청은 유효해야 한다");
+
+            let command = request
+                .into_command()
+                .expect("v2 시작 명령으로 변환되어야 한다");
+
+            assert_eq!(command.draft.student_loan_krw, 20_000_000);
+            assert_eq!(command.draft.credit_loan_krw, 3_000_000);
+            let loans = command
+                .starting_loans
+                .expect("v2 명령은 상품 선택을 보존해야 한다");
+            assert_eq!(loans.len(), 2);
+            assert_eq!(loans[0].product_kind, LoanProductKind::StudentLoan);
+            assert_eq!(loans[0].product_version_id.get(), 11);
+            assert_eq!(loans[1].product_kind, LoanProductKind::UnsecuredLoan);
+            assert_eq!(loans[1].product_version_id.get(), 12);
+        }
+
+        #[test]
+        fn given_v1금액과_v2대출을섞음_when_parse하면_then_거절한다() {
+            let mut request = given_v2_start_request();
+            request
+                .pointer_mut("/character")
+                .and_then(serde_json::Value::as_object_mut)
+                .expect("캐릭터 요청은 객체여야 한다")
+                .insert("studentLoanKrw".to_owned(), serde_json::json!(20_000_000));
+
+            let result = serde_json::from_value::<CharacterStartRequest>(request);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_v2대출이_canonical순서가아님_when_명령으로변환하면_then_거절한다() {
+            let mut request = given_v2_start_request();
+            request
+                .pointer_mut("/startingLoans")
+                .and_then(serde_json::Value::as_array_mut)
+                .expect("시작 대출은 배열이어야 한다")
+                .reverse();
+            let parsed = serde_json::from_value::<CharacterStartRequest>(request)
+                .expect("문법 형태는 유효해야 한다");
+
+            let result = parsed.into_command();
+
+            assert!(matches!(result, Err(GameLoopError::InvalidCommand)));
+        }
+
+        #[test]
+        fn given_v2대출에_unknown필드_when_parse하면_then_거절한다() {
+            let mut request = given_v2_start_request();
+            request
+                .pointer_mut("/startingLoans/0")
+                .and_then(serde_json::Value::as_object_mut)
+                .expect("시작 대출은 객체여야 한다")
+                .insert("unexpected".to_owned(), serde_json::json!(true));
+
+            let result = serde_json::from_value::<CharacterStartRequest>(request);
+
+            assert!(result.is_err());
+        }
     }
 
     mod context_market_trading_contract_is_generated {
@@ -3967,6 +7310,196 @@ mod tests {
         }
 
         #[test]
+        fn given_명시적_null_artifact_version_when_parse하면_then_요청을_거절한다() {
+            let request = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "postingKey": "a".repeat(64),
+                "resumeVersionId": null,
+                "portfolioVersionId": "1"
+            });
+
+            let result = serde_json::from_value::<CareerApplicationRequest>(request);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_생략한_optional_artifact_version_when_parse하면_then_요청을_허용한다() {
+            let request = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "postingKey": "a".repeat(64),
+                "portfolioVersionId": "1"
+            });
+
+            let result = serde_json::from_value::<CareerApplicationRequest>(request);
+
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn given_optional_artifact_version_when_openapi를_읽으면_then_생략만_허용한다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let required = document
+                .pointer("/components/schemas/CareerApplicationRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("지원 요청의 필수 필드 목록이 있어야 한다");
+
+            for field in [
+                "resumeVersionId",
+                "portfolioVersionId",
+                "linkedinProfileVersionId",
+            ] {
+                assert!(!required.contains(&serde_json::json!(field)));
+                assert_eq!(
+                    document.pointer(&format!(
+                        "/components/schemas/CareerApplicationRequest/properties/{field}/type"
+                    )),
+                    Some(&serde_json::json!("string"))
+                );
+            }
+        }
+
+        #[test]
+        fn given_복무시작_exact요청_when_명령으로_변환하면_then_cursor와_option을_보존한다() {
+            let request =
+                serde_json::from_value::<MilitaryServiceStartRequest>(serde_json::json!({
+                    "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                    "expectedRunRevision": 1,
+                    "expectedStateRevision": 2,
+                    "expectedGameDay": 3,
+                    "militaryOptionVersionId": "7"
+                }))
+                .expect("복무 시작 요청 문법이 유효해야 한다");
+
+            let command = StartMilitaryServiceCommand::try_from(request)
+                .expect("복무 시작 명령으로 바꿀 수 있어야 한다");
+
+            assert_eq!(command.military_option_version_id, ResourceId::from_u64(7));
+            assert_eq!(command.cursor.expected_run_revision, 1);
+            assert_eq!(command.cursor.expected_state_revision, 2);
+            assert_eq!(command.cursor.expected_game_day, 3);
+        }
+
+        #[test]
+        fn given_장병적금에_unknown필드_when_parse하면_then_요청을_거절한다() {
+            let request = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "productVersionId": "8",
+                "monthlyContributionKrw": 300000,
+                "debitDayOfMonth": 10,
+                "unexpected": true
+            });
+
+            let result = serde_json::from_value::<MilitarySavingsEnrollmentRequest>(request);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_json_safe범위를_넘는_납입액_when_명령으로_변환하면_then_invalid_command로_거절한다()
+         {
+            let request =
+                serde_json::from_value::<MilitarySavingsEnrollmentRequest>(serde_json::json!({
+                    "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                    "expectedRunRevision": 1,
+                    "expectedStateRevision": 2,
+                    "expectedGameDay": 3,
+                    "productVersionId": "8",
+                    "monthlyContributionKrw": 9007199254740992_i64,
+                    "debitDayOfMonth": 10
+                }))
+                .expect("i64 범위의 JSON 숫자는 문법상 읽을 수 있어야 한다");
+
+            let result = OpenMilitarySavingsCommand::try_from(request);
+
+            assert_eq!(result, Err(CareerFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_군명령_openapi_when_읽으면_then_cursor와_domain필드가_모두_required다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let service = document
+                .pointer("/components/schemas/MilitaryServiceStartRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("복무 시작 필수 필드가 있어야 한다");
+            let savings = document
+                .pointer("/components/schemas/MilitarySavingsEnrollmentRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("장병적금 필수 필드가 있어야 한다");
+
+            for field in [
+                "commandId",
+                "expectedRunRevision",
+                "expectedStateRevision",
+                "expectedGameDay",
+            ] {
+                assert!(service.contains(&serde_json::json!(field)));
+                assert!(savings.contains(&serde_json::json!(field)));
+            }
+            assert!(service.contains(&serde_json::json!("militaryOptionVersionId")));
+            for field in [
+                "productVersionId",
+                "monthlyContributionKrw",
+                "debitDayOfMonth",
+            ] {
+                assert!(savings.contains(&serde_json::json!(field)));
+            }
+        }
+
+        #[test]
+        fn given_다음커리어action_when_직렬화하면_then_exact_tagged_object를_반환한다() {
+            let item = CareerPendingScheduleItemSnapshot::CareerAction {
+                id: ResourceId::from_u64(9),
+                due_game_day: 12,
+                kind: CareerScheduledActionKindSnapshot::MilitaryServiceStart,
+            };
+
+            let value = serde_json::to_value(item).expect("다음 일정을 직렬화할 수 있어야 한다");
+
+            assert_eq!(
+                value,
+                serde_json::json!({
+                    "sourceKind": "careerAction",
+                    "id": "9",
+                    "dueGameDay": 12,
+                    "kind": "militaryServiceStart"
+                })
+            );
+        }
+
+        #[test]
+        fn given_경력evidence_when_직렬화하면_then_인정경력일을_nullable필드로_반환한다() {
+            let evidence = CareerEvidenceSnapshot {
+                id: ResourceId::from_u64(1),
+                evidence_key: "militaryService:1:2".to_owned(),
+                catalog_entry_id: ResourceId::from_u64(2),
+                catalog_entry_key: "military-experience".to_owned(),
+                display_name: "복무 경력".to_owned(),
+                kind: crate::career::EvidenceKind::Experience,
+                acquired_game_day: 100,
+                expires_on_game_day: None,
+                period_start_date: Some("2026-01-01".to_owned()),
+                period_end_exclusive_date: Some("2027-01-01".to_owned()),
+                credited_experience_days: Some(365),
+            };
+
+            let value = serde_json::to_value(evidence).expect("evidence를 직렬화할 수 있어야 한다");
+
+            assert_eq!(value["creditedExperienceDays"], serde_json::json!(365));
+        }
+
+        #[test]
         fn given_portfolio_response_when_직렬화하면_then_camel_case_exact_shape를_반환한다() {
             let artifact = CareerArtifactVersionSnapshot::Portfolio {
                 id: ResourceId::from_u64(7),
@@ -4008,6 +7541,13 @@ mod tests {
                 "/paths/~1api~1career~1artifacts/get",
                 "/paths/~1api~1career~1artifacts/post",
                 "/paths/~1api~1career~1focus/post",
+                "/paths/~1api~1military~1options/get",
+                "/paths/~1api~1military~1service/get",
+                "/paths/~1api~1military~1service/post",
+                "/paths/~1api~1military~1savings-products/get",
+                "/paths/~1api~1military~1savings/get",
+                "/paths/~1api~1military~1savings/post",
+                "/paths/~1api~1military~1savings~1{id}~1close/post",
             ] {
                 assert_eq!(
                     document.pointer(&format!("{operation}/security")),
@@ -4019,6 +7559,1375 @@ mod tests {
                         .is_some()
                 );
             }
+        }
+    }
+
+    mod context_life_contract_is_generated {
+        use super::*;
+
+        fn given_budget_selections() -> serde_json::Value {
+            serde_json::json!([
+                { "category": "housing", "bandId": "11" },
+                { "category": "food", "bandId": "11" },
+                { "category": "transport", "bandId": "11" },
+                { "category": "communication", "bandId": "11" },
+                { "category": "utilities", "bandId": "11" },
+                { "category": "healthcare", "bandId": "11" },
+                { "category": "education", "bandId": "11" },
+                { "category": "dependentCare", "bandId": "11" },
+                { "category": "discretionary", "bandId": "11" }
+            ])
+        }
+
+        fn given_budget_request(selections: serde_json::Value) -> LifeBudgetUpdateRequest {
+            serde_json::from_value(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "selections": selections
+            }))
+            .expect("life budget request syntax must be valid")
+        }
+
+        fn given_quote_request() -> LoanQuoteRequest {
+            serde_json::from_value(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "productVersionId": "17",
+                "principalKrw": 30_000_000
+            }))
+            .expect("loan quote request syntax must be valid")
+        }
+
+        fn given_loan_execution_request() -> LoanExecutionRequest {
+            serde_json::from_value(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "quoteId": "23"
+            }))
+            .expect("loan execution request syntax must be valid")
+        }
+
+        fn given_loan_prepayment_request() -> LoanPrepaymentRequest {
+            serde_json::from_value(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "principalKrw": 5_000_000
+            }))
+            .expect("loan prepayment request syntax must be valid")
+        }
+
+        #[test]
+        fn given_life_paths_when_openapi_is_read_then_they_require_the_session_cookie() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI document must serialize");
+
+            for operation in [
+                "/paths/~1api~1loans/post",
+                "/paths/~1api~1loans~1products/get",
+                "/paths/~1api~1loans~1quotes/post",
+                "/paths/~1api~1loans~1{loanId}/get",
+                "/paths/~1api~1loans~1{loanId}~1installments/get",
+                "/paths/~1api~1loans~1{loanId}~1prepayments/post",
+                "/paths/~1api~1credit/get",
+                "/paths/~1api~1welfare~1programs/get",
+                "/paths/~1api~1welfare~1applications/post",
+                "/paths/~1api~1housing~1listings/get",
+                "/paths/~1api~1housing~1lease-deposit-loan-quotes/post",
+                "/paths/~1api~1housing~1leases~1current/get",
+                "/paths/~1api~1housing~1leases/post",
+                "/paths/~1api~1housing~1holdings/get",
+                "/paths/~1api~1housing~1mortgage-quotes/post",
+                "/paths/~1api~1housing~1purchases/post",
+                "/paths/~1api~1life~1budget/get",
+                "/paths/~1api~1life~1budget/put",
+                "/paths/~1api~1life~1arrears~1{id}~1payments/post",
+                "/paths/~1api~1life~1events/get",
+                "/paths/~1api~1life~1events~1{eventId}~1choices/post",
+                "/paths/~1api~1insurance~1contracts/get",
+                "/paths/~1api~1insurance~1contracts/post",
+                "/paths/~1api~1insurance~1contracts~1{contractId}~1cancellations/post",
+                "/paths/~1api~1insurance~1claims/post",
+            ] {
+                assert_eq!(
+                    document.pointer(&format!("{operation}/security")),
+                    Some(&serde_json::json!([{ "sessionCookie": [] }]))
+                );
+                assert!(
+                    document
+                        .pointer(&format!("{operation}/responses/401"))
+                        .is_some()
+                );
+            }
+        }
+
+        #[test]
+        fn given_life_schemas_when_openapi_is_read_then_fixed_values_stay_exact() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI document must serialize");
+
+            assert_eq!(
+                document.pointer("/components/schemas/LifeFailureCodeSnapshot/enum"),
+                Some(&serde_json::json!([
+                    "invalidCommand",
+                    "characterRequired",
+                    "insufficientWalletCash",
+                    "rateUnavailable",
+                    "creditRestricted",
+                    "incomeUnavailable",
+                    "debtServiceLimit",
+                    "collateralLimit",
+                    "affordabilityLimit",
+                    "contractConflict",
+                    "idempotencyConflict",
+                    "settlementConflict",
+                    "housingResourceNotFound",
+                    "welfareResourceNotFound",
+                    "eventNotFound",
+                    "eventExpired",
+                    "insuranceResourceNotFound",
+                    "claimNotCovered",
+                    "ineligible",
+                    "valuationUnavailable",
+                    "policyUnsupported",
+                    "busy"
+                ]))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LivingCostMonthSnapshot/properties/prorationScale/minimum"
+                ),
+                Some(&serde_json::json!(377_580))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LivingCostMonthSnapshot/properties/prorationScale/maximum"
+                ),
+                Some(&serde_json::json!(377_580))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/InsuranceCapabilitySnapshot/enum"),
+                Some(&serde_json::json!(["contractsAndClaims", "unavailable"]))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/InsuranceEligibilityStatusSnapshot/enum"),
+                Some(&serde_json::json!([
+                    "eligible",
+                    "ineligible",
+                    "indeterminate"
+                ]))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/InsuranceEligibilityReasonSnapshot/enum"),
+                Some(&serde_json::json!([
+                    "ageOutsideRange",
+                    "dependentRequired",
+                    "residenceRequired",
+                    "militaryServing",
+                    "authorityUnavailable"
+                ]))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/InsuranceContractStatusSnapshot/enum"),
+                Some(&serde_json::json!([
+                    "active",
+                    "lapsed",
+                    "expired",
+                    "cancelled"
+                ]))
+            );
+        }
+
+        #[test]
+        fn given_loan_read_schemas_when_openapi_is_read_then_bounds_and_nullable_id_are_exact() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI document must serialize");
+            let catalog_required = document
+                .pointer("/components/schemas/LoanProductCatalogResponse/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("loan product response fields must be required");
+            let credit_required = document
+                .pointer("/components/schemas/CreditResponse/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("credit response fields must be required");
+
+            for field in ["creditModelVersionId", "products"] {
+                assert!(catalog_required.contains(&serde_json::json!(field)));
+            }
+            for field in [
+                "creditBand",
+                "creditReasons",
+                "activeLoans",
+                "nextLoanInstallment",
+                "totalLoanBalanceKrw",
+            ] {
+                assert!(credit_required.contains(&serde_json::json!(field)));
+            }
+            let model_id_types = document
+                .pointer(
+                    "/components/schemas/LoanProductCatalogResponse/properties/creditModelVersionId/type",
+                )
+                .and_then(serde_json::Value::as_array)
+                .expect("nullable credit model ID must have a type union");
+            assert!(model_id_types.contains(&serde_json::json!("string")));
+            assert!(model_id_types.contains(&serde_json::json!("null")));
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanProductCatalogResponse/properties/products/maxItems",
+                ),
+                Some(&serde_json::json!(16))
+            );
+            assert_eq!(
+                document
+                    .pointer("/components/schemas/CreditResponse/properties/activeLoans/maxItems"),
+                Some(&serde_json::json!(8))
+            );
+        }
+
+        #[test]
+        fn given_대출견적_schema_when_openapi를_읽으면_then_요청경계와_응답필드가_exact하다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let required = document
+                .pointer("/components/schemas/LoanQuoteRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("대출 견적 요청 필드는 모두 필수여야 한다");
+
+            for field in [
+                "commandId",
+                "expectedRunRevision",
+                "expectedStateRevision",
+                "expectedGameDay",
+                "productVersionId",
+                "principalKrw",
+            ] {
+                assert!(required.contains(&serde_json::json!(field)));
+            }
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanQuoteRequest/properties/expectedStateRevision/maximum",
+                ),
+                Some(&serde_json::json!(MAX_JSON_SAFE_INTEGER))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanQuoteRequest/properties/principalKrw/maximum",
+                ),
+                Some(&serde_json::json!(MAX_JSON_SAFE_INTEGER))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanQuoteRequest/properties/productVersionId/pattern",
+                ),
+                Some(&serde_json::json!("^[1-9][0-9]*$"))
+            );
+            assert!(
+                document
+                    .pointer("/components/schemas/LoanQuoteResponse/properties/result")
+                    .is_some()
+            );
+            assert!(
+                document
+                    .pointer("/components/schemas/LoanQuoteResponse/properties/replayed")
+                    .is_some()
+            );
+            assert!(
+                document
+                    .pointer("/components/schemas/LoanQuoteResponse/properties/snapshot")
+                    .is_some()
+            );
+        }
+
+        #[test]
+        fn given_정상_대출견적요청_when_command로_변환하면_then_cursor와_상품과_원금을_보존한다() {
+            let request = given_quote_request();
+
+            let command = CreateLoanQuoteCommand::try_from(request)
+                .expect("정상 대출 견적 요청을 변환할 수 있어야 한다");
+
+            assert_eq!(
+                command.command_id.as_str(),
+                "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2"
+            );
+            assert_eq!(
+                command.cursor,
+                CommandCursor {
+                    expected_run_revision: 1,
+                    expected_state_revision: 2,
+                    expected_game_day: 3,
+                }
+            );
+            assert_eq!(command.product_version_id, ResourceId::from_u64(17));
+            assert_eq!(command.principal_krw, 30_000_000);
+        }
+
+        #[test]
+        fn given_대출실행_schema_when_openapi를_읽으면_then_요청과_응답계약이_exact하다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+
+            let request_required = document
+                .pointer("/components/schemas/LoanExecutionRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("대출 실행 요청 필드는 모두 필수여야 한다");
+            for field in [
+                "commandId",
+                "expectedRunRevision",
+                "expectedStateRevision",
+                "expectedGameDay",
+                "quoteId",
+            ] {
+                assert!(request_required.contains(&serde_json::json!(field)));
+            }
+            assert_eq!(request_required.len(), 5);
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanExecutionRequest/properties/expectedStateRevision/maximum",
+                ),
+                Some(&serde_json::json!(MAX_JSON_SAFE_INTEGER))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanExecutionRequest/properties/quoteId/pattern",
+                ),
+                Some(&serde_json::json!("^[1-9][0-9]*$"))
+            );
+
+            let result_required = document
+                .pointer("/components/schemas/LoanExecutionResultSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("대출 실행 결과 필드는 모두 필수여야 한다");
+            for field in [
+                "loanId",
+                "quoteId",
+                "productVersionId",
+                "principalKrw",
+                "activatedGameDay",
+                "maturityGameDay",
+                "annualRateBp",
+                "repaymentMethod",
+                "termMonths",
+                "firstInstallment",
+            ] {
+                assert!(result_required.contains(&serde_json::json!(field)));
+            }
+            assert_eq!(result_required.len(), 10);
+            for field in ["result", "replayed", "snapshot"] {
+                assert!(
+                    document
+                        .pointer(&format!(
+                            "/components/schemas/LoanExecutionResponse/properties/{field}"
+                        ))
+                        .is_some()
+                );
+            }
+        }
+
+        #[test]
+        fn given_정상_대출실행요청_when_command로_변환하면_then_cursor와_견적id를_보존한다() {
+            let request = given_loan_execution_request();
+
+            let command = ExecuteLoanCommand::try_from(request)
+                .expect("정상 대출 실행 요청을 변환할 수 있어야 한다");
+
+            assert_eq!(
+                command.command_id.as_str(),
+                "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2"
+            );
+            assert_eq!(
+                command.cursor,
+                CommandCursor {
+                    expected_run_revision: 1,
+                    expected_state_revision: 2,
+                    expected_game_day: 3,
+                }
+            );
+            assert_eq!(command.quote_id, ResourceId::from_u64(23));
+        }
+
+        #[test]
+        fn given_알수없는_대출실행필드_when_json을_파싱하면_then_거절한다() {
+            let request = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "quoteId": "23",
+                "principalKrw": 30_000_000
+            });
+
+            let result = serde_json::from_value::<LoanExecutionRequest>(request);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_leading_zero_견적id_when_대출실행command로_변환하면_then_거절한다() {
+            let mut request = given_loan_execution_request();
+            request.quote_id = "023".to_owned();
+
+            let result = ExecuteLoanCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_unsafe_state_revision_when_대출실행command로_변환하면_then_거절한다() {
+            let mut request = given_loan_execution_request();
+            request.expected_state_revision = MAX_JSON_SAFE_INTEGER + 1;
+
+            let result = ExecuteLoanCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_대출중도상환_schema_when_openapi를_읽으면_then_요청과_응답계약이_exact하다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let request_required = document
+                .pointer("/components/schemas/LoanPrepaymentRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("중도상환 요청 필드는 모두 필수여야 한다");
+            for field in [
+                "commandId",
+                "expectedRunRevision",
+                "expectedStateRevision",
+                "expectedGameDay",
+                "principalKrw",
+            ] {
+                assert!(request_required.contains(&serde_json::json!(field)));
+            }
+            assert_eq!(request_required.len(), 5);
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanPrepaymentRequest/properties/principalKrw/minimum"
+                ),
+                Some(&serde_json::json!(1))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/paths/~1api~1loans~1{loanId}~1prepayments/post/parameters/0/schema/pattern"
+                ),
+                Some(&serde_json::json!("^[1-9][0-9]*$"))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/LoanPrepaymentStatusSnapshot/enum"),
+                Some(&serde_json::json!(["active", "paidOff"]))
+            );
+            let result_required = document
+                .pointer("/components/schemas/LoanPrepaymentResultSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("중도상환 결과 필드는 모두 필수여야 한다");
+            for field in [
+                "loanId",
+                "paymentId",
+                "principalKrw",
+                "feeKrw",
+                "totalDebitedKrw",
+                "appliedGameDay",
+                "remainingPrincipalKrw",
+                "status",
+                "prepaymentEffect",
+                "remainingInstallments",
+                "nextInstallment",
+                "finalInstallmentDueGameDay",
+            ] {
+                assert!(result_required.contains(&serde_json::json!(field)));
+            }
+            assert_eq!(result_required.len(), 12);
+            let next_required = document
+                .pointer("/components/schemas/LoanPrepaymentNextInstallmentSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("다음 중도상환 회차 필드는 모두 필수여야 한다");
+            assert_eq!(next_required.len(), 6);
+            for field in ["result", "replayed", "snapshot"] {
+                assert!(
+                    document
+                        .pointer(&format!(
+                            "/components/schemas/LoanPrepaymentResponse/properties/{field}"
+                        ))
+                        .is_some()
+                );
+            }
+        }
+
+        #[test]
+        fn given_정상_중도상환요청_when_command로_변환하면_then_path대출과_cursor와_원금을_보존한다()
+         {
+            let request = given_loan_prepayment_request();
+
+            let command = prepay_loan_command("31", request)
+                .expect("정상 대출 중도상환 요청을 변환할 수 있어야 한다");
+
+            assert_eq!(command.loan_id, ResourceId::from_u64(31));
+            assert_eq!(command.principal_krw, 5_000_000);
+            assert_eq!(
+                command.cursor,
+                CommandCursor {
+                    expected_run_revision: 1,
+                    expected_state_revision: 2,
+                    expected_game_day: 3,
+                }
+            );
+        }
+
+        #[test]
+        fn given_중도상환body에_loan_id가있을때_when_json을_파싱하면_then_거절한다() {
+            let request = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "principalKrw": 5_000_000,
+                "loanId": "31"
+            });
+
+            let result = serde_json::from_value::<LoanPrepaymentRequest>(request);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_0원_when_중도상환command로_변환하면_then_거절한다() {
+            let mut request = given_loan_prepayment_request();
+            request.principal_krw = 0;
+
+            let result = prepay_loan_command("31", request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_leading_zero_대출id_when_중도상환command로_변환하면_then_거절한다() {
+            let request = given_loan_prepayment_request();
+
+            let result = prepay_loan_command("031", request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_생활명령실패_when_메시지를만들면_then_계약과생활비에범용문구를쓴다() {
+            assert_eq!(
+                life_failure_message(LifeFailureCode::InsufficientWalletCash),
+                "지갑 현금이 부족합니다"
+            );
+            assert_eq!(
+                life_failure_message(LifeFailureCode::ContractConflict),
+                "현재 상태에서 이 계약 요청을 처리할 수 없습니다"
+            );
+        }
+
+        #[test]
+        fn given_알수없는_대출견적필드_when_json을_파싱하면_then_거절한다() {
+            let request = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "productVersionId": "17",
+                "principalKrw": 30_000_000,
+                "annualRateBp": 1
+            });
+
+            let result = serde_json::from_value::<LoanQuoteRequest>(request);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_unsafe_state_revision_when_대출견적command로_변환하면_then_거절한다() {
+            let mut request = given_quote_request();
+            request.expected_state_revision = MAX_JSON_SAFE_INTEGER + 1;
+
+            let result = CreateLoanQuoteCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_unsafe_principal_when_대출견적command로_변환하면_then_거절한다() {
+            let mut request = given_quote_request();
+            request.principal_krw = MAX_JSON_SAFE_INTEGER as i64 + 1;
+
+            let result = CreateLoanQuoteCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_zero_principal_when_대출견적command로_변환하면_then_거절한다() {
+            let mut request = given_quote_request();
+            request.principal_krw = 0;
+
+            let result = CreateLoanQuoteCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_비정규_uuid_when_대출견적command로_변환하면_then_거절한다() {
+            let mut request = given_quote_request();
+            request.command_id = "4F521F4C-9DD8-4D20-8E1F-15CB13CBE0F2".to_owned();
+
+            let result = CreateLoanQuoteCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_leading_zero_상품id_when_대출견적command로_변환하면_then_거절한다() {
+            let mut request = given_quote_request();
+            request.product_version_id = "017".to_owned();
+
+            let result = CreateLoanQuoteCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_every_category_once_when_budget_is_converted_then_it_is_canonicalized() {
+            let request = given_budget_request(given_budget_selections());
+
+            let command = UpdateLifeBudgetCommand::try_from(request)
+                .expect("complete life budget must be accepted");
+
+            assert_eq!(command.selections.len(), LivingCostCategory::ALL.len());
+            assert!(
+                command
+                    .selections
+                    .iter()
+                    .map(|selection| selection.category)
+                    .eq(LivingCostCategory::ALL)
+            );
+        }
+
+        #[test]
+        fn given_a_duplicate_category_when_budget_is_converted_then_it_is_rejected() {
+            let mut selections = given_budget_selections();
+            selections[8]["category"] = serde_json::json!("housing");
+            let request = given_budget_request(selections);
+
+            let result = UpdateLifeBudgetCommand::try_from(request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_an_unknown_payment_field_when_parsed_then_it_is_rejected() {
+            let request = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "amountKrw": 10000,
+                "remainingKrw": 20000
+            });
+
+            let result = serde_json::from_value::<EssentialArrearPaymentRequest>(request);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_an_unsafe_payment_amount_when_converted_then_it_is_rejected() {
+            let request =
+                serde_json::from_value::<EssentialArrearPaymentRequest>(serde_json::json!({
+                    "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                    "expectedRunRevision": 1,
+                    "expectedStateRevision": 2,
+                    "expectedGameDay": 3,
+                    "amountKrw": 9007199254740992_i64
+                }))
+                .expect("an i64 JSON number must parse before semantic validation");
+
+            let result = essential_arrear_payment_command(ResourceId::from_u64(1), request);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_정규_dual_cursor_when_파싱하면_then_두_exclusive경계를보존한다() {
+            let loan_id = ResourceId::from_u64(31);
+
+            let result = parse_loan_installment_cursor("v1.l31.i12.p8", loan_id)
+                .expect("정규 cursor를 파싱할 수 있어야 한다");
+
+            assert_eq!(
+                result,
+                LoanInstallmentPageCursor {
+                    loan_id,
+                    installment_before: Some(12),
+                    payment_before: Some(8),
+                }
+            );
+        }
+
+        #[test]
+        fn given_0_sentinel_cursor_when_파싱하면_then_두window가_exhausted다() {
+            let loan_id = ResourceId::from_u64(31);
+
+            let result = parse_loan_installment_cursor("v1.l31.i0.p0", loan_id)
+                .expect("종료 cursor도 정규 token이어야 한다");
+
+            assert_eq!(result.installment_before, None);
+            assert_eq!(result.payment_before, None);
+        }
+
+        #[test]
+        fn given_최초query와_terminal_cursor_when_query를만들면_then_outer_before로구분한다() {
+            let loan_id = ResourceId::from_u64(31);
+            let initial = loan_installment_page_query(
+                loan_id,
+                LoanInstallmentsQuery {
+                    before: None,
+                    limit: None,
+                },
+            )
+            .expect("최초 query를 만들 수 있어야 한다");
+            let terminal = loan_installment_page_query(
+                loan_id,
+                LoanInstallmentsQuery {
+                    before: Some("v1.l31.i0.p0".to_owned()),
+                    limit: None,
+                },
+            )
+            .expect("terminal cursor query를 만들 수 있어야 한다");
+
+            assert_eq!(initial.before, None);
+            assert_eq!(
+                terminal.before,
+                Some(LoanInstallmentPageCursor {
+                    loan_id,
+                    installment_before: None,
+                    payment_before: None,
+                })
+            );
+            assert_eq!(initial.limit, 50);
+        }
+
+        #[test]
+        fn given_비정규_or_다른대출_cursor_when_파싱하면_then_모두거절한다() {
+            let loan_id = ResourceId::from_u64(31);
+
+            for value in [
+                "v1.l031.i12.p8",
+                "v1.l31.i012.p8",
+                "v1.l31.i12.p08",
+                "v1.l32.i12.p8",
+                "v1.l31.i65536.p8",
+                "v1.l31.i12.p4294967296",
+                "V1.l31.i12.p8",
+                "v1.l31.i12.p8.extra",
+            ] {
+                assert_eq!(
+                    parse_loan_installment_cursor(value, loan_id),
+                    Err(LifeFailureCode::InvalidCommand),
+                    "{value}는 거절해야 한다"
+                );
+            }
+        }
+
+        #[test]
+        fn given_limit범위밖_when_history_query를만들면_then_거절한다() {
+            let query = LoanInstallmentsQuery {
+                before: None,
+                limit: Some("51".to_owned()),
+            };
+
+            let result = loan_installment_page_query(ResourceId::from_u64(31), query);
+
+            assert_eq!(result, Err(LifeFailureCode::InvalidCommand));
+        }
+
+        #[test]
+        fn given_정규주거region_when_query를파싱하면_then_typed_region을보존한다() {
+            let value = serde_json::json!({"region": "rural"});
+
+            let parsed = serde_json::from_value::<HousingListingsQuery>(value)
+                .expect("정규 주거 지역을 파싱할 수 있어야 한다");
+            let query = HousingListingsQueryState {
+                region: parsed.region.map(Into::into),
+            };
+
+            assert_eq!(query.region, Some(LifeRegionKey::Rural));
+        }
+
+        #[test]
+        fn given_알수없는주거region_when_query를파싱하면_then_거절한다() {
+            let value = serde_json::json!({"region": "overseas"});
+
+            let result = serde_json::from_value::<HousingListingsQuery>(value);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_주거query에unknown필드_when_deserialize하면_then_거절한다() {
+            let value = serde_json::json!({"region": "rural", "limit": 24});
+
+            let result = serde_json::from_value::<HousingListingsQuery>(value);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_정규현금전세요청_when_command로바꾸면_then_listing과cursor를보존한다() {
+            let request = serde_json::from_value::<StartHousingLeaseRequest>(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "listingId": "17",
+                "offerKind": "jeonse"
+            }))
+            .expect("정규 전세 요청을 파싱할 수 있어야 한다");
+
+            let command = StartHousingLeaseCommand::try_from(request)
+                .expect("정규 전세 요청을 command로 바꿀 수 있어야 한다");
+
+            assert_eq!(command.listing_id, ResourceId::from_u64(17));
+            assert_eq!(command.offer_kind, HousingLeaseOfferKind::Jeonse);
+            assert_eq!(command.cursor.expected_run_revision, 1);
+            assert_eq!(command.cursor.expected_state_revision, 2);
+            assert_eq!(command.cursor.expected_game_day, 3);
+        }
+
+        #[test]
+        fn given_월세요청_when_임대차request로deserialize하면_then_월세command로보존한다() {
+            let request = serde_json::from_value::<StartHousingLeaseRequest>(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "listingId": "17",
+                "offerKind": "monthlyRent"
+            }))
+            .expect("정규 월세 요청을 파싱할 수 있어야 한다");
+
+            let command = StartHousingLeaseCommand::try_from(request)
+                .expect("정규 월세 요청을 command로 바꿀 수 있어야 한다");
+
+            assert_eq!(command.listing_id, ResourceId::from_u64(17));
+            assert_eq!(command.offer_kind, HousingLeaseOfferKind::MonthlyRent);
+        }
+
+        #[test]
+        fn given_금액필드가있는전세요청_when_deserialize하면_then_거절한다() {
+            let value = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "listingId": "17",
+                "offerKind": "jeonse",
+                "depositKrw": 10_000_000
+            });
+
+            let result = serde_json::from_value::<StartHousingLeaseRequest>(value);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_정규주담대견적요청_when_command로바꾸면_then_listing과원금을보존한다() {
+            let request = serde_json::from_value::<MortgageQuoteRequest>(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "listingId": "17",
+                "productVersionId": "23",
+                "principalKrw": 300_000_000
+            }))
+            .expect("정규 주담대 견적 요청을 파싱할 수 있어야 한다");
+
+            let command = CreateMortgageQuoteCommand::try_from(request)
+                .expect("정규 주담대 견적 요청을 command로 바꿀 수 있어야 한다");
+
+            assert_eq!(command.listing_id, ResourceId::from_u64(17));
+            assert_eq!(command.product_version_id, ResourceId::from_u64(23));
+            assert_eq!(command.principal_krw, 300_000_000);
+            assert_eq!(command.cursor.expected_state_revision, 2);
+        }
+
+        #[test]
+        fn given_mortgage_quote_id가_null인매수요청_when_command로바꾸면_then_현금매수다() {
+            let request = serde_json::from_value::<PropertyPurchaseRequest>(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "listingId": "17",
+                "mortgageQuoteId": null
+            }))
+            .expect("명시적 null 현금 매수 요청을 파싱할 수 있어야 한다");
+
+            let command = PurchasePropertyCommand::try_from(request)
+                .expect("현금 매수 요청을 command로 바꿀 수 있어야 한다");
+
+            assert_eq!(command.listing_id, ResourceId::from_u64(17));
+            assert_eq!(command.mortgage_quote_id, None);
+        }
+
+        #[test]
+        fn given_mortgage_quote_id가누락된매수요청_when_deserialize하면_then_거절한다() {
+            let value = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "listingId": "17"
+            });
+
+            let result = serde_json::from_value::<PropertyPurchaseRequest>(value);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_정규월세연체상환요청_when_command로바꾸면_then_path와cursor를보존한다() {
+            let request = serde_json::from_value::<LeaseArrearPaymentRequest>(serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "amountKrw": 40_000
+            }))
+            .expect("정규 월세 연체 상환 요청을 파싱할 수 있어야 한다");
+
+            let command = lease_arrear_payment_command(ResourceId::from_u64(17), request)
+                .expect("정규 월세 연체 상환 요청을 command로 바꿀 수 있어야 한다");
+
+            assert_eq!(command.arrear_id, ResourceId::from_u64(17));
+            assert_eq!(command.amount_krw, 40_000);
+            assert_eq!(command.cursor.expected_run_revision, 1);
+            assert_eq!(command.cursor.expected_state_revision, 2);
+            assert_eq!(command.cursor.expected_game_day, 3);
+        }
+
+        #[test]
+        fn given_월세연체상환요청에unknown필드_when_deserialize하면_then_거절한다() {
+            let value = serde_json::json!({
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 1,
+                "expectedStateRevision": 2,
+                "expectedGameDay": 3,
+                "amountKrw": 40_000,
+                "leaseArrearId": "17"
+            });
+
+            let result = serde_json::from_value::<LeaseArrearPaymentRequest>(value);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_주거listing_contract_when_openapi를읽으면_then_path와중첩schema가완전하다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let required = document
+                .pointer("/components/schemas/HousingListingsResponse/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("주거 listing 응답 필드는 모두 필수여야 한다");
+            let expected_required = vec![
+                serde_json::json!("rateStatus"),
+                serde_json::json!("modelVersionId"),
+                serde_json::json!("gameDay"),
+                serde_json::json!("yearMonth"),
+                serde_json::json!("residenceRegionKey"),
+                serde_json::json!("selectedRegionKey"),
+                serde_json::json!("regions"),
+                serde_json::json!("priceIndexPpm"),
+                serde_json::json!("rentIndexPpm"),
+                serde_json::json!("listings"),
+            ];
+
+            assert!(
+                document
+                    .pointer("/paths/~1api~1housing~1listings/get")
+                    .is_some()
+            );
+            assert_eq!(required, &expected_required);
+            for schema in [
+                "HousingRegionKeySnapshot",
+                "HousingRateStatusSnapshot",
+                "HousingPropertyTypeSnapshot",
+                "HousingOfferSnapshot",
+                "HousingRegionSnapshot",
+                "HousingListingSnapshot",
+            ] {
+                assert!(
+                    document
+                        .pointer(&format!("/components/schemas/{schema}"))
+                        .is_some(),
+                    "{schema}가 components에 있어야 한다"
+                );
+            }
+        }
+
+        #[test]
+        fn given_c3_매수_contract_when_openapi를읽으면_then_요청과응답이_strict하다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let quote_required = document
+                .pointer("/components/schemas/MortgageQuoteRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("주담대 견적 요청 필드는 모두 필수여야 한다");
+            let purchase_required = document
+                .pointer("/components/schemas/PropertyPurchaseRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("주택 매수 요청 필드는 모두 필수여야 한다");
+            let quote_result_required = document
+                .pointer("/components/schemas/MortgageQuoteResultSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("주담대 견적 결과 필드는 모두 필수여야 한다");
+            let purchase_result_required = document
+                .pointer("/components/schemas/PropertyPurchaseResultSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("주택 매수 결과 필드는 모두 필수여야 한다");
+
+            assert_eq!(quote_required.len(), 7);
+            assert_eq!(purchase_required.len(), 6);
+            assert!(purchase_required.contains(&serde_json::json!("mortgageQuoteId")));
+            assert_eq!(quote_result_required.len(), 30);
+            assert_eq!(purchase_result_required.len(), 12);
+            assert_eq!(
+                document.pointer("/components/schemas/MortgageStressTreatmentSnapshot/enum"),
+                Some(&serde_json::json!(["fullTermFixed"]))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/MortgageQuoteResultSnapshot/properties/stressRateBp/maximum"
+                ),
+                Some(&serde_json::json!(0))
+            );
+            assert!(
+                document
+                    .pointer("/components/schemas/MortgageLtvSnapshot/properties/ratioPpm/maximum")
+                    .is_none()
+            );
+            for path in [
+                "/paths/~1api~1housing~1holdings/get",
+                "/paths/~1api~1housing~1mortgage-quotes/post",
+                "/paths/~1api~1housing~1purchases/post",
+            ] {
+                assert!(document.pointer(path).is_some(), "{path}가 있어야 한다");
+            }
+            for field in [
+                "activePropertyHoldings",
+                "hasMoreActivePropertyHoldings",
+                "totalPropertyBookValueKrw",
+            ] {
+                assert!(
+                    document
+                        .pointer("/components/schemas/LifeSnapshot/required")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|required| required.contains(&serde_json::json!(field)))
+                );
+            }
+        }
+
+        #[test]
+        fn given_현금임대차contract_when_openapi를읽으면_then_request와응답필드가완전하다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let cash_request_required = document
+                .pointer("/components/schemas/StartHousingLeaseCashRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("현금 임대차 요청 필드는 모두 필수여야 한다");
+            let financed_request_required = document
+                .pointer("/components/schemas/StartHousingLeaseFinancedRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("대출 임대차 요청 필드는 모두 필수여야 한다");
+            let request_variants = document
+                .pointer("/components/schemas/StartHousingLeaseRequest/oneOf")
+                .and_then(serde_json::Value::as_array)
+                .expect("임대차 요청은 strict union이어야 한다");
+            let current_required = document
+                .pointer("/components/schemas/HousingLeaseCurrentResponse/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("현재 임대차 응답 필드는 모두 필수여야 한다");
+            let result_required = document
+                .pointer("/components/schemas/HousingLeaseMoveResultSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("임대차 이동 결과 필드는 모두 필수여야 한다");
+
+            assert_eq!(cash_request_required.len(), 6);
+            assert_eq!(financed_request_required.len(), 7);
+            assert_eq!(request_variants.len(), 2);
+            let expected_current_required = [
+                "leaseCapability",
+                "renewalRule",
+                "leaseLifecycleTerms",
+                "movingCosts",
+                "tenantLeaseDepositKrw",
+                "activeLease",
+                "monthlyRentTerms",
+                "activeArrears",
+                "hasMoreActiveArrears",
+                "totalLeaseArrearKrw",
+            ]
+            .map(serde_json::Value::from);
+
+            assert_eq!(current_required, &expected_current_required);
+            assert_eq!(result_required.len(), 17);
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/StartHousingLeaseCashRequest/properties/listingId/pattern"
+                ),
+                Some(&serde_json::json!("^[1-9][0-9]*$"))
+            );
+            for property in [
+                "/components/schemas/StartHousingLeaseFinancedRequest/properties/offerKind/$ref",
+                "/components/schemas/LeaseDepositLoanQuoteRequest/properties/offerKind/$ref",
+            ] {
+                assert_eq!(
+                    document.pointer(property),
+                    Some(&serde_json::json!(
+                        "#/components/schemas/JeonseHousingLeaseOfferKindRequest"
+                    ))
+                );
+            }
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LeaseDepositLoanQuoteResultSnapshot/properties/offerKind/$ref"
+                ),
+                Some(&serde_json::json!(
+                    "#/components/schemas/JeonseHousingLeaseOfferKindSnapshot"
+                ))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/JeonseHousingLeaseOfferKindRequest/enum"),
+                Some(&serde_json::json!(["jeonse"]))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/JeonseHousingLeaseOfferKindSnapshot/enum"),
+                Some(&serde_json::json!(["jeonse"]))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/RegulatoryDsrAppliedSnapshot/type"),
+                Some(&serde_json::json!("boolean"))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/RegulatoryDsrAppliedSnapshot/enum"),
+                Some(&serde_json::json!([false]))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LeaseDepositLoanQuoteResultSnapshot/properties/regulatoryDsrApplied/$ref"
+                ),
+                Some(&serde_json::json!(
+                    "#/components/schemas/RegulatoryDsrAppliedSnapshot"
+                ))
+            );
+            assert!(result_required.contains(&serde_json::json!("depositLoanExecution")));
+            assert!(result_required.contains(&serde_json::json!("repaidDepositLoan")));
+            let active_lease_required = document
+                .pointer("/components/schemas/ActiveHousingLeaseSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("현재 임대차 필드는 모두 필수여야 한다");
+            assert!(active_lease_required.contains(&serde_json::json!("depositLoanId")));
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/HousingLeaseCurrentResponse/properties/movingCosts/maxItems"
+                ),
+                Some(&serde_json::json!(4))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/MonthlyRentTerminationReviewTermsSnapshot/properties/afterGameDays/minimum"
+                ),
+                Some(&serde_json::json!(1))
+            );
+            for schema in [
+                "LeaseLifecycleTermsSnapshot",
+                "ActiveLeaseTermSnapshot",
+                "LeaseRenewalNoticeSnapshot",
+                "LeaseTerminationReviewSnapshot",
+            ] {
+                assert!(
+                    document
+                        .pointer(&format!("/components/schemas/{schema}"))
+                        .is_some(),
+                    "{schema}가 components에 있어야 한다"
+                );
+            }
+            assert!(
+                document
+                    .pointer("/paths/~1api~1housing~1leases~1current/get")
+                    .is_some()
+            );
+            assert!(
+                document
+                    .pointer("/paths/~1api~1housing~1leases/post")
+                    .is_some()
+            );
+        }
+
+        #[test]
+        fn given_월세연체상환contract_when_openapi를읽으면_then_path와금액경계가완전하다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let request_required = document
+                .pointer("/components/schemas/LeaseArrearPaymentRequest/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("월세 연체 상환 요청 필드는 모두 필수여야 한다");
+            let result_required = document
+                .pointer("/components/schemas/LeaseArrearPaymentResultSnapshot/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("월세 연체 상환 결과 필드는 모두 필수여야 한다");
+
+            assert_eq!(request_required.len(), 5);
+            assert_eq!(result_required.len(), 4);
+            assert_eq!(
+                document.pointer(
+                    "/paths/~1api~1housing~1lease-arrears~1{id}~1payments/post/parameters/0/schema/pattern"
+                ),
+                Some(&serde_json::json!("^[1-9][0-9]*$"))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LeaseArrearPaymentRequest/properties/amountKrw/minimum"
+                ),
+                Some(&serde_json::json!(1))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LeaseArrearPaymentRequest/properties/amountKrw/maximum"
+                ),
+                Some(&serde_json::json!(MAX_JSON_SAFE_INTEGER))
+            );
+        }
+
+        #[test]
+        fn given_history에_unknown_query_when_deserialize하면_then_거절한다() {
+            let value = serde_json::json!({"before": null, "offset": "10"});
+
+            let result = serde_json::from_value::<LoanInstallmentsQuery>(value);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_상세에_unknown_query_when_deserialize하면_then_거절한다() {
+            let value = serde_json::json!({"expand": "payments"});
+
+            let result = serde_json::from_value::<LoanDetailQuery>(value);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn given_대출상세와history_schema_when_openapi를읽으면_then_exact필드와query경계다() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI를 만들 수 있어야 한다");
+            let detail_required = document
+                .pointer("/components/schemas/LoanDetailResponse/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("대출 상세 필드는 모두 필수여야 한다");
+            let history_required = document
+                .pointer("/components/schemas/LoanInstallmentsResponse/required")
+                .and_then(serde_json::Value::as_array)
+                .expect("대출 history 필드는 모두 필수여야 한다");
+
+            assert_eq!(detail_required.len(), 27);
+            for field in [
+                "currentAnnualRateBp",
+                "termMonths",
+                "totalInstallments",
+                "maturityGameDay",
+                "finalInstallmentDueGameDay",
+                "nextInstallmentNo",
+                "oldestUnpaidDueGameDay",
+                "prepaymentFeePpm",
+                "prepaymentEffect",
+                "leaseContractId",
+                "propertyHoldingId",
+            ] {
+                assert!(detail_required.contains(&serde_json::json!(field)));
+            }
+            assert_eq!(history_required.len(), 6);
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanInstallmentsResponse/properties/installments/maxItems"
+                ),
+                Some(&serde_json::json!(50))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanInstallmentsResponse/properties/payments/maxItems"
+                ),
+                Some(&serde_json::json!(50))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/components/schemas/LoanPaymentSnapshot/properties/allocations/maxItems"
+                ),
+                Some(&serde_json::json!(8))
+            );
+            assert_eq!(
+                document.pointer("/components/schemas/LoanPaymentAllocationKindSnapshot/enum"),
+                Some(&serde_json::json!([
+                    "overdueFee",
+                    "overdueInterest",
+                    "overduePrincipal",
+                    "currentFee",
+                    "currentInterest",
+                    "currentPrincipal",
+                    "prepaymentFee",
+                    "prepaymentPrincipal"
+                ]))
+            );
+
+            let parameters = document
+                .pointer("/paths/~1api~1loans~1{loanId}~1installments/get/parameters")
+                .and_then(serde_json::Value::as_array)
+                .expect("history query parameters가 있어야 한다");
+            let before = parameters
+                .iter()
+                .find(|parameter| parameter.get("name") == Some(&serde_json::json!("before")))
+                .expect("before parameter가 있어야 한다");
+            let limit = parameters
+                .iter()
+                .find(|parameter| parameter.get("name") == Some(&serde_json::json!("limit")))
+                .expect("limit parameter가 있어야 한다");
+            assert_eq!(
+                before.pointer("/schema/pattern"),
+                Some(&serde_json::json!(
+                    "^v1\\.l[1-9][0-9]*\\.i(?:0|[1-9][0-9]*)\\.p(?:0|[1-9][0-9]*)$"
+                ))
+            );
+            assert_eq!(
+                limit.pointer("/schema/default"),
+                Some(&serde_json::json!(50))
+            );
+            assert_eq!(
+                limit.pointer("/schema/minimum"),
+                Some(&serde_json::json!(1))
+            );
+            assert_eq!(
+                limit.pointer("/schema/maximum"),
+                Some(&serde_json::json!(50))
+            );
+            assert!(
+                document
+                    .pointer("/paths/~1api~1loans~1{loanId}/get/responses/404")
+                    .is_some()
+            );
+            assert!(
+                document
+                    .pointer("/paths/~1api~1loans~1{loanId}~1installments/get/responses/404")
+                    .is_some()
+            );
         }
     }
 

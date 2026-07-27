@@ -45,6 +45,22 @@ const COMMAND_KIND_GOLD_WITHDRAWAL: &str = "withdrawGold";
 const BOND_COUPON_RATE_STEP_BP: i32 = 25;
 const MAX_FINANCIAL_ACCOUNTS: i64 = 32;
 const SNAPSHOT_QUERY_EXTRA_ROW: u32 = 1;
+const WELFARE_POSITION_LIMIT: usize = 32;
+const WELFARE_POSITION_QUERY_LIMIT: u32 = 33;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum M2dWelfareValuationUnknown {
+    AuthorityMissing,
+    ValuationUnavailable,
+    ArithmeticOverflow,
+    CollectionLimitExceeded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum M2dWelfarePolicyValues {
+    Known(Vec<i64>),
+    Unknown(M2dWelfareValuationUnknown),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct M2dBundleCatalog {
@@ -2466,7 +2482,7 @@ struct LockedBondSettlementRow {
     payload_json: String,
     source_kind: String,
     source_id: String,
-    occurrence: u32,
+    occurrence: u64,
     status: String,
 }
 
@@ -3522,7 +3538,7 @@ struct LockedLlxSettlementRow {
     payload_json: String,
     source_kind: String,
     source_id: String,
-    occurrence: u32,
+    occurrence: u64,
     status: String,
 }
 
@@ -4130,6 +4146,202 @@ struct GoldAccountRow {
 struct PhysicalGoldRow {
     bar_size_gram: u32,
     bar_count: u32,
+}
+
+pub(super) async fn read_m2d_welfare_policy_values_in_tx(
+    tx: &mut Transaction<'_, MySql>,
+    save_id: u64,
+    market_world_id: u64,
+    market_world_product_bundle_id: Option<u64>,
+    run_revision: u32,
+    game_day: u32,
+) -> Result<M2dWelfarePolicyValues> {
+    let Some(bundle_id) = market_world_product_bundle_id else {
+        return Ok(M2dWelfarePolicyValues::Known(Vec::new()));
+    };
+    let Some(bundle) = read_bundle_catalog(tx, market_world_id, Some(bundle_id)).await? else {
+        return Ok(M2dWelfarePolicyValues::Unknown(
+            M2dWelfareValuationUnknown::AuthorityMissing,
+        ));
+    };
+    let bond_rows: Vec<BondPositionRow> = sqlx::query_as(
+        "SELECT position.financial_account_id, position.series_id,
+                position.product_version_id, position.bond_units,
+                position.total_cost_basis_krw, series.issued_date,
+                series.maturity_date, series.coupon_rate_bp, series.issue_yield_bp
+         FROM bond_position AS position
+         INNER JOIN bond_series AS series
+           ON series.market_world_id = position.market_world_id
+          AND series.id = position.series_id
+         WHERE position.save_id = ? AND position.run_revision = ?
+           AND position.bond_units > 0
+         ORDER BY position.financial_account_id, position.series_id LIMIT ?",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(WELFARE_POSITION_QUERY_LIMIT)
+    .fetch_all(&mut **tx)
+    .await?;
+    let gold_rows: Vec<GoldAccountRow> = sqlx::query_as(
+        "SELECT contract.financial_account_id, contract.product_version_id,
+                position.quantity_gram, position.total_cost_basis_krw
+         FROM gold_account_contract AS contract
+         INNER JOIN financial_account AS account
+           ON account.save_id = contract.save_id
+          AND account.run_revision = contract.run_revision
+          AND account.id = contract.financial_account_id
+         INNER JOIN gold_position AS position
+           ON position.save_id = contract.save_id
+          AND position.run_revision = contract.run_revision
+          AND position.financial_account_id = contract.financial_account_id
+         WHERE contract.save_id = ? AND contract.run_revision = ?
+           AND contract.status = 'active' AND account.status = 'open'
+         ORDER BY contract.financial_account_id LIMIT ?",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(WELFARE_POSITION_QUERY_LIMIT)
+    .fetch_all(&mut **tx)
+    .await?;
+    let physical_rows: Vec<PhysicalGoldRow> = sqlx::query_as(
+        "SELECT bar_size_gram, bar_count FROM physical_gold_holding
+         WHERE save_id = ? AND run_revision = ? ORDER BY bar_size_gram LIMIT ?",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(WELFARE_POSITION_QUERY_LIMIT)
+    .fetch_all(&mut **tx)
+    .await?;
+    let position_count = bond_rows
+        .len()
+        .checked_add(gold_rows.len())
+        .and_then(|count| count.checked_add(physical_rows.len()))
+        .context("M2-D welfare position count overflowed")?;
+    if position_count > WELFARE_POSITION_LIMIT {
+        return Ok(M2dWelfarePolicyValues::Unknown(
+            M2dWelfareValuationUnknown::CollectionLimitExceeded,
+        ));
+    }
+    if position_count == 0 {
+        return Ok(M2dWelfarePolicyValues::Known(Vec::new()));
+    }
+
+    let market: Option<CurrentMarketRow> = sqlx::query_as(
+        "SELECT calibration.version AS market_version, daily.market_date,
+                daily.market_open, daily.treasury_3y_bp, daily.treasury_10y_bp,
+                daily.gold_close_krw_per_gram
+         FROM market_daily AS daily
+         INNER JOIN market_world AS world ON world.id = daily.world_id
+         INNER JOIN market_calibration AS calibration ON calibration.id = world.calibration_id
+         WHERE daily.world_id = ? AND daily.game_day = ?",
+    )
+    .bind(market_world_id)
+    .bind(game_day)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(market) = market else {
+        return Ok(M2dWelfarePolicyValues::Unknown(
+            M2dWelfareValuationUnknown::ValuationUnavailable,
+        ));
+    };
+    ensure!(
+        market.market_version == bundle.market_version,
+        "M2-D welfare market version disagrees with the pinned bundle"
+    );
+
+    let mut values = Vec::with_capacity(position_count);
+    for row in bond_rows {
+        let product = bundle
+            .bond_products
+            .iter()
+            .find(|product| product.id.get() == row.product_version_id)
+            .context("welfare bond position product is outside the pinned bundle")?;
+        let series = match create_bond_series(product.terms, row.issued_date, row.issue_yield_bp) {
+            Ok(series) => series,
+            Err(M2dAssetError::ArithmeticOverflow) => {
+                return Ok(M2dWelfarePolicyValues::Unknown(
+                    M2dWelfareValuationUnknown::ArithmeticOverflow,
+                ));
+            }
+            Err(error) => return Err(error).context("welfare bond series is invalid"),
+        };
+        ensure!(
+            series.maturity_date == row.maturity_date
+                && series.coupon_rate_bp == row.coupon_rate_bp,
+            "welfare bond series disagrees with immutable terms"
+        );
+        let current_yield_bp = match product.terms.term {
+            BondTerm::Years3 => market.treasury_3y_bp,
+            BondTerm::Years10 => market.treasury_10y_bp,
+        };
+        let Some(current_yield_bp) = current_yield_bp else {
+            return Ok(M2dWelfarePolicyValues::Unknown(
+                M2dWelfareValuationUnknown::ValuationUnavailable,
+            ));
+        };
+        let dirty_price_krw =
+            match dirty_bond_price_krw(market.market_date, current_yield_bp, &series.cash_flows) {
+                Ok(value) => value,
+                Err(M2dAssetError::ArithmeticOverflow) => {
+                    return Ok(M2dWelfarePolicyValues::Unknown(
+                        M2dWelfareValuationUnknown::ArithmeticOverflow,
+                    ));
+                }
+                Err(error) => return Err(error).context("welfare bond valuation is invalid"),
+            };
+        let Some(value) = welfare_market_value(dirty_price_krw, row.bond_units) else {
+            return Ok(M2dWelfarePolicyValues::Unknown(
+                M2dWelfareValuationUnknown::ArithmeticOverflow,
+            ));
+        };
+        values.push(value);
+    }
+
+    if !gold_rows.is_empty() || !physical_rows.is_empty() {
+        let Some(gold_close_krw_per_gram) = market.gold_close_krw_per_gram else {
+            return Ok(M2dWelfarePolicyValues::Unknown(
+                M2dWelfareValuationUnknown::ValuationUnavailable,
+            ));
+        };
+        ensure!(
+            gold_close_krw_per_gram >= 0,
+            "M2-D welfare gold close is negative"
+        );
+        for row in gold_rows {
+            ensure!(
+                row.product_version_id == bundle.gold_product.id.get(),
+                "welfare gold position product is outside the pinned bundle"
+            );
+            let Some(value) = welfare_market_value(gold_close_krw_per_gram, row.quantity_gram)
+            else {
+                return Ok(M2dWelfarePolicyValues::Unknown(
+                    M2dWelfareValuationUnknown::ArithmeticOverflow,
+                ));
+            };
+            values.push(value);
+        }
+        for row in physical_rows {
+            let Some(total_quantity_gram) = row.bar_size_gram.checked_mul(row.bar_count) else {
+                return Ok(M2dWelfarePolicyValues::Unknown(
+                    M2dWelfareValuationUnknown::ArithmeticOverflow,
+                ));
+            };
+            let Some(value) = welfare_market_value(gold_close_krw_per_gram, total_quantity_gram)
+            else {
+                return Ok(M2dWelfarePolicyValues::Unknown(
+                    M2dWelfareValuationUnknown::ArithmeticOverflow,
+                ));
+            };
+            values.push(value);
+        }
+    }
+    Ok(M2dWelfarePolicyValues::Known(values))
+}
+
+fn welfare_market_value(unit_amount_krw: i64, quantity: u32) -> Option<i64> {
+    i128::from(unit_amount_krw)
+        .checked_mul(i128::from(quantity))
+        .and_then(|value| i64::try_from(value).ok())
 }
 
 async fn read_m2d_asset_snapshot_in_tx(
@@ -5181,6 +5393,38 @@ mod tests {
                 let result = validate_llx_finalized_state(settlement_status, entitlement_status);
 
                 assert!(result.is_ok());
+            }
+        }
+    }
+
+    mod welfare_market_value_rule {
+        use super::*;
+
+        mod context_수량을_곱한_평가액이_i64_범위인_경우 {
+            use super::*;
+
+            #[test]
+            fn given_단가와_수량_when_평가하면_then_정수_평가액을_반환한다() {
+                let unit_amount_krw = 1_000;
+                let quantity = 3;
+
+                let result = welfare_market_value(unit_amount_krw, quantity);
+
+                assert_eq!(result, Some(3_000));
+            }
+        }
+
+        mod context_수량을_곱한_평가액이_i64_범위를_넘는_경우 {
+            use super::*;
+
+            #[test]
+            fn given_큰_단가와_수량_when_평가하면_then_overflow를_반환한다() {
+                let unit_amount_krw = i64::MAX;
+                let quantity = 2;
+
+                let result = welfare_market_value(unit_amount_krw, quantity);
+
+                assert_eq!(result, None);
             }
         }
     }

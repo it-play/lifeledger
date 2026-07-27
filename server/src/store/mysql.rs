@@ -23,6 +23,35 @@ use super::career::{
 use super::cash_products::{
     CashProductSettlementInput, read_cash_product_state, settle_cash_product_by_id_in_tx,
 };
+use super::employment::{
+    EmploymentPayrollSettlementContext, settle_employment_payroll_by_id_in_tx,
+    validate_employment_settlement_envelope,
+};
+use super::employment_tax::{
+    lock_annual_employment_contract_in_tx, prepare_employment_annual_tax_boundary,
+    settle_employment_reconciliation_by_id_in_tx,
+};
+use super::insurance::{
+    close_insurance_for_new_run_in_tx, expire_insurance_claims_in_tx,
+    expire_insurance_contracts_in_tx, settle_insurance_premium_by_id_in_tx,
+    validate_insurance_settlement_envelope,
+};
+use super::leases::{
+    LeaseRentSettlementContext, advance_lease_lifecycle_in_tx,
+    close_lease_lifecycle_for_new_run_in_tx, prelock_due_lease_contracts_in_tx,
+    settle_due_lease_rent_in_tx, validate_due_lease_lifecycle_actions_in_tx,
+    validate_lease_rent_settlement_envelope,
+};
+use super::life::{
+    ensure_living_cost_month_in_tx, initialize_life_run_in_tx, read_life_snapshot_in_tx,
+    settle_living_cost_month_by_id_in_tx, validate_living_cost_settlement_envelope,
+};
+use super::life_events::{ensure_life_event_month_plan_in_tx, expire_life_events_in_tx};
+use super::loans::{
+    StartingLoanSelection, apply_credit_end_of_day_in_tx, initialize_legacy_starting_loans_in_tx,
+    initialize_starting_loans_in_tx, reset_variable_loan_rates_in_tx,
+    settle_due_loan_installment_in_tx,
+};
 use super::m2d_assets::{
     LlxTaxAccountTradeInput, LlxTaxAccountTradeResult, M2dDailyAssetContext,
     PensionAccountMarketValue, apply_pension_mark_to_market_plans_in_tx,
@@ -31,7 +60,20 @@ use super::m2d_assets::{
     read_due_pension_bond_principal_in_tx, read_m2d_asset_snapshot_for_run_in_tx,
     settle_bond_cash_flow_by_id_in_tx, settle_llx_entitlement_by_id_in_tx,
 };
-use super::recruitment::{advance_recruitment_actions_in_tx, advance_recruitment_lifecycle_in_tx};
+use super::military::{
+    MilitarySettlementContext, advance_military_lifecycle_in_tx, settle_military_by_id_in_tx,
+    validate_military_settlement_envelope,
+};
+use super::properties::{close_property_sales_for_new_run_in_tx, execute_due_property_sales_in_tx};
+use super::property_tax::{
+    PropertyTaxRunContext, close_property_tax_for_new_run_in_tx,
+    prepare_annual_property_tax_boundary_in_tx, settle_property_tax_payment_by_id_in_tx,
+    validate_property_tax_settlement_envelope,
+};
+use super::recruitment::{
+    advance_recruitment_actions_in_tx, advance_recruitment_lifecycle_in_tx,
+    validate_due_career_action_envelopes_in_tx,
+};
 use super::tax_accounts::{
     TaxAccountStateInput, cancel_tax_accounts_for_new_run, ensure_m2_tax_profile,
     pin_pension_opening_values_for_day, read_tax_account_state,
@@ -42,6 +84,11 @@ use super::types::{
     SaveState, SaveStore, StartGameCommand, StartGameReceipt, StartGameResult, TradeStoreResult,
     TradingStore,
 };
+use super::welfare::{
+    close_welfare_for_new_run_in_tx, ensure_welfare_evaluations_for_target_day_in_tx,
+    ensure_welfare_evaluations_in_tx, settle_welfare_benefit_by_id_in_tx,
+    validate_welfare_settlement_envelope,
+};
 use crate::character::{Character, create_character};
 use crate::finance::{
     AssetOrderSide, CommandCursor, CommandId, FinanceFailureCode, FinanceRules, FinancialAccount,
@@ -49,6 +96,11 @@ use crate::finance::{
     LedgerSourceKind, LedgerTransaction, LedgerTransactionDraft, PolicySet, PolicySetAssignment,
     ResourceId, RunId, RunPolicyContext, ScheduledSettlement, SettlementKind, SettlementSource,
     SettlementSourceKind, SettlementStatus,
+};
+use crate::life::{
+    InsuranceRules, LifeEventRules, PropertyRules, PropertyTaxRules, WelfareRules,
+    create_insurance_rules, create_life_event_rules, create_property_rules,
+    create_property_tax_rules, create_welfare_rules,
 };
 use crate::market::MarketDay;
 use crate::trading::{
@@ -80,6 +132,20 @@ pub(super) struct CommandIdentitySpec<'a> {
 pub struct MySqlSaveStore {
     pool: MySqlPool,
     finance_rules: Arc<dyn FinanceRules>,
+    life_event_rules: Arc<dyn LifeEventRules>,
+    insurance_rules: Arc<dyn InsuranceRules>,
+    property_rules: Arc<dyn PropertyRules>,
+    property_tax_rules: Arc<dyn PropertyTaxRules>,
+    welfare_rules: Arc<dyn WelfareRules>,
+}
+
+struct DailySettlementRules {
+    finance: Arc<dyn FinanceRules>,
+    life_event: Arc<dyn LifeEventRules>,
+    insurance: Arc<dyn InsuranceRules>,
+    welfare: Arc<dyn WelfareRules>,
+    property: Arc<dyn PropertyRules>,
+    property_tax: Arc<dyn PropertyTaxRules>,
 }
 
 pub fn create_mysql_save_store(
@@ -89,6 +155,11 @@ pub fn create_mysql_save_store(
     MySqlSaveStore {
         pool,
         finance_rules,
+        life_event_rules: create_life_event_rules(),
+        insurance_rules: create_insurance_rules(),
+        property_rules: create_property_rules(),
+        property_tax_rules: create_property_tax_rules(),
+        welfare_rules: create_welfare_rules(),
     }
 }
 
@@ -289,6 +360,13 @@ impl SaveStore for MySqlSaveStore {
             current.game_day,
         )
         .await?;
+        close_property_sales_for_new_run_in_tx(
+            &mut tx,
+            save_id,
+            current.run_revision,
+            current.game_day,
+        )
+        .await?;
 
         sqlx::query(
             "UPDATE cash_product_contract AS contract
@@ -316,6 +394,24 @@ impl SaveStore for MySqlSaveStore {
         .bind(save_id)
         .execute(&mut *tx)
         .await?;
+        close_lease_lifecycle_for_new_run_in_tx(
+            &mut tx,
+            save_id,
+            current.run_revision,
+            current.game_day,
+        )
+        .await?;
+        close_property_tax_for_new_run_in_tx(
+            &mut tx,
+            save_id,
+            current.run_revision,
+            current.game_day,
+        )
+        .await?;
+        close_welfare_for_new_run_in_tx(&mut tx, save_id, current.run_revision, current.game_day)
+            .await?;
+        close_insurance_for_new_run_in_tx(&mut tx, save_id, current.run_revision, current.game_day)
+            .await?;
         sqlx::query(
             "UPDATE scheduled_settlement AS settlement
              INNER JOIN save ON save.id = settlement.save_id
@@ -345,7 +441,7 @@ impl SaveStore for MySqlSaveStore {
              SET run_revision = run_revision + 1, state_revision = 0,
                  market_world_id = ?, policy_set_id = ?, market_world_product_bundle_id = ?,
                  game_day = 0,
-                 cash_krw = ?, debt_krw = ?
+                 cash_krw = ?, debt_krw = ?, property_book_value_krw = 0
              WHERE id = ?",
         )
         .bind(expected.market_world.world_id)
@@ -406,7 +502,89 @@ impl SaveStore for MySqlSaveStore {
             save_id,
             new_run_revision,
             expected.career_catalog.bundle_id.get(),
+            expected.employment_policy.policy_set_id.get(),
             &character,
+        )
+        .await?;
+        sqlx::query(
+            "INSERT INTO run_rule_bundle
+                 (save_id, run_revision, market_world_id, policy_set_id,
+                  career_catalog_bundle_id, employment_policy_set_id,
+                  life_catalog_set_id, credit_model_version_id,
+                  real_estate_model_version_id, market_assignment_revision,
+                  finance_assignment_revision, career_assignment_revision,
+                  employment_assignment_revision, bundle_assignment_revision)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(save_id)
+        .bind(new_run_revision)
+        .bind(expected.market_world.world_id)
+        .bind(expected.policy_set.policy_set_id.get())
+        .bind(expected.career_catalog.bundle_id.get())
+        .bind(expected.employment_policy.policy_set_id.get())
+        .bind(expected.rule_bundle.life_catalog_set_id.get())
+        .bind(expected.rule_bundle.credit_model_version_id.get())
+        .bind(expected.rule_bundle.real_estate_model_version_id.get())
+        .bind(expected.market_world.assignment_revision)
+        .bind(expected.policy_set.assignment_revision)
+        .bind(expected.career_catalog.assignment_revision)
+        .bind(expected.employment_policy.assignment_revision)
+        .bind(expected.rule_bundle.assignment_revision)
+        .execute(&mut *tx)
+        .await?;
+        let (market_date, cpi_index): (time::Date, Option<i64>) = sqlx::query_as(
+            "SELECT market_date, cpi_index FROM market_daily
+             WHERE world_id = ? AND game_day = 0",
+        )
+        .bind(expected.market_world.world_id)
+        .fetch_one(&mut *tx)
+        .await
+        .context("new-run market day zero was not prepared")?;
+        initialize_life_run_in_tx(
+            &mut tx,
+            crate::life::create_living_cost_rules().as_ref(),
+            save_id,
+            new_run_revision,
+            market_date,
+            cpi_index,
+        )
+        .await?;
+        if let Some(starting_loans) = &command.starting_loans {
+            let selections = starting_loans
+                .iter()
+                .map(|loan| StartingLoanSelection {
+                    product_version_id: loan.product_version_id.get(),
+                    product_kind: loan.product_kind,
+                    principal_krw: loan.principal_krw,
+                })
+                .collect::<Vec<_>>();
+            initialize_starting_loans_in_tx(
+                &mut tx,
+                save_id,
+                new_run_revision,
+                command.command_id.as_str(),
+                &selections,
+            )
+            .await?;
+        } else {
+            initialize_legacy_starting_loans_in_tx(
+                &mut tx,
+                save_id,
+                new_run_revision,
+                command.command_id.as_str(),
+                command.draft.student_loan_krw,
+                command.draft.credit_loan_krw,
+            )
+            .await?;
+        }
+
+        ensure_welfare_evaluations_in_tx(&mut tx, self.welfare_rules.as_ref(), save_id).await?;
+        ensure_life_event_month_plan_in_tx(
+            &mut tx,
+            self.life_event_rules.as_ref(),
+            self.insurance_rules.as_ref(),
+            save_id,
+            0,
         )
         .await?;
 
@@ -466,7 +644,14 @@ impl SaveStore for MySqlSaveStore {
         }
         settle_daily_finance_state(
             &mut tx,
-            Arc::clone(&self.finance_rules),
+            DailySettlementRules {
+                finance: Arc::clone(&self.finance_rules),
+                life_event: Arc::clone(&self.life_event_rules),
+                insurance: Arc::clone(&self.insurance_rules),
+                welfare: Arc::clone(&self.welfare_rules),
+                property: Arc::clone(&self.property_rules),
+                property_tax: Arc::clone(&self.property_tax_rules),
+            },
             &current,
             target_game_day,
             market,
@@ -591,7 +776,14 @@ impl SaveStore for MySqlSaveStore {
 
         settle_daily_finance_state(
             &mut tx,
-            Arc::clone(&self.finance_rules),
+            DailySettlementRules {
+                finance: Arc::clone(&self.finance_rules),
+                life_event: Arc::clone(&self.life_event_rules),
+                insurance: Arc::clone(&self.insurance_rules),
+                welfare: Arc::clone(&self.welfare_rules),
+                property: Arc::clone(&self.property_rules),
+                property_tax: Arc::clone(&self.property_tax_rules),
+            },
             &current,
             target_game_day,
             market,
@@ -752,7 +944,7 @@ async fn close_career_run_for_new_run_in_tx(
 
 async fn settle_daily_finance_state(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
-    finance_rules: Arc<dyn FinanceRules>,
+    rules: DailySettlementRules,
     current: &SaveState,
     target_game_day: u32,
     market: &MarketDay,
@@ -778,9 +970,75 @@ async fn settle_daily_finance_state(
         game_day: target_game_day,
     };
 
-    ensure_monthly_bond_series_in_tx(tx, current.market_world_id, target_game_day).await?;
+    prepare_annual_property_tax_boundary_in_tx(
+        tx,
+        rules.property.as_ref(),
+        rules.property_tax.as_ref(),
+        PropertyTaxRunContext {
+            save_id: current.save_id,
+            market_world_id: current.market_world_id,
+            policy_set_id: current.policy_set.id.get(),
+            run_revision: current.run_revision,
+            game_day: target_game_day,
+            market_date: market.market_date,
+        },
+    )
+    .await?;
+
+    ensure_welfare_evaluations_for_target_day_in_tx(
+        tx,
+        rules.welfare.as_ref(),
+        current.save_id,
+        target_game_day,
+    )
+    .await?;
+
     validate_due_settlement_envelopes(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
+    validate_due_lease_lifecycle_actions_in_tx(
+        tx,
+        current.save_id,
+        current.run_revision,
+        target_game_day,
+    )
+    .await?;
+    prelock_due_lease_contracts_in_tx(tx, current.save_id, current.run_revision, target_game_day)
+        .await?;
+    validate_due_career_action_envelopes_in_tx(
+        tx,
+        current.save_id,
+        current.run_revision,
+        target_game_day,
+    )
+    .await?;
+    ensure_living_cost_month_in_tx(
+        tx,
+        crate::life::create_living_cost_rules().as_ref(),
+        current.save_id,
+        current.run_revision,
+        target_game_day,
+        market.market_date,
+        market.m2.as_ref().map(|state| state.cpi_index),
+    )
+    .await?;
+    ensure_life_event_month_plan_in_tx(
+        tx,
+        rules.life_event.as_ref(),
+        rules.insurance.as_ref(),
+        current.save_id,
+        target_game_day,
+    )
+    .await?;
+    reset_variable_loan_rates_in_tx(tx, current.save_id, current.run_revision, target_game_day)
+        .await?;
+    ensure_monthly_bond_series_in_tx(tx, current.market_world_id, target_game_day).await?;
+    lock_annual_employment_contract_in_tx(
+        tx,
+        current.save_id,
+        current.run_revision,
+        market.market_date,
+    )
+    .await?;
     pin_pension_opening_values_for_day(
         tx,
         current.save_id,
@@ -788,7 +1046,10 @@ async fn settle_daily_finance_state(
         market.market_date,
     )
     .await?;
+    prepare_employment_annual_tax_boundary(tx, rules.finance.as_ref(), annual_tax_context).await?;
     prepare_annual_tax_year_boundary(tx, annual_tax_context).await?;
+    advance_military_lifecycle_in_tx(tx, current.save_id, current.run_revision, target_game_day)
+        .await?;
     advance_recruitment_lifecycle_in_tx(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
     advance_career_activities_in_tx(tx, current.save_id, current.run_revision, target_game_day)
@@ -808,7 +1069,57 @@ async fn settle_daily_finance_state(
         create_llx_entitlements_in_tx(tx, asset_context).await?;
     }
 
-    settle_due_finance_items(tx, finance_rules, annual_tax_context, asset_context, market).await
+    settle_due_finance_items(
+        tx,
+        Arc::clone(&rules.finance),
+        Arc::clone(&rules.insurance),
+        annual_tax_context,
+        asset_context,
+        market,
+    )
+    .await?;
+    execute_due_property_sales_in_tx(
+        tx,
+        rules.finance.as_ref(),
+        rules.property.as_ref(),
+        rules.property_tax.as_ref(),
+        PropertyTaxRunContext {
+            save_id: current.save_id,
+            market_world_id: current.market_world_id,
+            policy_set_id: current.policy_set.id.get(),
+            run_revision: current.run_revision,
+            game_day: target_game_day,
+            market_date: market.market_date,
+        },
+    )
+    .await?;
+    advance_lease_lifecycle_in_tx(tx, current.save_id, current.run_revision, target_game_day)
+        .await?;
+    apply_credit_end_of_day_in_tx(tx, current.save_id, current.run_revision, target_game_day)
+        .await?;
+    expire_insurance_contracts_in_tx(
+        tx,
+        rules.insurance.as_ref(),
+        current.save_id,
+        target_game_day,
+    )
+    .await?;
+    expire_life_events_in_tx(
+        tx,
+        rules.life_event.as_ref(),
+        rules.insurance.as_ref(),
+        current.save_id,
+        target_game_day,
+    )
+    .await?;
+    expire_insurance_claims_in_tx(
+        tx,
+        rules.insurance.as_ref(),
+        current.save_id,
+        target_game_day,
+    )
+    .await?;
+    Ok(())
 }
 
 async fn mark_pension_positions_to_market(
@@ -901,6 +1212,7 @@ async fn mark_pension_positions_to_market(
 async fn settle_due_finance_items(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     finance_rules: Arc<dyn FinanceRules>,
+    insurance_rules: Arc<dyn InsuranceRules>,
     annual_tax_context: AnnualTaxRunContext,
     asset_context: M2dDailyAssetContext,
     market: &MarketDay,
@@ -909,7 +1221,16 @@ async fn settle_due_finance_items(
         "SELECT id, due_game_day, kind FROM scheduled_settlement
          WHERE save_id = ? AND run_revision = ? AND status = 'pending'
            AND due_game_day <= ?
-         ORDER BY due_game_day, id",
+         ORDER BY due_game_day,
+                  CASE kind
+                      WHEN 'welfareBenefitPayment' THEN 150
+                      WHEN 'loanInstallment' THEN 200
+                      WHEN 'insurancePremium' THEN 250
+                      WHEN 'leaseRent' THEN 300
+                      WHEN 'livingCostMonth' THEN 400
+                      ELSE 100
+                  END,
+                  id",
     )
     .bind(asset_context.save_id)
     .bind(asset_context.run_revision)
@@ -970,6 +1291,127 @@ async fn settle_due_finance_items(
                 )
                 .await?;
             }
+            SettlementKind::EmploymentPayroll => {
+                settle_employment_payroll_by_id_in_tx(
+                    tx,
+                    finance_rules.as_ref(),
+                    crate::career::create_payroll_rules().as_ref(),
+                    EmploymentPayrollSettlementContext {
+                        save_id: asset_context.save_id,
+                        run_revision: asset_context.run_revision,
+                        finance_policy_set_id: asset_context.policy_set_id,
+                        game_day: asset_context.game_day,
+                        payday: market.market_date,
+                        settlement_id,
+                    },
+                )
+                .await?;
+            }
+            SettlementKind::EmploymentReconciliation => {
+                settle_employment_reconciliation_by_id_in_tx(
+                    tx,
+                    finance_rules.as_ref(),
+                    annual_tax_context,
+                    settlement_id,
+                )
+                .await?;
+            }
+            SettlementKind::MilitaryPay
+            | SettlementKind::MilitarySavingsInstallment
+            | SettlementKind::MilitarySavingsMaturity
+            | SettlementKind::MilitarySavingsGovernmentMatch => {
+                settle_military_by_id_in_tx(
+                    tx,
+                    finance_rules.as_ref(),
+                    MilitarySettlementContext {
+                        save_id: asset_context.save_id,
+                        run_revision: asset_context.run_revision,
+                        finance_policy_set_id: asset_context.policy_set_id,
+                        game_day: asset_context.game_day,
+                        market_date: market.market_date,
+                        settlement_id,
+                    },
+                )
+                .await?;
+            }
+            SettlementKind::LoanInstallment => {
+                settle_due_loan_installment_in_tx(
+                    tx,
+                    asset_context.save_id,
+                    asset_context.run_revision,
+                    settlement_id,
+                    asset_context.game_day,
+                )
+                .await?;
+            }
+            SettlementKind::LeaseRent => {
+                settle_due_lease_rent_in_tx(
+                    tx,
+                    LeaseRentSettlementContext {
+                        finance_rules: finance_rules.as_ref(),
+                        save_id: asset_context.save_id,
+                        run_revision: asset_context.run_revision,
+                        policy_set_id: asset_context.policy_set_id,
+                        game_day: asset_context.game_day,
+                        market_date: market.market_date,
+                        settlement_id,
+                    },
+                )
+                .await?;
+            }
+            SettlementKind::LivingCostMonth => {
+                settle_living_cost_month_by_id_in_tx(
+                    tx,
+                    finance_rules.as_ref(),
+                    asset_context.save_id,
+                    asset_context.run_revision,
+                    asset_context.policy_set_id,
+                    asset_context.game_day,
+                    settlement_id,
+                )
+                .await?;
+            }
+            SettlementKind::PropertyTaxPayment => {
+                settle_property_tax_payment_by_id_in_tx(
+                    tx,
+                    finance_rules.as_ref(),
+                    PropertyTaxRunContext {
+                        save_id: asset_context.save_id,
+                        market_world_id: asset_context.market_world_id,
+                        policy_set_id: asset_context.policy_set_id,
+                        run_revision: asset_context.run_revision,
+                        game_day: asset_context.game_day,
+                        market_date: market.market_date,
+                    },
+                    settlement_id,
+                )
+                .await?;
+            }
+            SettlementKind::WelfareBenefitPayment => {
+                settle_welfare_benefit_by_id_in_tx(
+                    tx,
+                    finance_rules.as_ref(),
+                    asset_context.save_id,
+                    asset_context.run_revision,
+                    asset_context.policy_set_id,
+                    asset_context.game_day,
+                    settlement_id,
+                )
+                .await?;
+            }
+            SettlementKind::InsurancePremium => {
+                settle_insurance_premium_by_id_in_tx(
+                    tx,
+                    finance_rules.as_ref(),
+                    insurance_rules.as_ref(),
+                    asset_context.save_id,
+                    asset_context.run_revision,
+                    asset_context.policy_set_id,
+                    asset_context.game_day,
+                    settlement_id,
+                )
+                .await?;
+            }
         }
     }
     Ok(())
@@ -987,7 +1429,16 @@ async fn validate_due_settlement_envelopes(
          FROM scheduled_settlement
          WHERE save_id = ? AND run_revision = ? AND status = 'pending'
            AND due_game_day <= ?
-         ORDER BY due_game_day, id",
+         ORDER BY due_game_day,
+                  CASE kind
+                      WHEN 'welfareBenefitPayment' THEN 150
+                      WHEN 'loanInstallment' THEN 200
+                      WHEN 'insurancePremium' THEN 250
+                      WHEN 'leaseRent' THEN 300
+                      WHEN 'livingCostMonth' THEN 400
+                      ELSE 100
+                  END,
+                  id",
     )
     .bind(save_id)
     .bind(run_revision)
@@ -1026,6 +1477,42 @@ async fn validate_due_settlement_envelopes(
             ) | (
                 SettlementKind::FinancialIncomeFiling,
                 SettlementSourceKind::TaxYear
+            ) | (
+                SettlementKind::EmploymentPayroll,
+                SettlementSourceKind::EmploymentContract
+            ) | (
+                SettlementKind::EmploymentReconciliation,
+                SettlementSourceKind::YearEndTaxAssessment
+            ) | (
+                SettlementKind::MilitaryPay,
+                SettlementSourceKind::MilitaryService
+            ) | (
+                SettlementKind::MilitarySavingsInstallment,
+                SettlementSourceKind::MilitarySavingsContract
+            ) | (
+                SettlementKind::MilitarySavingsMaturity,
+                SettlementSourceKind::MilitarySavingsContract
+            ) | (
+                SettlementKind::MilitarySavingsGovernmentMatch,
+                SettlementSourceKind::MilitarySavingsInstallment
+            ) | (
+                SettlementKind::LoanInstallment,
+                SettlementSourceKind::LoanContract
+            ) | (
+                SettlementKind::LeaseRent,
+                SettlementSourceKind::LeaseContract
+            ) | (
+                SettlementKind::LivingCostMonth,
+                SettlementSourceKind::LivingCostMonth
+            ) | (
+                SettlementKind::PropertyTaxPayment,
+                SettlementSourceKind::PropertyTaxEvent
+            ) | (
+                SettlementKind::WelfareBenefitPayment,
+                SettlementSourceKind::WelfarePayment
+            ) | (
+                SettlementKind::InsurancePremium,
+                SettlementSourceKind::InsuranceContract
             )
         );
         ensure!(
@@ -1036,6 +1523,36 @@ async fn validate_due_settlement_envelopes(
             settlement.payload.is_object(),
             "scheduled settlement payload must be an object"
         );
+        if matches!(
+            settlement.kind,
+            SettlementKind::EmploymentPayroll | SettlementKind::EmploymentReconciliation
+        ) {
+            validate_employment_settlement_envelope(&settlement)?;
+        }
+        if matches!(
+            settlement.kind,
+            SettlementKind::MilitaryPay
+                | SettlementKind::MilitarySavingsInstallment
+                | SettlementKind::MilitarySavingsMaturity
+                | SettlementKind::MilitarySavingsGovernmentMatch
+        ) {
+            validate_military_settlement_envelope(&settlement)?;
+        }
+        if settlement.kind == SettlementKind::LivingCostMonth {
+            validate_living_cost_settlement_envelope(&settlement)?;
+        }
+        if settlement.kind == SettlementKind::LeaseRent {
+            validate_lease_rent_settlement_envelope(&settlement)?;
+        }
+        if settlement.kind == SettlementKind::PropertyTaxPayment {
+            validate_property_tax_settlement_envelope(&settlement)?;
+        }
+        if settlement.kind == SettlementKind::WelfareBenefitPayment {
+            validate_welfare_settlement_envelope(&settlement)?;
+        }
+        if settlement.kind == SettlementKind::InsurancePremium {
+            validate_insurance_settlement_envelope(&settlement)?;
+        }
     }
     Ok(())
 }
@@ -1223,8 +1740,17 @@ fn validate_advance_steps(
 }
 
 fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
+    let canonical = match &command.starting_loans {
+        Some(starting_loans) => start_game_v2_canonical(command, starting_loans)?,
+        None => start_game_v1_canonical(command)?,
+    };
+
+    Ok(sha256_hex(canonical.as_bytes()))
+}
+
+fn start_game_v1_canonical(command: &StartGameCommand) -> Result<String> {
     let draft = &command.draft;
-    let canonical = format!(
+    Ok(format!(
         concat!(
             "lifeledger.game.start.v1\n",
             "expectedRunRevision={}\n",
@@ -1262,9 +1788,58 @@ fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
         draft.credit_loan_krw,
         to_db_str(&draft.health)?,
         draft.dependents,
-    );
+    ))
+}
 
-    Ok(sha256_hex(canonical.as_bytes()))
+fn start_game_v2_canonical(
+    command: &StartGameCommand,
+    starting_loans: &[super::types::StartingLoanCommand],
+) -> Result<String> {
+    let draft = &command.draft;
+    let mut canonical = format!(
+        concat!(
+            "lifeledger.game.start.v2\n",
+            "expectedRunRevision={}\n",
+            "expectedStateRevision={}\n",
+            "expectedGameDay={}\n",
+            "name={}\n",
+            "age={}\n",
+            "gender={}\n",
+            "military={}\n",
+            "region={}\n",
+            "background={}\n",
+            "education={}\n",
+            "careerYears={}\n",
+            "certifications={}\n",
+            "startingCashKrw={}\n",
+            "health={}\n",
+            "dependents={}"
+        ),
+        command.cursor.expected_run_revision,
+        command.cursor.expected_state_revision,
+        command.cursor.expected_game_day,
+        serde_json::to_string(&draft.name)?,
+        draft.age,
+        to_db_str(&draft.gender)?,
+        to_db_str(&draft.military)?,
+        to_db_str(&draft.region)?,
+        to_db_str(&draft.background)?,
+        to_db_str(&draft.education)?,
+        draft.career_years,
+        draft.certifications,
+        draft.starting_cash_krw,
+        to_db_str(&draft.health)?,
+        draft.dependents,
+    );
+    for loan in starting_loans {
+        canonical.push_str(&format!(
+            "\nstartingLoan={}:{}:{}",
+            to_db_str(&loan.product_kind)?,
+            loan.product_version_id.get(),
+            loan.principal_krw,
+        ));
+    }
+    Ok(canonical)
 }
 
 fn advance_command_fingerprint(command: &ManualAdvanceCommand) -> String {
@@ -1421,11 +1996,21 @@ pub(super) async fn write_ledger_transaction(
 
     for (index, posting) in ledger.postings().iter().enumerate() {
         let posting_order = u16::try_from(index + 1).context("too many ledger postings")?;
+        let military_savings_contract_id = if posting.account_code.is_military_savings() {
+            match ledger.posting_owner() {
+                Some(crate::finance::LedgerPostingOwner::MilitarySavingsContract(id)) => {
+                    Some(id.get())
+                }
+                None => bail!("military savings posting has no contract owner"),
+            }
+        } else {
+            None
+        };
         sqlx::query(
             "INSERT INTO ledger_posting
                  (save_id, run_revision, ledger_transaction_id, posting_order,
-                  account_code, financial_account_id, amount_krw)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+                  account_code, financial_account_id, military_savings_contract_id, amount_krw)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(policy.run.save_id.get())
         .bind(policy.run.run_revision)
@@ -1433,6 +2018,7 @@ pub(super) async fn write_ledger_transaction(
         .bind(posting_order)
         .bind(to_db_str(&posting.account_code)?)
         .bind(posting.financial_account_id.map(ResourceId::get))
+        .bind(military_savings_contract_id)
         .bind(posting.amount_krw)
         .execute(&mut **tx)
         .await?;
@@ -1442,20 +2028,33 @@ pub(super) async fn write_ledger_transaction(
 }
 
 async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConfiguration> {
-    type ActiveRunConfigurationRow = (u64, u64, u64, u64, Option<u64>, u64, u64);
+    type ActiveRunConfigurationRow = (
+        u64,
+        u64,
+        u64,
+        u64,
+        Option<u64>,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+    );
     let row: Option<ActiveRunConfigurationRow> = sqlx::query_as(
-        "SELECT market.world_id, market.assignment_revision,
-                policy.policy_set_id, policy.assignment_revision, bundle.id,
-                career.career_catalog_bundle_id, career.assignment_revision
-         FROM market_world_assignment AS market
-         CROSS JOIN policy_set_assignment AS policy
-         CROSS JOIN career_catalog_assignment AS career
+        "SELECT assignment.market_world_id, assignment.market_assignment_revision,
+                assignment.policy_set_id, assignment.finance_assignment_revision, bundle.id,
+                assignment.career_catalog_bundle_id, assignment.career_assignment_revision,
+                assignment.employment_policy_set_id, assignment.employment_assignment_revision,
+                assignment.life_catalog_set_id, assignment.credit_model_version_id,
+                assignment.real_estate_model_version_id, assignment.assignment_revision
+         FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
-           ON bundle.market_world_id = market.world_id
+           ON bundle.market_world_id = assignment.market_world_id
           AND bundle.published_at IS NOT NULL
-         WHERE market.assignment_key = 'newRun'
-           AND policy.assignment_key = 'newRun'
-           AND career.assignment_key = 'newRun'",
+         WHERE assignment.assignment_key = 'newRun'",
     )
     .fetch_optional(pool)
     .await?;
@@ -1469,6 +2068,12 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
             product_bundle_id,
             career_bundle_id,
             career_revision,
+            employment_policy_set_id,
+            employment_policy_revision,
+            life_catalog_set_id,
+            credit_model_version_id,
+            real_estate_model_version_id,
+            bundle_assignment_revision,
         )| {
             ActiveRunConfiguration {
                 market_world: ActiveMarketWorld {
@@ -1484,29 +2089,54 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
                     bundle_id: ResourceId::from_u64(career_bundle_id),
                     assignment_revision: career_revision,
                 },
+                employment_policy: super::types::EmploymentPolicyAssignment {
+                    policy_set_id: ResourceId::from_u64(employment_policy_set_id),
+                    assignment_revision: employment_policy_revision,
+                },
+                rule_bundle: super::types::RunRuleBundleAssignment {
+                    life_catalog_set_id: ResourceId::from_u64(life_catalog_set_id),
+                    credit_model_version_id: ResourceId::from_u64(credit_model_version_id),
+                    real_estate_model_version_id: ResourceId::from_u64(
+                        real_estate_model_version_id,
+                    ),
+                    assignment_revision: bundle_assignment_revision,
+                },
             }
         },
     )
-    .context("active market or policy assignment is missing")
+    .context("an active run assignment is missing")
 }
 
 async fn lock_active_run_configuration(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
 ) -> Result<ActiveRunConfiguration> {
-    type ActiveRunConfigurationRow = (u64, u64, u64, u64, Option<u64>, u64, u64);
+    type ActiveRunConfigurationRow = (
+        u64,
+        u64,
+        u64,
+        u64,
+        Option<u64>,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+    );
     let row: Option<ActiveRunConfigurationRow> = sqlx::query_as(
-        "SELECT market.world_id, market.assignment_revision,
-                policy.policy_set_id, policy.assignment_revision, bundle.id,
-                career.career_catalog_bundle_id, career.assignment_revision
-         FROM market_world_assignment AS market
-         CROSS JOIN policy_set_assignment AS policy
-         CROSS JOIN career_catalog_assignment AS career
+        "SELECT assignment.market_world_id, assignment.market_assignment_revision,
+                assignment.policy_set_id, assignment.finance_assignment_revision, bundle.id,
+                assignment.career_catalog_bundle_id, assignment.career_assignment_revision,
+                assignment.employment_policy_set_id, assignment.employment_assignment_revision,
+                assignment.life_catalog_set_id, assignment.credit_model_version_id,
+                assignment.real_estate_model_version_id, assignment.assignment_revision
+         FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
-           ON bundle.market_world_id = market.world_id
+           ON bundle.market_world_id = assignment.market_world_id
           AND bundle.published_at IS NOT NULL
-         WHERE market.assignment_key = 'newRun'
-           AND policy.assignment_key = 'newRun'
-           AND career.assignment_key = 'newRun'
+         WHERE assignment.assignment_key = 'newRun'
          FOR SHARE",
     )
     .fetch_optional(&mut **tx)
@@ -1521,6 +2151,12 @@ async fn lock_active_run_configuration(
             product_bundle_id,
             career_bundle_id,
             career_revision,
+            employment_policy_set_id,
+            employment_policy_revision,
+            life_catalog_set_id,
+            credit_model_version_id,
+            real_estate_model_version_id,
+            bundle_assignment_revision,
         )| {
             ActiveRunConfiguration {
                 market_world: ActiveMarketWorld {
@@ -1536,10 +2172,22 @@ async fn lock_active_run_configuration(
                     bundle_id: ResourceId::from_u64(career_bundle_id),
                     assignment_revision: career_revision,
                 },
+                employment_policy: super::types::EmploymentPolicyAssignment {
+                    policy_set_id: ResourceId::from_u64(employment_policy_set_id),
+                    assignment_revision: employment_policy_revision,
+                },
+                rule_bundle: super::types::RunRuleBundleAssignment {
+                    life_catalog_set_id: ResourceId::from_u64(life_catalog_set_id),
+                    credit_model_version_id: ResourceId::from_u64(credit_model_version_id),
+                    real_estate_model_version_id: ResourceId::from_u64(
+                        real_estate_model_version_id,
+                    ),
+                    assignment_revision: bundle_assignment_revision,
+                },
             }
         },
     )
-    .context("active market or policy assignment is missing")
+    .context("an active run assignment is missing")
 }
 
 #[async_trait]
@@ -2373,6 +3021,7 @@ struct SaveRow {
     game_day: u32,
     cash_krw: i64,
     debt_krw: i64,
+    property_book_value_krw: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -2400,7 +3049,7 @@ struct ScheduledSettlementRow {
     payload_json: String,
     source_kind: String,
     source_id: String,
-    occurrence: u32,
+    occurrence: u64,
     status: String,
 }
 
@@ -2513,7 +3162,7 @@ pub(super) async fn read_state(
                 DATE_FORMAT(policy_set.basis_date, '%Y-%m-%d') AS basis_date,
                 policy_set.sealed_at IS NOT NULL AS policy_sealed,
                 save.run_revision, save.state_revision, save.game_day,
-                save.cash_krw, save.debt_krw
+                save.cash_krw, save.debt_krw, save.property_book_value_krw
          FROM save
          INNER JOIN policy_set ON policy_set.id = save.policy_set_id
          WHERE save.id = ?",
@@ -2581,7 +3230,16 @@ pub(super) async fn read_state(
                 source_kind, source_id, occurrence, status
          FROM scheduled_settlement
          WHERE save_id = ? AND run_revision = ? AND status = 'pending'
-         ORDER BY due_game_day, id
+         ORDER BY due_game_day,
+                  CASE kind
+                      WHEN 'welfareBenefitPayment' THEN 150
+                      WHEN 'loanInstallment' THEN 200
+                      WHEN 'insurancePremium' THEN 250
+                      WHEN 'leaseRent' THEN 300
+                      WHEN 'livingCostMonth' THEN 400
+                      ELSE 100
+                  END,
+                  id
          LIMIT 20",
     )
     .bind(save_id)
@@ -2636,8 +3294,9 @@ pub(super) async fn read_state(
         },
     )
     .await?;
-    let market_date: time::Date = sqlx::query_scalar(
-        "SELECT COALESCE(daily.market_date, DATE_ADD(world.start_date, INTERVAL save.game_day DAY))
+    let (market_date, world_start_date): (time::Date, time::Date) = sqlx::query_as(
+        "SELECT COALESCE(daily.market_date, DATE_ADD(world.start_date, INTERVAL save.game_day DAY)),
+                world.start_date
          FROM save
          INNER JOIN market_world AS world ON world.id = save.market_world_id
          LEFT JOIN market_daily AS daily
@@ -2651,6 +3310,7 @@ pub(super) async fn read_state(
     .context("failed to resolve the current market date for annual tax")?;
     let tax_year = u16::try_from(market_date.year())
         .context("current market year is outside the tax-year contract")?;
+    let world_start_year = world_start_date.year();
     let annual_tax_context = AnnualTaxRunContext {
         save_id,
         run_revision: save.run_revision,
@@ -2661,7 +3321,16 @@ pub(super) async fn read_state(
     let current_annual_tax_year = read_annual_tax_year(tx, annual_tax_context, tax_year).await?;
     let latest_financial_income_assessment =
         read_latest_annual_tax_assessment(tx, annual_tax_context).await?;
-    let career = read_career_snapshot_in_tx(tx, save_id, save.run_revision, save.game_day).await?;
+    let career = read_career_snapshot_in_tx(
+        tx,
+        save_id,
+        save.run_revision,
+        save.game_day,
+        tax_year,
+        world_start_year,
+    )
+    .await?;
+    let life = read_life_snapshot_in_tx(tx, save_id, save.run_revision, save.game_day).await?;
     Ok(SaveState {
         save_id,
         market_world_id: save.market_world_id,
@@ -2676,6 +3345,7 @@ pub(super) async fn read_state(
         game_day: save.game_day,
         cash_krw: save.cash_krw,
         debt_krw: save.debt_krw,
+        property_book_value_krw: save.property_book_value_krw,
         accounts,
         positions,
         pending_settlements,
@@ -2689,6 +3359,7 @@ pub(super) async fn read_state(
         isa_accounts: tax_accounts.isa_accounts,
         pension_accounts: tax_accounts.pension_accounts,
         career,
+        life,
         character,
     })
 }
@@ -2930,6 +3601,8 @@ mod tests {
         CharacterDraft, Education, FamilyBackground, Gender, Health, MilitaryStatus, Region,
     };
     use crate::finance::{CommandCursor, CommandId};
+    use crate::life::LoanProductKind;
+    use crate::store::StartingLoanCommand;
     use crate::trading::TradeOrderRequest;
 
     fn given_start_game_command() -> StartGameCommand {
@@ -2958,6 +3631,7 @@ mod tests {
                 expected_game_day: 17,
             },
             draft,
+            starting_loans: None,
         }
     }
 
@@ -3017,6 +3691,29 @@ mod tests {
                 start_game_fingerprint(&changed).expect("지문을 만들 수 있어야 한다");
 
             assert_eq!(command.draft.name.trim(), changed.draft.name.trim());
+            assert_ne!(original, changed_hash);
+        }
+
+        #[test]
+        fn given_v2상품id가다름_when_지문을만들면_then_같은원금이어도충돌한다() {
+            let mut command = given_start_game_command();
+            command.starting_loans = Some(vec![StartingLoanCommand {
+                product_version_id: ResourceId::from_u64(11),
+                product_kind: LoanProductKind::StudentLoan,
+                principal_krw: 2_000_000,
+            }]);
+            command.draft.credit_loan_krw = 0;
+            let mut changed = command.clone();
+            changed
+                .starting_loans
+                .as_mut()
+                .expect("v2 대출이 있어야 한다")[0]
+                .product_version_id = ResourceId::from_u64(12);
+
+            let original = start_game_fingerprint(&command).expect("v2 지문을 만들 수 있어야 한다");
+            let changed_hash =
+                start_game_fingerprint(&changed).expect("v2 지문을 만들 수 있어야 한다");
+
             assert_ne!(original, changed_hash);
         }
     }

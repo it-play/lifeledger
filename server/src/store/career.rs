@@ -9,6 +9,14 @@ use sha2::{Digest, Sha256};
 use sqlx::{MySql, MySqlPool, Transaction};
 use time::Date;
 
+use super::employment::{read_career_payroll, read_latest_payroll_in_tx};
+use super::employment_tax::{read_career_employment_tax_year, read_employment_tax_snapshot_in_tx};
+use super::military::{
+    close_military_savings_command, initialize_legacy_military_service_in_tx,
+    open_military_savings_command, read_military_options, read_military_savings,
+    read_military_savings_products, read_military_service, read_military_snapshot_in_tx,
+    start_military_service_command,
+};
 use super::mysql::{
     CommandIdentitySpec, CommandIdentityState, GameCommandReceiptWrite, inspect_command_identity,
     read_state, write_command_identity, write_game_command_receipt, write_ledger_transaction,
@@ -25,12 +33,16 @@ use super::types::{
     CancelCareerActivityCommand, CareerActivitiesState, CareerActivityCatalogState,
     CareerActivityReceipt, CareerActivityState, CareerApplicationReceipt,
     CareerApplicationsPageState, CareerArtifactPageQuery, CareerArtifactPageState,
-    CareerArtifactReceipt, CareerArtifactState, CareerEmploymentState, CareerEvidenceState,
-    CareerInvitationReceipt, CareerJobsPageQuery, CareerJobsPageState, CareerOfferReceipt,
-    CareerPageQuery, CareerSnapshotState, CareerSpecsState, CareerStore, CareerStoreResult,
-    ConfirmCareerInterviewCommand, DeclineCareerInvitationCommand, DeclineCareerOfferCommand,
-    FocusCareerCommand, FocusCareerReceipt, GameCommandCursor, PublishCareerArtifactCommand,
-    RecruitmentPostingStore, StartCareerActivityCommand, WithdrawCareerApplicationCommand,
+    CareerArtifactReceipt, CareerArtifactState, CareerEmploymentState,
+    CareerEmploymentTaxYearState, CareerEvidenceState, CareerInvitationReceipt,
+    CareerJobsPageQuery, CareerJobsPageState, CareerOfferReceipt, CareerPageQuery,
+    CareerPayrollPageState, CareerSnapshotState, CareerSpecsState, CareerStore, CareerStoreResult,
+    CloseMilitarySavingsCommand, ConfirmCareerInterviewCommand, DeclineCareerInvitationCommand,
+    DeclineCareerOfferCommand, FocusCareerCommand, FocusCareerReceipt, GameCommandCursor,
+    MilitaryOptionsState, MilitarySavingsCommandReceipt, MilitarySavingsPageState,
+    MilitarySavingsProductsState, MilitaryServiceCommandReceipt, MilitaryServiceState,
+    OpenMilitarySavingsCommand, PublishCareerArtifactCommand, RecruitmentPostingStore,
+    StartCareerActivityCommand, StartMilitaryServiceCommand, WithdrawCareerApplicationCommand,
 };
 use crate::career::{
     ActivityCatalogEntry, ActivityDayInput, ActivityStatus, ArtifactChecklistRule,
@@ -81,18 +93,18 @@ struct CareerScopeRow {
 }
 
 #[derive(sqlx::FromRow)]
-struct LockedCareerSaveRow {
-    id: u64,
-    market_world_id: u64,
-    policy_set_id: u64,
-    run_revision: u32,
-    state_revision: u64,
-    game_day: u32,
-    cash_krw: i64,
-    has_character: bool,
-    career_catalog_bundle_id: Option<u64>,
-    focused_job_family_key: Option<String>,
-    birth_date: Option<Date>,
+pub(super) struct LockedCareerSaveRow {
+    pub(super) id: u64,
+    pub(super) market_world_id: u64,
+    pub(super) policy_set_id: u64,
+    pub(super) run_revision: u32,
+    pub(super) state_revision: u64,
+    pub(super) game_day: u32,
+    pub(super) cash_krw: i64,
+    pub(super) has_character: bool,
+    pub(super) career_catalog_bundle_id: Option<u64>,
+    pub(super) focused_job_family_key: Option<String>,
+    pub(super) birth_date: Option<Date>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -107,6 +119,7 @@ struct EvidenceRow {
     expires_on_game_day: Option<u32>,
     period_start_date: Option<Date>,
     period_end_exclusive_date: Option<Date>,
+    credited_experience_days: Option<u32>,
     source_kind: String,
 }
 
@@ -294,6 +307,75 @@ impl CareerStore for MySqlCareerStore {
         read_career_employment(&self.pool, user_id).await
     }
 
+    async fn payroll(
+        &self,
+        user_id: u64,
+        query: CareerPageQuery,
+    ) -> Result<CareerPayrollPageState> {
+        read_career_payroll(&self.pool, user_id, query).await
+    }
+
+    async fn employment_tax_year(
+        &self,
+        user_id: u64,
+        tax_year: u16,
+    ) -> Result<CareerEmploymentTaxYearState> {
+        read_career_employment_tax_year(&self.pool, user_id, tax_year).await
+    }
+
+    async fn military_options(&self, user_id: u64) -> Result<MilitaryOptionsState> {
+        read_military_options(&self.pool, user_id).await
+    }
+
+    async fn military_service(&self, user_id: u64) -> Result<MilitaryServiceState> {
+        read_military_service(&self.pool, user_id).await
+    }
+
+    async fn military_savings_products(
+        &self,
+        user_id: u64,
+    ) -> Result<MilitarySavingsProductsState> {
+        read_military_savings_products(&self.pool, user_id).await
+    }
+
+    async fn military_savings(
+        &self,
+        user_id: u64,
+        query: CareerPageQuery,
+    ) -> Result<MilitarySavingsPageState> {
+        read_military_savings(&self.pool, user_id, query.before, query.limit).await
+    }
+
+    async fn start_military_service(
+        &self,
+        user_id: u64,
+        command: &StartMilitaryServiceCommand,
+    ) -> Result<CareerStoreResult<MilitaryServiceCommandReceipt>> {
+        start_military_service_command(&self.pool, user_id, command).await
+    }
+
+    async fn open_military_savings(
+        &self,
+        user_id: u64,
+        command: &OpenMilitarySavingsCommand,
+    ) -> Result<CareerStoreResult<MilitarySavingsCommandReceipt>> {
+        open_military_savings_command(&self.pool, user_id, command).await
+    }
+
+    async fn close_military_savings(
+        &self,
+        user_id: u64,
+        command: &CloseMilitarySavingsCommand,
+    ) -> Result<CareerStoreResult<MilitarySavingsCommandReceipt>> {
+        close_military_savings_command(
+            &self.pool,
+            Arc::clone(&self.finance_rules),
+            user_id,
+            command,
+        )
+        .await
+    }
+
     async fn focus(
         &self,
         user_id: u64,
@@ -423,17 +505,22 @@ impl CareerStore for MySqlCareerStore {
         let bundle_id = current
             .career_catalog_bundle_id
             .context("character save has no career run")?;
+        let life_status =
+            read_life_status_in_tx(&mut tx, current.id, current.run_revision, current.game_day)
+                .await?;
+        let life_status = enum_to_db(&life_status)?;
         let catalog: Option<ActivityStartCatalogRow> = sqlx::query_as(
             "SELECT catalog.id, catalog.display_name, catalog.cost_krw,
                     EXISTS(
                         SELECT 1 FROM activity_catalog_allowed_status AS allowed
                         WHERE allowed.career_catalog_bundle_id = catalog.career_catalog_bundle_id
                           AND allowed.activity_catalog_entry_id = catalog.id
-                          AND allowed.life_status = 'unemployed'
+                          AND BINARY allowed.life_status = BINARY ?
                     ) AS allowed_now
              FROM activity_catalog_entry AS catalog
              WHERE catalog.career_catalog_bundle_id = ? AND catalog.id = ?",
         )
+        .bind(&life_status)
         .bind(bundle_id)
         .bind(command.activity_catalog_entry_id.get())
         .fetch_optional(&mut *tx)
@@ -923,7 +1010,7 @@ impl RecruitmentPostingStore for MySqlCareerStore {
     }
 }
 
-async fn replay_or_conflict<T: DeserializeOwned>(
+pub(super) async fn replay_or_conflict<T: DeserializeOwned>(
     tx: &mut Transaction<'_, MySql>,
     current: &LockedCareerSaveRow,
     identity: &CommandIdentitySpec<'_>,
@@ -1027,7 +1114,7 @@ async fn finish_artifact_replay(
     }
 }
 
-async fn lock_save_for_user(
+pub(super) async fn lock_save_for_user(
     tx: &mut Transaction<'_, MySql>,
     user_id: u64,
 ) -> Result<Option<LockedCareerSaveRow>> {
@@ -1052,7 +1139,7 @@ async fn lock_save_for_user(
     .context("failed to lock a career command save")
 }
 
-fn validate_current(
+pub(super) fn validate_current(
     current: &LockedCareerSaveRow,
     cursor: CommandCursor,
 ) -> Option<crate::career::CareerFailureCode> {
@@ -1090,7 +1177,7 @@ fn scope_from_locked(current: &LockedCareerSaveRow) -> Result<CareerScopeRow> {
     })
 }
 
-async fn increment_state_revision(
+pub(super) async fn increment_state_revision(
     tx: &mut Transaction<'_, MySql>,
     current: &LockedCareerSaveRow,
     cash_krw: i64,
@@ -1205,6 +1292,7 @@ async fn read_evidence_page(
                 catalog.entry_key AS catalog_entry_key, catalog.display_name,
                 evidence.kind, evidence.acquired_game_day, evidence.expires_on_game_day,
                 evidence.period_start_date, evidence.period_end_exclusive_date,
+                evidence.credited_experience_days,
                 evidence.source_kind
          FROM spec_evidence AS evidence
          INNER JOIN spec_catalog_entry AS catalog
@@ -1240,6 +1328,7 @@ async fn read_all_evidence(
                 catalog.entry_key AS catalog_entry_key, catalog.display_name,
                 evidence.kind, evidence.acquired_game_day, evidence.expires_on_game_day,
                 evidence.period_start_date, evidence.period_end_exclusive_date,
+                evidence.credited_experience_days,
                 evidence.source_kind
          FROM spec_evidence AS evidence
          INNER JOIN spec_catalog_entry AS catalog
@@ -1267,6 +1356,7 @@ fn evidence_state_from_row(row: EvidenceRow) -> Result<CareerEvidenceState> {
         expires_on_game_day: row.expires_on_game_day,
         period_start_date: row.period_start_date.map(|date| date.to_string()),
         period_end_exclusive_date: row.period_end_exclusive_date.map(|date| date.to_string()),
+        credited_experience_days: row.credited_experience_days,
     })
 }
 
@@ -1759,7 +1849,18 @@ pub(super) async fn read_career_snapshot_in_tx(
     save_id: u64,
     run_revision: u32,
     game_day: u32,
+    current_tax_year: u16,
+    world_start_year: i32,
 ) -> Result<CareerSnapshotState> {
+    let (current_employment_tax_year, latest_employment_tax_assessment) =
+        read_employment_tax_snapshot_in_tx(
+            tx,
+            save_id,
+            run_revision,
+            current_tax_year,
+            world_start_year,
+        )
+        .await?;
     let scope: Option<CareerScopeRow> = sqlx::query_as(
         "SELECT save.id AS save_id, save.run_revision, save.game_day,
                 career_run.career_catalog_bundle_id,
@@ -1793,7 +1894,10 @@ pub(super) async fn read_career_snapshot_in_tx(
         .fetch_optional(&mut **tx)
         .await?
         .context("active career catalog assignment is missing")?;
-        return Ok(CareerSnapshotState::empty(default_focus));
+        let mut snapshot = CareerSnapshotState::empty(default_focus);
+        snapshot.current_employment_tax_year = current_employment_tax_year;
+        snapshot.latest_employment_tax_assessment = latest_employment_tax_assessment;
+        return Ok(snapshot);
     };
     let possessed_scores = read_possessed_scores(tx, &scope).await?;
     let active_activities = read_active_activity_states(tx, &scope).await?;
@@ -1801,6 +1905,13 @@ pub(super) async fn read_career_snapshot_in_tx(
     let latest_artifacts = hydrate_artifacts(tx, &scope, latest_rows).await?;
     let (open_applications, open_invitations, employment) =
         read_recruitment_snapshot_in_tx(tx, scope.save_id, scope.run_revision, game_day).await?;
+    let latest_payroll = read_latest_payroll_in_tx(tx, scope.save_id, scope.run_revision).await?;
+    let (
+        military_status,
+        active_military_service,
+        active_military_savings,
+        pending_career_schedule,
+    ) = read_military_snapshot_in_tx(tx, scope.save_id, scope.run_revision).await?;
     Ok(CareerSnapshotState {
         focused_job_family_key: scope.focused_job_family_key,
         possessed_scores,
@@ -1809,6 +1920,13 @@ pub(super) async fn read_career_snapshot_in_tx(
         open_applications,
         open_invitations,
         employment,
+        latest_payroll,
+        current_employment_tax_year,
+        latest_employment_tax_assessment,
+        military_status,
+        active_military_service,
+        active_military_savings,
+        pending_career_schedule,
     })
 }
 
@@ -1817,6 +1935,7 @@ pub(super) async fn initialize_career_run_and_bridge_evidence_in_tx(
     save_id: u64,
     run_revision: u32,
     career_catalog_bundle_id: u64,
+    employment_policy_set_id: u64,
     character: &Character,
 ) -> Result<()> {
     let (default_focus, world_start_date): (String, Date) = sqlx::query_as(
@@ -1914,13 +2033,14 @@ pub(super) async fn initialize_career_run_and_bridge_evidence_in_tx(
     })?;
     sqlx::query(
         "INSERT INTO career_run
-             (save_id, run_revision, career_catalog_bundle_id,
+             (save_id, run_revision, career_catalog_bundle_id, employment_policy_set_id,
               focused_job_family_key, birth_date)
-         VALUES (?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(save_id)
     .bind(run_revision)
     .bind(career_catalog_bundle_id)
+    .bind(employment_policy_set_id)
     .bind(&plan.focused_job_family_key)
     .bind(plan.birth_date)
     .execute(&mut **tx)
@@ -1960,12 +2080,29 @@ pub(super) async fn initialize_career_run_and_bridge_evidence_in_tx(
             EvidenceKind::Experience => "bridgeExperience",
             _ => bail!("bridge produced an unsupported evidence kind"),
         };
+        let credited_experience_days = if evidence.kind == EvidenceKind::Experience {
+            let start = evidence
+                .period
+                .start_date
+                .context("bridge experience has no start date")?;
+            let end = evidence
+                .period
+                .end_exclusive_date
+                .context("bridge experience has no end date")?;
+            Some(
+                u32::try_from((end - start).whole_days())
+                    .context("bridge experience duration is outside u32")?,
+            )
+        } else {
+            None
+        };
         sqlx::query(
             "INSERT INTO spec_evidence
                  (save_id, run_revision, career_catalog_bundle_id, evidence_key,
                   spec_catalog_entry_id, kind, acquired_game_day, expires_on_game_day,
-                  period_start_date, period_end_exclusive_date, source_kind)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  period_start_date, period_end_exclusive_date,
+                  credited_experience_days, source_kind)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(save_id)
         .bind(run_revision)
@@ -1977,10 +2114,12 @@ pub(super) async fn initialize_career_run_and_bridge_evidence_in_tx(
         .bind(expires_on_game_day)
         .bind(evidence.period.start_date)
         .bind(evidence.period.end_exclusive_date)
+        .bind(credited_experience_days)
         .bind(source_kind)
         .execute(&mut **tx)
         .await?;
     }
+    initialize_legacy_military_service_in_tx(tx, save_id, run_revision).await?;
     Ok(())
 }
 
@@ -2098,27 +2237,10 @@ pub(super) async fn advance_career_activities_in_tx(
         capacity_seen.len() == 6,
         "career capacity catalog is incomplete"
     );
-    let has_active_employment: bool = sqlx::query_scalar(
-        "SELECT EXISTS(
-             SELECT 1 FROM employment_contract
-             WHERE save_id = ? AND run_revision = ? AND status = 'active'
-               AND start_game_day <= ?
-               AND (end_game_day IS NULL OR end_game_day > ?)
-         )",
-    )
-    .bind(save_id)
-    .bind(run_revision)
-    .bind(target_game_day)
-    .bind(target_game_day)
-    .fetch_one(&mut **tx)
-    .await?;
+    let life_status = read_life_status_in_tx(tx, save_id, run_revision, target_game_day).await?;
     let plan = create_activity_planner().plan_day(ActivityDayInput {
         current_game_day: target_game_day,
-        life_status: if has_active_employment {
-            LifeStatus::Employed
-        } else {
-            LifeStatus::Unemployed
-        },
+        life_status,
         capacities,
         catalog: &catalog,
         activities: &activities,
@@ -2172,9 +2294,10 @@ pub(super) async fn advance_career_activities_in_tx(
                 "INSERT INTO spec_evidence
                      (save_id, run_revision, career_catalog_bundle_id, evidence_key,
                       spec_catalog_entry_id, kind, acquired_game_day, expires_on_game_day,
-                      period_start_date, period_end_exclusive_date, source_kind,
+                      period_start_date, period_end_exclusive_date,
+                      credited_experience_days, source_kind,
                       source_activity_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'activity', ?)",
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'activity', ?)",
             )
             .bind(save_id)
             .bind(run_revision)
@@ -2190,6 +2313,57 @@ pub(super) async fn advance_career_activities_in_tx(
         }
     }
     Ok(())
+}
+
+async fn read_life_status_in_tx(
+    tx: &mut Transaction<'_, MySql>,
+    save_id: u64,
+    run_revision: u32,
+    game_day: u32,
+) -> Result<LifeStatus> {
+    let military_life_status: Option<String> = sqlx::query_scalar(
+        "SELECT option_row.effort_life_status
+         FROM military_service AS service
+         INNER JOIN career_run
+           ON career_run.save_id = service.save_id
+          AND career_run.run_revision = service.run_revision
+          AND career_run.military_status = 'serving'
+         INNER JOIN military_option_version AS option_row
+           ON option_row.career_catalog_bundle_id = service.career_catalog_bundle_id
+          AND option_row.id = service.military_option_version_id
+         WHERE service.save_id = ? AND service.run_revision = ?
+           AND service.status = 'serving'
+           AND service.start_game_day <= ? AND service.end_game_day > ?
+         ORDER BY service.id DESC LIMIT 1",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(game_day)
+    .bind(game_day)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(status) = military_life_status.as_deref() {
+        return enum_from_db(status);
+    }
+    let has_active_employment: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+             SELECT 1 FROM employment_contract
+             WHERE save_id = ? AND run_revision = ? AND status = 'active'
+               AND start_game_day <= ?
+               AND (end_game_day IS NULL OR end_game_day > ?)
+         )",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(game_day)
+    .bind(game_day)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(if has_active_employment {
+        LifeStatus::Employed
+    } else {
+        LifeStatus::Unemployed
+    })
 }
 
 fn focus_fingerprint(command: &FocusCareerCommand) -> String {

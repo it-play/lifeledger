@@ -10,7 +10,8 @@ use super::types::{
 use crate::market::{MarketDay, MarketWorld};
 use crate::store::{
     AdvanceCommandStepResult, AdvanceDayResult, ManualAdvanceCommand, MarketStore,
-    RecruitmentPostingStore, SaveCursor, SaveState, SaveStore, StartGameCommand, StartGameResult,
+    RealEstateDailyPreparationStore, RecruitmentPostingStore, SaveCursor, SaveState, SaveStore,
+    StartGameCommand, StartGameResult,
 };
 
 const MAX_CURSOR_RETRIES: usize = 3;
@@ -21,17 +22,20 @@ struct DefaultDailyPipeline {
     saves: Arc<dyn SaveStore>,
     markets: Arc<dyn MarketStore>,
     recruitment_postings: Arc<dyn RecruitmentPostingStore>,
+    real_estate_daily: Arc<dyn RealEstateDailyPreparationStore>,
 }
 
 pub fn create_daily_pipeline(
     saves: Arc<dyn SaveStore>,
     markets: Arc<dyn MarketStore>,
     recruitment_postings: Arc<dyn RecruitmentPostingStore>,
+    real_estate_daily: Arc<dyn RealEstateDailyPreparationStore>,
 ) -> Arc<dyn DailyPipeline> {
     Arc::new(DefaultDailyPipeline {
         saves,
         markets,
         recruitment_postings,
+        real_estate_daily,
     })
 }
 
@@ -111,6 +115,9 @@ impl DailyPipeline for DefaultDailyPipeline {
             self.recruitment_postings
                 .ensure_postings_for_user(user_id, target_day)
                 .await?;
+            self.real_estate_daily
+                .ensure_property_market_for_user(user_id, target_day)
+                .await?;
 
             match self
                 .saves
@@ -154,6 +161,9 @@ impl DailyPipeline for DefaultDailyPipeline {
                 .await?;
             self.recruitment_postings
                 .ensure_postings_for_user(user_id, target_day)
+                .await?;
+            self.real_estate_daily
+                .ensure_property_market_for_user(user_id, target_day)
                 .await?;
 
             match self
@@ -253,7 +263,8 @@ mod tests {
     };
     use crate::store::{
         ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt, CareerCatalogAssignment,
-        GameCommandCursor, GameCommandRejection, MarketWorldState, StartGameReceipt,
+        EmploymentPolicyAssignment, GameCommandCursor, GameCommandRejection, MarketWorldState,
+        StartGameReceipt,
     };
 
     const USER_ID: u64 = 7;
@@ -558,10 +569,34 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeRealEstateDailyPreparationStore {
+        prepared: Mutex<Vec<(u64, u32)>>,
+    }
+
+    impl FakeRealEstateDailyPreparationStore {
+        fn prepared(&self) -> Vec<(u64, u32)> {
+            lock(&self.prepared).clone()
+        }
+    }
+
+    #[async_trait]
+    impl RealEstateDailyPreparationStore for FakeRealEstateDailyPreparationStore {
+        async fn ensure_property_market_for_user(
+            &self,
+            user_id: u64,
+            target_game_day: u32,
+        ) -> Result<()> {
+            lock(&self.prepared).push((user_id, target_game_day));
+            Ok(())
+        }
+    }
+
     struct TestFixture {
         pipeline: Arc<dyn DailyPipeline>,
         saves: Arc<FakeSaveStore>,
         markets: Arc<FakeMarketStore>,
+        real_estate_daily: Arc<FakeRealEstateDailyPreparationStore>,
         calls: SharedCalls,
     }
 
@@ -624,6 +659,7 @@ mod tests {
                 expected_game_day: 9,
             },
             draft: given_character_draft(),
+            starting_loans: None,
         }
     }
 
@@ -650,6 +686,7 @@ mod tests {
             game_day,
             cash_krw: 10_000_000,
             debt_krw: 0,
+            property_book_value_krw: 0,
             accounts: vec![given_default_account(RUN_REVISION, DEFAULT_ACCOUNT_ID)],
             positions: Vec::new(),
             pending_settlements: Vec::new(),
@@ -663,6 +700,7 @@ mod tests {
             isa_accounts: Vec::new(),
             pension_accounts: Vec::new(),
             career: crate::store::CareerSnapshotState::empty("softwareEngineering".to_owned()),
+            life: crate::store::LifeSnapshotState::empty(),
             character: Some(given_character()),
         }
     }
@@ -690,6 +728,16 @@ mod tests {
             product_bundle_id: None,
             career_catalog: CareerCatalogAssignment {
                 bundle_id: ResourceId::from_u64(1),
+                assignment_revision: 1,
+            },
+            employment_policy: EmploymentPolicyAssignment {
+                policy_set_id: ResourceId::from_u64(1),
+                assignment_revision: 1,
+            },
+            rule_bundle: crate::store::RunRuleBundleAssignment {
+                life_catalog_set_id: ResourceId::from_u64(1),
+                credit_model_version_id: ResourceId::from_u64(1),
+                real_estate_model_version_id: ResourceId::from_u64(1),
                 assignment_revision: 1,
             },
         }
@@ -809,16 +857,19 @@ mod tests {
             failure_day,
             cached_days,
         ));
+        let real_estate_daily = Arc::new(FakeRealEstateDailyPreparationStore::default());
         let pipeline = create_daily_pipeline(
             saves.clone(),
             markets.clone(),
             Arc::new(FakeRecruitmentPostingStore),
+            real_estate_daily.clone(),
         );
 
         TestFixture {
             pipeline,
             saves,
             markets,
+            real_estate_daily,
             calls,
         }
     }
@@ -881,6 +932,7 @@ mod tests {
                     },
                 ]
             );
+            assert!(fixture.real_estate_daily.prepared().is_empty());
         }
 
         #[tokio::test]
@@ -916,6 +968,7 @@ mod tests {
                     StoreCall::SaveStarted(given_active_run_configuration(3)),
                 ]
             );
+            assert!(fixture.real_estate_daily.prepared().is_empty());
         }
     }
 
@@ -945,6 +998,7 @@ mod tests {
                     },
                 ]
             );
+            assert_eq!(fixture.real_estate_daily.prepared(), vec![(USER_ID, 3)]);
         }
 
         #[tokio::test]
@@ -969,6 +1023,7 @@ mod tests {
                     },
                 ]
             );
+            assert_eq!(fixture.real_estate_daily.prepared(), vec![(USER_ID, 3)]);
         }
 
         #[tokio::test]

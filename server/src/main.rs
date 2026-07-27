@@ -4,6 +4,7 @@ mod character;
 pub mod day;
 mod error;
 pub mod finance;
+pub mod life;
 pub mod market;
 mod routes;
 mod state;
@@ -61,10 +62,16 @@ async fn main() -> anyhow::Result<()> {
     ));
     let careers = Arc::new(store::create_mysql_career_store(
         pool.clone(),
-        finance_rules,
+        finance_rules.clone(),
     ));
+    let lives = Arc::new(store::create_mysql_life_store(pool.clone(), finance_rules));
     let users = store::create_mysql_user_store(pool);
-    let games = day::create_daily_pipeline(saves.clone(), markets.clone(), careers.clone());
+    let games = day::create_daily_pipeline(
+        saves.clone(),
+        markets.clone(),
+        careers.clone(),
+        lives.clone(),
+    );
     let app_stores = state::create_app_stores(state::AppStoreDependencies {
         games,
         trades: saves,
@@ -73,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
         assets: finances.clone(),
         tax_accounts: finances,
         careers,
+        lives,
         markets,
         users: Arc::new(users),
     });
@@ -115,6 +123,17 @@ async fn connect_database() -> anyhow::Result<sqlx::MySqlPool> {
     let pool = MySqlPoolOptions::new()
         .max_connections(MAX_DB_CONNECTIONS)
         .acquire_timeout(Duration::from_secs(10))
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                // Canonical catalog projections use bounded ordered aggregation above MySQL's
+                // 1 KiB default. A literal also keeps this valid for servers that reject a
+                // parameter marker in SET SESSION.
+                sqlx::query("SET SESSION group_concat_max_len = 1048576")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&url)
         .await
         .context("failed to connect to MySQL")?;

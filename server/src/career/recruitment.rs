@@ -1430,7 +1430,7 @@ fn validate_seed(seed: PostingSeedInput<'_>) -> Result<(), RecruitmentError> {
 }
 
 fn validate_ascii_key(key: &str) -> Result<(), RecruitmentError> {
-    if key.is_empty() || !key.is_ascii() || key.as_bytes().len() > u32::MAX as usize {
+    if key.is_empty() || !key.is_ascii() || key.len() > u32::MAX as usize {
         return Err(RecruitmentError::InvalidStableKey);
     }
     Ok(())
@@ -1565,8 +1565,7 @@ fn validate_candidate_access(
     current_game_day: u32,
     candidate: CandidateApplicationProfile<'_>,
 ) -> Result<(), RecruitmentError> {
-    if candidate.has_active_or_pending_contract || candidate.life_status == LifeStatus::Employed
-    {
+    if candidate.has_active_or_pending_contract || candidate.life_status == LifeStatus::Employed {
         return Err(RecruitmentError::ActiveEmployment);
     }
     if candidate.life_status != LifeStatus::Unemployed
@@ -2672,8 +2671,8 @@ mod tests {
                 ..given_candidate(&[])
             };
 
-            let result = create_v1_recruitment_rules().evaluate_invitation(
-                InvitationEvaluationInput {
+            let result =
+                create_v1_recruitment_rules().evaluate_invitation(InvitationEvaluationInput {
                     world_seed: 77,
                     posting: &posting,
                     invitation_game_day: posting.posted_game_day,
@@ -2682,8 +2681,7 @@ mod tests {
                     visible_scores: DimensionScores::default(),
                     open_invitation_count: 0,
                     platform_invitation_already_generated_today: false,
-                },
-            );
+                });
 
             assert_eq!(result, Err(RecruitmentError::ActiveEmployment));
         }

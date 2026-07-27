@@ -187,6 +187,41 @@ pub enum LedgerAccountCode {
     RealizedGainLoss,
     TaxSettlement,
     CareerDevelopmentExpense,
+    SalaryIncome,
+    EmployeeNationalPensionExpense,
+    EmployeeHealthInsuranceExpense,
+    EmployeeLongTermCareExpense,
+    EmployeeEmploymentInsuranceExpense,
+    EmploymentIncomeTaxWithholding,
+    EmploymentLocalIncomeTaxWithholding,
+    OtherIncomeReward,
+    OtherIncomeTaxWithholding,
+    OtherLocalIncomeTaxWithholding,
+    PensionTaxExcludedContribution,
+    PensionCreditedContribution,
+    MilitaryPayIncome,
+    MilitarySavingsPrincipal,
+    MilitarySavingsBankInterest,
+    MilitarySavingsGovernmentMatchIncome,
+    LivingCostExpense,
+    EssentialArrearLiability,
+    LoanPrincipalLiability,
+    LoanInterestExpense,
+    LoanInterestLiability,
+    LoanFeeExpense,
+    TaxObligationLiability,
+    LeaseDepositAsset,
+    MovingExpense,
+    LeaseRentExpense,
+    LeaseArrearLiability,
+    PropertyAsset,
+    AcquisitionIncidentalExpense,
+    PropertyDispositionExpense,
+    PropertyTaxExpense,
+    WelfareBenefitIncome,
+    LifeEventExpense,
+    InsurancePremiumExpense,
+    InsuranceClaimRecovery,
 }
 
 impl LedgerAccountCode {
@@ -202,8 +237,53 @@ impl LedgerAccountCode {
             | Self::DistributionIncome
             | Self::RealizedGainLoss
             | Self::TaxSettlement
-            | Self::CareerDevelopmentExpense => PostingAccountRequirement::Forbidden,
+            | Self::CareerDevelopmentExpense
+            | Self::SalaryIncome
+            | Self::EmployeeNationalPensionExpense
+            | Self::EmployeeHealthInsuranceExpense
+            | Self::EmployeeLongTermCareExpense
+            | Self::EmployeeEmploymentInsuranceExpense
+            | Self::EmploymentIncomeTaxWithholding
+            | Self::EmploymentLocalIncomeTaxWithholding
+            | Self::OtherIncomeReward
+            | Self::OtherIncomeTaxWithholding
+            | Self::OtherLocalIncomeTaxWithholding
+            | Self::MilitaryPayIncome
+            | Self::MilitarySavingsPrincipal
+            | Self::MilitarySavingsBankInterest
+            | Self::MilitarySavingsGovernmentMatchIncome
+            | Self::LivingCostExpense
+            | Self::EssentialArrearLiability
+            | Self::LoanPrincipalLiability
+            | Self::LoanInterestExpense
+            | Self::LoanInterestLiability
+            | Self::LoanFeeExpense
+            | Self::TaxObligationLiability
+            | Self::LeaseDepositAsset
+            | Self::MovingExpense
+            | Self::LeaseRentExpense
+            | Self::LeaseArrearLiability
+            | Self::PropertyAsset
+            | Self::AcquisitionIncidentalExpense
+            | Self::PropertyDispositionExpense
+            | Self::PropertyTaxExpense
+            | Self::WelfareBenefitIncome
+            | Self::LifeEventExpense
+            | Self::InsurancePremiumExpense
+            | Self::InsuranceClaimRecovery => PostingAccountRequirement::Forbidden,
+            Self::PensionTaxExcludedContribution | Self::PensionCreditedContribution => {
+                PostingAccountRequirement::Required
+            }
         }
+    }
+
+    pub const fn is_military_savings(self) -> bool {
+        matches!(
+            self,
+            Self::MilitarySavingsPrincipal
+                | Self::MilitarySavingsBankInterest
+                | Self::MilitarySavingsGovernmentMatchIncome
+        )
     }
 }
 
@@ -226,6 +306,30 @@ pub enum LedgerSourceKind {
     InterestAccrual,
     ScheduledSettlement,
     SpecActivity,
+    EmploymentPayroll,
+    CareerRewardPayment,
+    PensionCreditAllocation,
+    MilitaryPay,
+    MilitarySavingsInstallment,
+    MilitarySavingsMaturity,
+    MilitarySavingsGovernmentMatch,
+    MilitarySavingsEarlyClose,
+    LivingCostMonth,
+    EssentialArrearPayment,
+    LoanOrigination,
+    LoanInstallment,
+    LoanPrepayment,
+    DebtAuthorityBridge,
+    LeaseMove,
+    LeaseRent,
+    LeaseArrearPayment,
+    PropertyPurchase,
+    PropertySale,
+    PropertyTaxPayment,
+    WelfareBenefitPayment,
+    LifeEventChoice,
+    InsurancePremiumPayment,
+    InsuranceClaimPayment,
     Correction,
 }
 
@@ -253,6 +357,11 @@ pub struct LedgerTransactionDraft {
     pub postings: Vec<LedgerPosting>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LedgerPostingOwner {
+    MilitarySavingsContract(ResourceId),
+}
+
 /// A transaction that passed all double-entry ledger invariants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -262,6 +371,8 @@ pub struct LedgerTransaction {
     game_day: u32,
     description: String,
     postings: Vec<LedgerPosting>,
+    #[serde(skip)]
+    posting_owner: Option<LedgerPostingOwner>,
 }
 
 impl LedgerTransaction {
@@ -272,7 +383,23 @@ impl LedgerTransaction {
             game_day: draft.game_day,
             description: draft.description,
             postings: draft.postings,
+            posting_owner: None,
         }
+    }
+
+    pub(crate) fn with_posting_owner(
+        mut self,
+        owner: LedgerPostingOwner,
+    ) -> Result<Self, FinanceRuleError> {
+        let has_owned_posting = self
+            .postings
+            .iter()
+            .any(|posting| posting.account_code.is_military_savings());
+        if !has_owned_posting {
+            return Err(FinanceRuleError::PostingOwnerForbidden);
+        }
+        self.posting_owner = Some(owner);
+        Ok(self)
     }
 
     pub const fn policy(&self) -> RunPolicyContext {
@@ -293,6 +420,10 @@ impl LedgerTransaction {
 
     pub fn postings(&self) -> &[LedgerPosting] {
         &self.postings
+    }
+
+    pub const fn posting_owner(&self) -> Option<LedgerPostingOwner> {
+        self.posting_owner
     }
 }
 
@@ -345,6 +476,46 @@ pub enum SettlementKind {
     BondMaturity,
     LlxDistribution,
     FinancialIncomeFiling,
+    EmploymentPayroll,
+    EmploymentReconciliation,
+    MilitaryPay,
+    MilitarySavingsInstallment,
+    MilitarySavingsMaturity,
+    MilitarySavingsGovernmentMatch,
+    LoanInstallment,
+    LeaseRent,
+    LivingCostMonth,
+    PropertyTaxPayment,
+    WelfareBenefitPayment,
+    InsurancePremium,
+}
+
+impl SettlementKind {
+    /// Orders due obligations without changing the historical order inside pre-M4 settlements.
+    pub const fn phase_rank(self) -> u16 {
+        match self {
+            Self::LoanInstallment => 200,
+            Self::LeaseRent => 300,
+            Self::LivingCostMonth => 400,
+            Self::PropertyTaxPayment => 100,
+            Self::WelfareBenefitPayment => 150,
+            Self::InsurancePremium => 250,
+            Self::CmaInterest
+            | Self::DepositMaturity
+            | Self::SavingsInstallment
+            | Self::SavingsMaturity
+            | Self::BondCoupon
+            | Self::BondMaturity
+            | Self::LlxDistribution
+            | Self::FinancialIncomeFiling
+            | Self::EmploymentPayroll
+            | Self::EmploymentReconciliation
+            | Self::MilitaryPay
+            | Self::MilitarySavingsInstallment
+            | Self::MilitarySavingsMaturity
+            | Self::MilitarySavingsGovernmentMatch => 100,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -364,6 +535,17 @@ pub enum SettlementSourceKind {
     BondPosition,
     IndexPosition,
     TaxYear,
+    EmploymentContract,
+    YearEndTaxAssessment,
+    MilitaryService,
+    MilitarySavingsContract,
+    MilitarySavingsInstallment,
+    LoanContract,
+    LeaseContract,
+    LivingCostMonth,
+    PropertyTaxEvent,
+    WelfarePayment,
+    InsuranceContract,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -371,7 +553,7 @@ pub enum SettlementSourceKind {
 pub struct SettlementSource {
     pub kind: SettlementSourceKind,
     pub source_id: String,
-    pub occurrence: u32,
+    pub occurrence: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -713,6 +895,7 @@ pub enum FinanceRuleError {
     ZeroLedgerPosting,
     PostingAccountRequired,
     PostingAccountForbidden,
+    PostingOwnerForbidden,
     UnbalancedLedger,
     InvalidBalance,
     AccountClosed,
@@ -738,6 +921,7 @@ impl FinanceRuleError {
             | Self::ZeroLedgerPosting
             | Self::PostingAccountRequired
             | Self::PostingAccountForbidden
+            | Self::PostingOwnerForbidden
             | Self::UnbalancedLedger
             | Self::InvalidBalance
             | Self::AccountScopeMismatch
@@ -758,6 +942,9 @@ impl Display for FinanceRuleError {
             Self::PostingAccountRequired => "the ledger account code requires a financial account",
             Self::PostingAccountForbidden => {
                 "the ledger account code cannot reference a financial account"
+            }
+            Self::PostingOwnerForbidden => {
+                "the ledger transaction has no posting owned by that domain resource"
             }
             Self::UnbalancedLedger => "ledger postings do not balance to zero",
             Self::InvalidBalance => "a stored money balance is invalid",
@@ -781,6 +968,15 @@ pub trait FinanceRules: Send + Sync + 'static {
         &self,
         draft: LedgerTransactionDraft,
     ) -> Result<LedgerTransaction, FinanceRuleError>;
+
+    fn create_military_savings_ledger_transaction(
+        &self,
+        draft: LedgerTransactionDraft,
+        contract_id: ResourceId,
+    ) -> Result<LedgerTransaction, FinanceRuleError> {
+        self.create_ledger_transaction(draft)?
+            .with_posting_owner(LedgerPostingOwner::MilitarySavingsContract(contract_id))
+    }
 
     fn apply_transfer(&self, input: TransferInput) -> Result<TransferMutation, FinanceRuleError>;
 
@@ -926,6 +1122,157 @@ mod tests {
                 .expect("직렬화할 수 있어야 한다");
 
             assert_eq!(json, "\"specActivity\"");
+        }
+
+        #[test]
+        fn given_m4a_protocol_enums_when_serialized_then_exact_names_are_preserved() {
+            let json = serde_json::json!({
+                "settlement": serde_json::to_value(SettlementKind::LivingCostMonth)
+                    .expect("정산 종류를 직렬화할 수 있어야 한다"),
+                "settlementSource": serde_json::to_value(SettlementSourceKind::LivingCostMonth)
+                    .expect("정산 원천을 직렬화할 수 있어야 한다"),
+                "ledgerSources": serde_json::to_value([
+                    LedgerSourceKind::LivingCostMonth,
+                    LedgerSourceKind::EssentialArrearPayment,
+                ])
+                .expect("원장 원천을 직렬화할 수 있어야 한다"),
+                "accounts": serde_json::to_value([
+                    LedgerAccountCode::LivingCostExpense,
+                    LedgerAccountCode::EssentialArrearLiability,
+                ])
+                .expect("원장 계정을 직렬화할 수 있어야 한다"),
+            });
+
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "settlement": "livingCostMonth",
+                    "settlementSource": "livingCostMonth",
+                    "ledgerSources": ["livingCostMonth", "essentialArrearPayment"],
+                    "accounts": ["livingCostExpense", "essentialArrearLiability"],
+                })
+            );
+        }
+
+        #[test]
+        fn given_m4b_protocol_enums_when_serialized_then_exact_names_are_preserved() {
+            let json = serde_json::json!({
+                "settlement": serde_json::to_value(SettlementKind::LoanInstallment)
+                    .expect("정산 종류를 직렬화할 수 있어야 한다"),
+                "settlementSource": serde_json::to_value(SettlementSourceKind::LoanContract)
+                    .expect("정산 원천을 직렬화할 수 있어야 한다"),
+                "ledgerSources": serde_json::to_value([
+                    LedgerSourceKind::LoanOrigination,
+                    LedgerSourceKind::LoanInstallment,
+                    LedgerSourceKind::LoanPrepayment,
+                    LedgerSourceKind::DebtAuthorityBridge,
+                ])
+                .expect("원장 원천을 직렬화할 수 있어야 한다"),
+                "accounts": serde_json::to_value([
+                    LedgerAccountCode::LoanPrincipalLiability,
+                    LedgerAccountCode::LoanInterestExpense,
+                    LedgerAccountCode::LoanInterestLiability,
+                    LedgerAccountCode::LoanFeeExpense,
+                    LedgerAccountCode::TaxObligationLiability,
+                ])
+                .expect("원장 계정을 직렬화할 수 있어야 한다"),
+            });
+
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "settlement": "loanInstallment",
+                    "settlementSource": "loanContract",
+                    "ledgerSources": [
+                        "loanOrigination",
+                        "loanInstallment",
+                        "loanPrepayment",
+                        "debtAuthorityBridge",
+                    ],
+                    "accounts": [
+                        "loanPrincipalLiability",
+                        "loanInterestExpense",
+                        "loanInterestLiability",
+                        "loanFeeExpense",
+                        "taxObligationLiability",
+                    ],
+                })
+            );
+        }
+
+        #[test]
+        fn given_m4c2a_protocol_enums_when_serialized_then_exact_names_are_preserved() {
+            let json = serde_json::json!({
+                "ledgerSource": serde_json::to_value(LedgerSourceKind::LeaseMove)
+                    .expect("원장 원천을 직렬화할 수 있어야 한다"),
+                "accounts": serde_json::to_value([
+                    LedgerAccountCode::LeaseDepositAsset,
+                    LedgerAccountCode::MovingExpense,
+                ])
+                .expect("원장 계정을 직렬화할 수 있어야 한다"),
+            });
+
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "ledgerSource": "leaseMove",
+                    "accounts": ["leaseDepositAsset", "movingExpense"],
+                })
+            );
+        }
+
+        #[test]
+        fn given_m4c2b1_protocol_enums_when_serialized_then_exact_names_are_preserved() {
+            let json = serde_json::json!({
+                "settlement": serde_json::to_value(SettlementKind::LeaseRent)
+                    .expect("정산 종류를 직렬화할 수 있어야 한다"),
+                "settlementSource": serde_json::to_value(SettlementSourceKind::LeaseContract)
+                    .expect("정산 원천을 직렬화할 수 있어야 한다"),
+                "ledgerSources": serde_json::to_value([
+                    LedgerSourceKind::LeaseRent,
+                    LedgerSourceKind::LeaseArrearPayment,
+                ])
+                .expect("원장 원천을 직렬화할 수 있어야 한다"),
+                "accounts": serde_json::to_value([
+                    LedgerAccountCode::LeaseRentExpense,
+                    LedgerAccountCode::LeaseArrearLiability,
+                ])
+                .expect("원장 계정을 직렬화할 수 있어야 한다"),
+            });
+
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "settlement": "leaseRent",
+                    "settlementSource": "leaseContract",
+                    "ledgerSources": ["leaseRent", "leaseArrearPayment"],
+                    "accounts": ["leaseRentExpense", "leaseArrearLiability"],
+                })
+            );
+        }
+
+        #[test]
+        fn given_m4d_protocol_enums_when_serialized_then_exact_names_are_preserved() {
+            let json = serde_json::json!({
+                "settlement": serde_json::to_value(SettlementKind::WelfareBenefitPayment)
+                    .expect("정산 종류를 직렬화할 수 있어야 한다"),
+                "settlementSource": serde_json::to_value(SettlementSourceKind::WelfarePayment)
+                    .expect("정산 원천을 직렬화할 수 있어야 한다"),
+                "ledgerSource": serde_json::to_value(LedgerSourceKind::WelfareBenefitPayment)
+                    .expect("원장 원천을 직렬화할 수 있어야 한다"),
+                "account": serde_json::to_value(LedgerAccountCode::WelfareBenefitIncome)
+                    .expect("원장 계정을 직렬화할 수 있어야 한다"),
+            });
+
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "settlement": "welfareBenefitPayment",
+                    "settlementSource": "welfarePayment",
+                    "ledgerSource": "welfareBenefitPayment",
+                    "account": "welfareBenefitIncome",
+                })
+            );
         }
     }
 }

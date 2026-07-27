@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::{OAuthIdentity, ProviderKind};
 use crate::career::{
-    ActivityStatus, ArtifactDraft, ArtifactKind, CareerFailureCode, DimensionScores, EvidenceKind,
-    Industry, LifeStatus,
+    ActivityStatus, ArtifactDraft, ArtifactKind, CareerFailureCode, DimensionScores,
+    EmploymentType, EvidenceKind, Industry, LifeStatus,
 };
-use crate::character::{Character, CharacterDraft, ValidationError};
+use crate::character::{Character, CharacterDraft, Education, Region, ValidationError};
 use crate::finance::{
     BondCatalog, BondOrderCommand, BondOrderResponse, CashProductCatalog, CashProductContractState,
     CloseCashProductCommand, CloseCashProductReceipt, CloseCmaAccountCommand,
@@ -25,6 +25,14 @@ use crate::finance::{
     TransferReceipt,
 };
 use crate::finance::{IrpWithdrawalReason, PensionTaxLayers, PensionWithdrawalRequestKind};
+use crate::life::{
+    CreditBand, HousingLeaseArrearRepaymentRule, HousingLeaseCapability, HousingLeaseOfferKind,
+    HousingLeaseRenewalRule, HousingLeaseRole, HousingLeaseTerminationReviewRule,
+    HousingRentChargeRule, LifeRegionKey, LivingCostCategory, LoanContractStatus, LoanDayCountRule,
+    LoanLenderSector, LoanPaymentCalendar, LoanPrepaymentEffect, LoanProductKind,
+    LoanProductProvenance, LoanRateReference, LoanRateResetRule, LoanRateStatus, LoanRateType,
+    LoanRepaymentMethod, PropertyListingOffer, PropertyType, YearMonth,
+};
 use crate::market::{MarketCalibration, MarketDay, MarketWorld};
 use crate::trading::{PositionState, TradeExecution, TradeFailure, TradeOrder};
 
@@ -43,6 +51,7 @@ pub struct CareerEvidenceState {
     pub expires_on_game_day: Option<u32>,
     pub period_start_date: Option<String>,
     pub period_end_exclusive_date: Option<String>,
+    pub credited_experience_days: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +112,13 @@ pub struct CareerSnapshotState {
     pub open_applications: Vec<CareerApplicationState>,
     pub open_invitations: Vec<CareerInvitationState>,
     pub employment: Option<EmploymentContractState>,
+    pub latest_payroll: Option<CareerPayrollState>,
+    pub current_employment_tax_year: CareerEmploymentTaxYearState,
+    pub latest_employment_tax_assessment: Option<CareerEmploymentTaxYearState>,
+    pub military_status: CareerMilitaryStatus,
+    pub active_military_service: Option<ActiveMilitaryServiceState>,
+    pub active_military_savings: Vec<ActiveMilitarySavingsState>,
+    pub pending_career_schedule: Vec<CareerPendingScheduleItemState>,
 }
 
 impl CareerSnapshotState {
@@ -115,6 +131,13 @@ impl CareerSnapshotState {
             open_applications: Vec::new(),
             open_invitations: Vec::new(),
             employment: None,
+            latest_payroll: None,
+            current_employment_tax_year: CareerEmploymentTaxYearState::open(1),
+            latest_employment_tax_assessment: None,
+            military_status: CareerMilitaryStatus::Unserved,
+            active_military_service: None,
+            active_military_savings: Vec::new(),
+            pending_career_schedule: Vec::new(),
         }
     }
 }
@@ -161,6 +184,327 @@ pub type CareerPlatform = crate::career::PlatformKey;
 pub type CareerCompetitionBand = crate::career::CompetitionBand;
 
 pub type CareerMilitaryRequirement = crate::career::MilitaryPostingRequirement;
+
+pub type CareerMilitaryStatus = crate::career::MilitaryStatus;
+pub type MilitaryServiceType = crate::career::MilitaryServiceType;
+pub type MilitaryServiceStatus = crate::career::MilitaryServiceStatus;
+pub type MilitaryHardRequirementsState = crate::career::MilitaryHardRequirements;
+pub type MilitaryPayStageState = crate::career::MilitaryPayStagePolicy;
+pub type MilitaryExperienceCreditState = crate::career::MilitaryExperiencePolicy;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitaryServiceSourceKind {
+    UserCommand,
+    LegacyBridge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitaryCompensationKind {
+    MilitaryPay,
+    EmploymentPayroll,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitaryOptionIneligibilityReason {
+    MilitarySubjectRequired,
+    MilitaryStateConflict,
+    MinimumEducation,
+    MinimumCertificationCount,
+    MinimumExperienceDays,
+    PolicyUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitaryOptionState {
+    pub id: ResourceId,
+    pub option_key: String,
+    pub service_type: MilitaryServiceType,
+    pub display_name: String,
+    pub eligible: bool,
+    pub ineligibility_reasons: Vec<MilitaryOptionIneligibilityReason>,
+    pub service_duration_months: u16,
+    pub hard_requirements: MilitaryHardRequirementsState,
+    pub compensation_kind: MilitaryCompensationKind,
+    pub pay_schedule: crate::career::MilitaryPayScheduleKind,
+    pub pay_stages: Vec<MilitaryPayStageState>,
+    pub effort_life_status: LifeStatus,
+    pub daily_effort_capacity_units: u64,
+    pub grants_career_experience: bool,
+    pub experience_credits: Vec<MilitaryExperienceCreditState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitaryOptionsState {
+    pub items: Vec<MilitaryOptionState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActiveMilitaryServiceState {
+    pub id: ResourceId,
+    pub option_version_id: ResourceId,
+    pub service_type: MilitaryServiceType,
+    pub display_name: String,
+    pub status: MilitaryServiceStatus,
+    pub start_game_day: u32,
+    pub end_game_day: u32,
+    pub credited_service_days: u32,
+    pub total_service_days: u32,
+    pub effort_life_status: LifeStatus,
+    pub grants_career_experience: bool,
+    pub next_pay_game_day: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitaryServiceHistoryState {
+    pub id: ResourceId,
+    pub option_version_id: ResourceId,
+    pub service_type: MilitaryServiceType,
+    pub display_name: String,
+    pub status: MilitaryServiceStatus,
+    pub source_kind: MilitaryServiceSourceKind,
+    pub start_game_day: u32,
+    pub end_game_day: u32,
+    pub credited_service_days: u32,
+    pub total_service_days: u32,
+    pub effort_life_status: LifeStatus,
+    pub grants_career_experience: bool,
+    pub next_pay_game_day: Option<u32>,
+    pub start_date: String,
+    pub end_exclusive_date: String,
+    pub completed_game_day: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitaryServiceState {
+    pub military_status: CareerMilitaryStatus,
+    pub service: Option<MilitaryServiceHistoryState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitarySavingsIneligibilityReason {
+    MilitaryStateConflict,
+    ServiceTypeNotEligible,
+    MinimumRemainingService,
+    ActiveContractLimit,
+    InstitutionLimit,
+    JoinWindowClosed,
+    PolicyUnavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitarySavingsContractStatus {
+    Active,
+    Matured,
+    Closed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitarySavingsInstallmentStatusState {
+    Scheduled,
+    Paid,
+    Missed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitarySavingsClosureReason {
+    Maturity,
+    EarlyClose,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsInterestTierState {
+    pub minimum_term_months: u16,
+    pub maximum_term_months_inclusive: u16,
+    pub annual_interest_rate_ppm: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsProductState {
+    pub id: ResourceId,
+    pub product_key: String,
+    pub institution_key: String,
+    pub institution_display_name: String,
+    pub eligible: bool,
+    pub ineligibility_reasons: Vec<MilitarySavingsIneligibilityReason>,
+    pub eligible_service_types: Vec<MilitaryServiceType>,
+    pub join_start_date: String,
+    pub join_end_date: String,
+    pub minimum_remaining_service_months: u16,
+    pub maximum_active_contracts: u8,
+    pub maximum_contracts_per_institution: u8,
+    pub minimum_monthly_contribution_krw: i64,
+    pub maximum_institution_monthly_contribution_krw: i64,
+    pub maximum_total_monthly_contribution_krw: i64,
+    pub limit_setting_unit_krw: i64,
+    pub installment_unit_krw: i64,
+    pub interest_tiers: Vec<MilitarySavingsInterestTierState>,
+    pub day_count_convention: MilitarySavingsDayCountConvention,
+    pub interest_rounding: MilitarySavingsInterestRounding,
+    pub early_close_annual_interest_rate_ppm: i64,
+    pub government_matching_rate_ppm: i64,
+    pub government_match_payment_day_of_month: u8,
+    pub maturity_tax_exempt: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitarySavingsDayCountConvention {
+    Actual365,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitarySavingsInterestRounding {
+    FloorToKrw,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsProductsState {
+    pub items: Vec<MilitarySavingsProductState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActiveMilitarySavingsState {
+    pub id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub institution_key: String,
+    pub status: MilitarySavingsContractStatus,
+    pub monthly_contribution_krw: i64,
+    pub debit_day_of_month: u8,
+    pub principal_krw: i64,
+    pub paid_installment_count: u16,
+    pub missed_installment_count: u16,
+    pub next_installment_game_day: Option<u32>,
+    pub maturity_game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsInstallmentState {
+    pub id: ResourceId,
+    pub installment_no: u16,
+    pub due_game_day: u32,
+    pub status: MilitarySavingsInstallmentStatusState,
+    pub paid_game_day: Option<u32>,
+    pub principal_krw: i64,
+    pub government_matching_policy_version_id: Option<ResourceId>,
+    pub government_matching_rate_ppm: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsMaturityProjectionState {
+    pub assumption: MilitarySavingsProjectionAssumption,
+    pub principal_krw: i64,
+    pub gross_bank_interest_krw: i64,
+    pub government_match_krw: i64,
+    pub bank_payout_krw: i64,
+    pub total_benefit_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MilitarySavingsProjectionAssumption {
+    AllScheduledInstallmentsPaid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsHistoryItemState {
+    pub id: ResourceId,
+    pub service_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub product_key: String,
+    pub institution_key: String,
+    pub institution_display_name: String,
+    pub status: MilitarySavingsContractStatus,
+    pub monthly_contribution_krw: i64,
+    pub debit_day_of_month: u8,
+    pub principal_krw: i64,
+    pub paid_installment_count: u16,
+    pub missed_installment_count: u16,
+    pub next_installment_game_day: Option<u32>,
+    pub maturity_game_day: u32,
+    pub opened_game_day: u32,
+    pub first_installment_game_day: u32,
+    pub contract_term_months: u16,
+    pub annual_interest_rate_ppm: i64,
+    pub closed_game_day: Option<u32>,
+    pub closure_reason: Option<MilitarySavingsClosureReason>,
+    pub settled_principal_krw: i64,
+    pub gross_bank_interest_krw: i64,
+    pub government_match_krw: i64,
+    pub bank_payout_krw: i64,
+    pub government_match_paid_game_day: Option<u32>,
+    pub projected_maturity: Option<MilitarySavingsMaturityProjectionState>,
+    pub installments: Vec<MilitarySavingsInstallmentState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsPageState {
+    pub items: Vec<MilitarySavingsHistoryItemState>,
+    pub next_before: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CareerScheduledActionKind {
+    EmploymentStart,
+    MilitaryServiceStart,
+    MilitaryServiceCompletion,
+    DocumentReview,
+    ConfirmationExpiry,
+    InterviewDecision,
+    OfferExpiry,
+    InvitationGeneration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CareerScheduledSettlementKind {
+    EmploymentPayroll,
+    EmploymentReconciliation,
+    MilitaryPay,
+    MilitarySavingsInstallment,
+    MilitarySavingsMaturity,
+    MilitarySavingsGovernmentMatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "sourceKind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum CareerPendingScheduleItemState {
+    CareerAction {
+        id: ResourceId,
+        due_game_day: u32,
+        kind: CareerScheduledActionKind,
+    },
+    Settlement {
+        id: ResourceId,
+        due_game_day: u32,
+        kind: CareerScheduledSettlementKind,
+    },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -231,8 +575,8 @@ pub struct CareerJobState {
     pub industry: Industry,
     pub job_family_key: String,
     pub employer_name: String,
-    pub region: String,
-    pub employment_type: String,
+    pub region: Region,
+    pub employment_type: EmploymentType,
     pub required_scores: DimensionScores,
     pub possessed_scores: DimensionScores,
     pub minimum_annual_salary_krw: i64,
@@ -240,7 +584,7 @@ pub struct CareerJobState {
     pub salary_step_krw: i64,
     pub competition_band: CareerCompetitionBand,
     pub military_requirement: CareerMilitaryRequirement,
-    pub minimum_education: Option<String>,
+    pub minimum_education: Option<Education>,
     pub required_certification_name: Option<String>,
     pub minimum_experience_days: u32,
     pub required_artifacts: Vec<ArtifactKind>,
@@ -331,6 +675,118 @@ pub struct CareerEmploymentState {
     pub contract: Option<EmploymentContractState>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CareerRewardPaymentState {
+    pub payment_id: ResourceId,
+    pub gross_reward_krw: i64,
+    pub withheld_income_tax_krw: i64,
+    pub withheld_local_income_tax_krw: i64,
+    pub net_reward_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CareerPayrollState {
+    pub id: ResourceId,
+    pub contract_id: ResourceId,
+    pub period_no: u64,
+    pub salary_month_ordinal: u8,
+    pub period_start_date: String,
+    pub period_end_exclusive_date: String,
+    pub paid_game_day: u32,
+    pub gross_pay_krw: i64,
+    pub employee_national_pension_krw: i64,
+    pub employer_national_pension_krw: i64,
+    pub employee_health_insurance_krw: i64,
+    pub employer_health_insurance_krw: i64,
+    pub employee_long_term_care_krw: i64,
+    pub employer_long_term_care_krw: i64,
+    pub employee_employment_insurance_krw: i64,
+    pub employer_employment_insurance_krw: i64,
+    pub employer_industrial_accident_krw: i64,
+    pub withheld_income_tax_krw: i64,
+    pub withheld_local_income_tax_krw: i64,
+    pub net_pay_krw: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reward: Option<CareerRewardPaymentState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CareerPayrollPageState {
+    pub items: Vec<CareerPayrollState>,
+    pub next_before: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CareerEmploymentTaxYearStatus {
+    Open,
+    Provisional,
+    Definitive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CareerEmploymentTaxYearSource {
+    EmploymentOnly,
+    Combined,
+    LegacyProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CareerEmploymentTaxYearState {
+    pub tax_year: u16,
+    pub status: CareerEmploymentTaxYearStatus,
+    pub source: CareerEmploymentTaxYearSource,
+    pub gross_employment_income_krw: i64,
+    pub employee_insurance_deduction_krw: Option<i64>,
+    pub earned_income_deduction_krw: Option<i64>,
+    pub personal_deduction_krw: Option<i64>,
+    pub taxable_income_krw: Option<i64>,
+    pub calculated_income_tax_krw: Option<i64>,
+    pub earned_income_tax_credit_krw: Option<i64>,
+    pub pension_credit_eligible_contribution_krw: Option<i64>,
+    pub actual_pension_income_tax_credit_krw: Option<i64>,
+    pub actual_pension_local_income_tax_effect_krw: Option<i64>,
+    pub withheld_income_tax_krw: Option<i64>,
+    pub withheld_local_income_tax_krw: Option<i64>,
+    pub assessed_income_tax_krw: Option<i64>,
+    pub assessed_local_income_tax_krw: Option<i64>,
+    pub additional_tax_krw: Option<i64>,
+    pub refund_krw: Option<i64>,
+    pub reconciliation_game_day: Option<u32>,
+}
+
+impl CareerEmploymentTaxYearState {
+    pub const fn open(tax_year: u16) -> Self {
+        Self {
+            tax_year,
+            status: CareerEmploymentTaxYearStatus::Open,
+            source: CareerEmploymentTaxYearSource::EmploymentOnly,
+            gross_employment_income_krw: 0,
+            employee_insurance_deduction_krw: Some(0),
+            earned_income_deduction_krw: None,
+            personal_deduction_krw: None,
+            taxable_income_krw: None,
+            calculated_income_tax_krw: None,
+            earned_income_tax_credit_krw: None,
+            pension_credit_eligible_contribution_krw: None,
+            actual_pension_income_tax_credit_krw: None,
+            actual_pension_local_income_tax_effect_krw: None,
+            withheld_income_tax_krw: Some(0),
+            withheld_local_income_tax_krw: Some(0),
+            assessed_income_tax_krw: None,
+            assessed_local_income_tax_krw: None,
+            additional_tax_krw: None,
+            refund_krw: None,
+            reconciliation_game_day: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FocusCareerCommand {
     pub command_id: CommandId,
@@ -419,6 +875,29 @@ pub struct DeclineCareerOfferCommand {
     pub offer_id: ResourceId,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartMilitaryServiceCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub military_option_version_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenMilitarySavingsCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub product_version_id: ResourceId,
+    pub monthly_contribution_krw: i64,
+    pub debit_day_of_month: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloseMilitarySavingsCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub contract_id: ResourceId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FocusCareerReceipt {
@@ -475,10 +954,1812 @@ pub struct CareerOfferReceipt {
     pub replayed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitaryServiceCommandReceipt {
+    pub command_id: CommandId,
+    pub military_service_id: ResourceId,
+    pub status: MilitaryServiceStatus,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MilitarySavingsCommandReceipt {
+    pub command_id: CommandId,
+    pub military_savings_contract_id: ResourceId,
+    pub status: MilitarySavingsContractStatus,
+    pub replayed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CareerStoreResult<T> {
     Applied { receipt: T, save: Box<SaveState> },
     Rejected(CareerFailureCode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LifeRateStatus {
+    Active,
+    RateUnavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResidenceTenureKind {
+    RentFree,
+    Owner,
+    Jeonse,
+    MonthlyRent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeHouseholdState {
+    pub id: ResourceId,
+    pub member_count: u32,
+    pub dependent_count: u32,
+    pub tax_dependent_eligible_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeResidenceState {
+    pub id: ResourceId,
+    pub region_key: String,
+    pub tenure_kind: ResidenceTenureKind,
+    pub property_holding_id: Option<ResourceId>,
+    pub effective_from_game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeBudgetBandState {
+    pub id: ResourceId,
+    pub band_key: String,
+    pub display_name: String,
+    pub factor_ppm: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeBudgetSelectionState {
+    pub category: LivingCostCategory,
+    pub band_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LivingCostMonthItemState {
+    pub category: LivingCostCategory,
+    pub band_id: ResourceId,
+    pub essential: bool,
+    pub base_monthly_krw: i64,
+    pub base_cpi_index: i64,
+    pub region_factor_ppm: i64,
+    pub household_factor_ppm: i64,
+    pub budget_factor_ppm: i64,
+    pub tenure_replacement_factor_ppm: i64,
+    pub gross_krw: i64,
+    pub paid_krw: i64,
+    pub arrear_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LivingCostMonthState {
+    pub id: ResourceId,
+    pub profile_id: ResourceId,
+    pub profile_key: String,
+    pub year_month: YearMonth,
+    pub current_cpi_index: i64,
+    pub activation_game_day: u32,
+    pub settlement_game_day: u32,
+    pub proration_scale: u32,
+    pub proration_units: u32,
+    pub proration_days: u8,
+    pub days_in_month: u8,
+    pub settled: bool,
+    pub total_gross_krw: i64,
+    pub total_paid_krw: i64,
+    pub total_arrear_krw: i64,
+    pub items: Vec<LivingCostMonthItemState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EssentialArrearState {
+    pub id: ResourceId,
+    pub due_year_month: YearMonth,
+    pub category: LivingCostCategory,
+    pub original_krw: i64,
+    pub remaining_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CreditReasonState {
+    ModelUnavailable,
+    ActiveDefault,
+    ActiveDelinquency,
+    CleanHistory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanProductState {
+    pub id: ResourceId,
+    pub key: String,
+    pub display_name: String,
+    pub kind: LoanProductKind,
+    pub lender_sector: LoanLenderSector,
+    pub rate_status: LoanRateStatus,
+    pub rate_type: LoanRateType,
+    pub current_annual_rate_bp: Option<i64>,
+    pub reference_rate_key: Option<LoanRateReference>,
+    pub spread_bp: Option<i64>,
+    pub minimum_annual_rate_bp: i64,
+    pub maximum_annual_rate_bp: i64,
+    pub rate_reset_rule: LoanRateResetRule,
+    pub day_count_rule: LoanDayCountRule,
+    pub repayment_method: LoanRepaymentMethod,
+    pub term_months: u16,
+    pub payment_calendar: LoanPaymentCalendar,
+    pub grace_months: u16,
+    pub minimum_principal_krw: i64,
+    pub maximum_principal_krw: i64,
+    pub prepayment_fee_ppm: u32,
+    pub prepayment_effect: LoanPrepaymentEffect,
+    pub starting_eligible: bool,
+    pub quote_eligible: bool,
+    pub execution_eligible: bool,
+    pub prepayment_allowed: bool,
+    pub dsr_included: bool,
+    pub provenance: LoanProductProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanProductCatalogState {
+    pub credit_model_version_id: Option<ResourceId>,
+    pub products: Vec<LoanProductState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanSummaryState {
+    pub id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub product_kind: LoanProductKind,
+    pub display_name: String,
+    pub rate_status: LoanRateStatus,
+    pub current_annual_rate_bp: Option<i64>,
+    pub status: LoanContractStatus,
+    pub remaining_principal_krw: i64,
+    pub overdue_krw: i64,
+    pub read_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoanDetailState {
+    pub id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub product_kind: LoanProductKind,
+    pub display_name: String,
+    pub rate_status: LoanRateStatus,
+    pub current_annual_rate_bp: Option<i64>,
+    pub status: LoanContractStatus,
+    pub read_only: bool,
+    pub original_principal_krw: i64,
+    pub remaining_principal_krw: i64,
+    pub accrued_interest_krw: i64,
+    pub accrued_fee_krw: i64,
+    pub overdue_krw: i64,
+    pub repayment_method: LoanRepaymentMethod,
+    pub term_months: Option<u16>,
+    pub total_installments: Option<u16>,
+    pub activated_game_day: u32,
+    pub maturity_game_day: Option<u32>,
+    pub final_installment_due_game_day: Option<u32>,
+    pub next_installment_no: Option<u16>,
+    pub oldest_unpaid_due_game_day: Option<u32>,
+    pub prepayment_allowed: bool,
+    pub prepayment_fee_ppm: Option<u32>,
+    pub prepayment_effect: Option<LoanPrepaymentEffect>,
+    pub dsr_included: bool,
+    pub lease_contract_id: Option<ResourceId>,
+    pub property_holding_id: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoanInstallmentStatusState {
+    Pending,
+    Due,
+    PartiallyPaid,
+    Paid,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoanInstallmentState {
+    pub id: ResourceId,
+    pub installment_no: u16,
+    pub due_game_day: u32,
+    pub interest_period_start_game_day: u32,
+    pub elapsed_days: u16,
+    pub annual_rate_bp: i64,
+    pub opening_principal_krw: i64,
+    pub scheduled_fee_krw: i64,
+    pub scheduled_interest_krw: i64,
+    pub scheduled_principal_krw: i64,
+    pub paid_fee_krw: i64,
+    pub paid_interest_krw: i64,
+    pub paid_principal_krw: i64,
+    pub remaining_due_krw: i64,
+    pub status: LoanInstallmentStatusState,
+    pub schedule_revision: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoanPaymentKindState {
+    ScheduledInstallment,
+    ManualPrepayment,
+    LeaseMovePayoff,
+    PropertySalePayoff,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LoanPaymentAllocationKindState {
+    OverdueFee,
+    OverdueInterest,
+    OverduePrincipal,
+    CurrentFee,
+    CurrentInterest,
+    CurrentPrincipal,
+    PrepaymentFee,
+    PrepaymentPrincipal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoanPaymentAllocationState {
+    pub kind: LoanPaymentAllocationKindState,
+    pub amount_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoanPaymentState {
+    pub id: ResourceId,
+    pub payment_no: u32,
+    pub kind: LoanPaymentKindState,
+    pub game_day: u32,
+    pub amount_krw: i64,
+    pub allocations: Vec<LoanPaymentAllocationState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoanInstallmentPageCursor {
+    pub loan_id: ResourceId,
+    pub installment_before: Option<u16>,
+    pub payment_before: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoanInstallmentPageQuery {
+    pub before: Option<LoanInstallmentPageCursor>,
+    pub limit: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoanInstallmentPageState {
+    pub loan_id: ResourceId,
+    pub installments: Vec<LoanInstallmentState>,
+    pub payments: Vec<LoanPaymentState>,
+    pub has_more_installments: bool,
+    pub has_more_payments: bool,
+    pub next_before: Option<LoanInstallmentPageCursor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NextLoanInstallmentState {
+    pub loan_id: ResourceId,
+    pub installment_no: u16,
+    pub due_game_day: u32,
+    pub fee_krw: i64,
+    pub interest_krw: i64,
+    pub principal_krw: i64,
+    pub remaining_due_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreditOverviewState {
+    pub credit_band: Option<CreditBand>,
+    pub credit_reasons: Vec<CreditReasonState>,
+    pub active_loans: Vec<LoanSummaryState>,
+    pub next_loan_installment: Option<NextLoanInstallmentState>,
+    pub total_loan_balance_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LoanQuoteDecisionState {
+    Eligible,
+    DebtServiceLimit,
+    IncomeUnavailable,
+    CreditRestricted,
+    ValuationUnavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LoanQuoteReasonState {
+    ActiveDefault,
+    ActiveDelinquency,
+    ActiveRestructuring,
+    CreditBandRestricted,
+    ActiveLoanLimit,
+    IncomeUnavailable,
+    DebtServiceLimit,
+    Eligible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VerifiedIncomeSourceState {
+    ActiveEmploymentContract,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanQuoteDsrState {
+    pub numerator_krw: i64,
+    pub denominator_krw: i64,
+    pub ratio_ppm: i64,
+    pub limit_ppm: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanQuoteFirstInstallmentState {
+    pub due_game_day: u32,
+    pub fee_krw: i64,
+    pub principal_krw: i64,
+    pub interest_krw: i64,
+    pub total_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanQuotedTermsState {
+    pub annual_rate_bp: i64,
+    pub repayment_method: LoanRepaymentMethod,
+    pub term_months: u16,
+    pub first_installment: LoanQuoteFirstInstallmentState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeBudgetState {
+    pub rate_status: LifeRateStatus,
+    pub household: LifeHouseholdState,
+    pub residence: LifeResidenceState,
+    pub allowed_bands: Vec<LifeBudgetBandState>,
+    pub selections: Vec<LifeBudgetSelectionState>,
+    pub current_month: Option<LivingCostMonthState>,
+    pub active_arrears: Vec<EssentialArrearState>,
+    pub has_more_active_arrears: bool,
+    pub total_essential_arrear_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WelfareEvaluationStatusState {
+    Eligible,
+    Ineligible,
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WelfareConditionOutcomeState {
+    Passed,
+    Failed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WelfareApplicationStatusState {
+    Applied,
+    Approved,
+    Rejected,
+    Active,
+    Exhausted,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WelfarePaymentStatusState {
+    Pending,
+    Paid,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WelfareConditionResultState {
+    pub code: String,
+    pub label: String,
+    pub outcome: WelfareConditionOutcomeState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WelfarePaymentState {
+    pub id: ResourceId,
+    pub payment_no: u16,
+    pub amount_krw: i64,
+    pub due_game_day: u32,
+    pub status: WelfarePaymentStatusState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WelfareApplicationSummaryState {
+    pub id: ResourceId,
+    pub status: WelfareApplicationStatusState,
+    pub application_game_day: u32,
+    pub approval_game_day: Option<u32>,
+    pub paid_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WelfareProgramState {
+    pub id: ResourceId,
+    pub program_key: String,
+    pub display_name: String,
+    pub benefit_krw: i64,
+    pub payment_delay_game_days: u16,
+    pub evaluation_status: WelfareEvaluationStatusState,
+    pub fact_fingerprint: String,
+    pub conditions: Vec<WelfareConditionResultState>,
+    pub application_available: bool,
+    pub latest_application: Option<WelfareApplicationSummaryState>,
+    pub next_payment: Option<WelfarePaymentState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WelfareProgramsState {
+    pub component_version_id: ResourceId,
+    pub game_day: u32,
+    pub programs: Vec<WelfareProgramState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActiveWelfareApplicationState {
+    pub application_id: ResourceId,
+    pub program_version_id: ResourceId,
+    pub program_key: String,
+    pub display_name: String,
+    pub status: WelfareApplicationStatusState,
+    pub application_game_day: u32,
+    pub approval_game_day: u32,
+    pub benefit_krw: i64,
+    pub paid_krw: i64,
+    pub next_payment: Option<WelfarePaymentState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyWelfareProgramCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub program_version_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WelfareApplicationReceipt {
+    pub command_id: CommandId,
+    pub application_id: ResourceId,
+    pub program_version_id: ResourceId,
+    pub status: WelfareApplicationStatusState,
+    pub application_game_day: u32,
+    pub approval_game_day: u32,
+    pub eligibility_at_application: Vec<WelfareConditionResultState>,
+    pub payment: WelfarePaymentState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LifeEventCapabilityState {
+    DeterministicChoices,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsuranceCapabilityState {
+    ContractsAndClaims,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsuranceEligibilityStatusState {
+    Eligible,
+    Ineligible,
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsuranceEligibilityReasonState {
+    AgeOutsideRange,
+    DependentRequired,
+    ResidenceRequired,
+    MilitaryServing,
+    AuthorityUnavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsuranceContractStatusState {
+    Active,
+    Lapsed,
+    Expired,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsuranceProductState {
+    pub id: ResourceId,
+    pub product_key: String,
+    pub display_name: String,
+    pub eligibility_status: InsuranceEligibilityStatusState,
+    pub reasons: Vec<InsuranceEligibilityReasonState>,
+    pub covered_event_key: String,
+    pub covered_event_display_name: String,
+    pub premium_krw: i64,
+    pub premium_interval_game_days: u16,
+    pub term_game_days: u16,
+    pub waiting_period_game_days: u16,
+    pub deductible_krw: i64,
+    pub occurrence_limit_krw: i64,
+    pub term_limit_krw: i64,
+    pub claim_window_game_days: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsuranceContractState {
+    pub id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub product_key: String,
+    pub display_name: String,
+    pub status: InsuranceContractStatusState,
+    pub coverage_start_game_day: u32,
+    pub waiting_ends_game_day: u32,
+    pub coverage_end_exclusive: u32,
+    pub next_premium_due_game_day: Option<u32>,
+    pub premium_krw: i64,
+    pub paid_benefit_krw: i64,
+    pub reserved_benefit_krw: i64,
+    pub remaining_benefit_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsuranceClaimAllocationState {
+    pub contract_id: ResourceId,
+    pub deductible_krw: i64,
+    pub payout_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "status",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PendingInsuranceClaimState {
+    Candidate {
+        id: ResourceId,
+        event_id: ResourceId,
+        event_key: String,
+        event_display_name: String,
+        offered_game_day: u32,
+    },
+    Ready {
+        id: ResourceId,
+        event_id: ResourceId,
+        event_key: String,
+        event_display_name: String,
+        offered_game_day: u32,
+        gross_cost_krw: i64,
+        payout_krw: i64,
+        filing_deadline_game_day: u32,
+        contract_allocations: Vec<InsuranceClaimAllocationState>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "status",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum InsuranceClaimHistoryState {
+    NotApplicable {
+        id: ResourceId,
+        event_id: ResourceId,
+        event_key: String,
+        event_display_name: String,
+        offered_game_day: u32,
+        resolved_game_day: u32,
+    },
+    NotCovered {
+        id: ResourceId,
+        event_id: ResourceId,
+        event_key: String,
+        event_display_name: String,
+        offered_game_day: u32,
+        resolved_game_day: u32,
+        gross_cost_krw: i64,
+    },
+    Paid {
+        id: ResourceId,
+        event_id: ResourceId,
+        event_key: String,
+        event_display_name: String,
+        offered_game_day: u32,
+        resolved_game_day: u32,
+        gross_cost_krw: i64,
+        payout_krw: i64,
+        filing_deadline_game_day: u32,
+        paid_game_day: u32,
+        contract_allocations: Vec<InsuranceClaimAllocationState>,
+    },
+    Expired {
+        id: ResourceId,
+        event_id: ResourceId,
+        event_key: String,
+        event_display_name: String,
+        offered_game_day: u32,
+        resolved_game_day: u32,
+        gross_cost_krw: i64,
+        payout_krw: i64,
+        filing_deadline_game_day: u32,
+        contract_allocations: Vec<InsuranceClaimAllocationState>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsuranceQueryState {
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsuranceState {
+    pub capability: InsuranceCapabilityState,
+    pub products: Vec<InsuranceProductState>,
+    pub contracts: Vec<InsuranceContractState>,
+    pub pending_claims: Vec<PendingInsuranceClaimState>,
+    pub history: Vec<InsuranceClaimHistoryState>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InsuranceReadResult {
+    Found(InsuranceState),
+    Rejected(LifeFailureCode),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsuranceSnapshotState {
+    pub capability: InsuranceCapabilityState,
+    pub active_contracts: Vec<InsuranceContractState>,
+    pub pending_claims: Vec<PendingInsuranceClaimState>,
+}
+
+impl InsuranceSnapshotState {
+    pub fn unavailable() -> Self {
+        Self {
+            capability: InsuranceCapabilityState::Unavailable,
+            active_contracts: Vec::new(),
+            pending_claims: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrollInsuranceContractCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub product_version_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelInsuranceContractCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub contract_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileInsuranceClaimCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub claim_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsuranceEnrollmentReceipt {
+    pub command_id: CommandId,
+    pub contract_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub status: InsuranceContractStatusState,
+    pub coverage_start_game_day: u32,
+    pub waiting_ends_game_day: u32,
+    pub coverage_end_exclusive: u32,
+    pub next_premium_due_game_day: u32,
+    pub premium_krw: i64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsuranceCancellationReceipt {
+    pub command_id: CommandId,
+    pub contract_id: ResourceId,
+    pub status: InsuranceContractStatusState,
+    pub coverage_end_exclusive: u32,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsuranceClaimReceipt {
+    pub command_id: CommandId,
+    pub claim_id: ResourceId,
+    pub event_id: ResourceId,
+    pub payout_krw: i64,
+    pub paid_game_day: u32,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LifeEventDecisionKindState {
+    Accepted,
+    Declined,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LifeEventResolutionKindState {
+    Accepted,
+    Declined,
+    Expired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum LifeEventEffectSummaryState {
+    NoEffect,
+    WalletExpense { amount_krw: i64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeEventChoiceState {
+    pub id: ResourceId,
+    pub display_name: String,
+    pub decision_kind: LifeEventDecisionKindState,
+    pub effect_summary: LifeEventEffectSummaryState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PendingLifeEventState {
+    pub id: ResourceId,
+    pub event_key: String,
+    pub display_name: String,
+    pub offered_game_day: u32,
+    pub expires_game_day: u32,
+    pub default_choice_id: ResourceId,
+    pub choices: Vec<LifeEventChoiceState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifeEventHistoryItemState {
+    pub id: ResourceId,
+    pub event_key: String,
+    pub display_name: String,
+    pub offered_game_day: u32,
+    pub resolved_game_day: u32,
+    pub resolution_kind: LifeEventResolutionKindState,
+    pub choice: LifeEventChoiceState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifeEventsQueryState {
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifeEventsState {
+    pub capability: LifeEventCapabilityState,
+    pub insurance_capability: InsuranceCapabilityState,
+    pub pending_events: Vec<PendingLifeEventState>,
+    pub history: Vec<LifeEventHistoryItemState>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LifeEventsReadResult {
+    Found(LifeEventsState),
+    Rejected(LifeFailureCode),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveLifeEventCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub event_id: ResourceId,
+    pub choice_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeEventChoiceReceipt {
+    pub command_id: CommandId,
+    pub event_id: ResourceId,
+    pub choice_id: ResourceId,
+    pub resolution_kind: LifeEventDecisionKindState,
+    pub resolved_game_day: u32,
+    pub wallet_delta_krw: i64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifeSnapshotState {
+    pub rate_status: LifeRateStatus,
+    pub household: Option<LifeHouseholdState>,
+    pub residence: Option<LifeResidenceState>,
+    pub current_month: Option<LivingCostMonthState>,
+    pub active_arrears: Vec<EssentialArrearState>,
+    pub has_more_active_arrears: bool,
+    pub total_essential_arrear_krw: i64,
+    pub credit_band: Option<CreditBand>,
+    pub credit_reasons: Vec<CreditReasonState>,
+    pub active_loans: Vec<LoanSummaryState>,
+    pub next_loan_installment: Option<NextLoanInstallmentState>,
+    pub total_loan_balance_krw: i64,
+    pub tenant_lease_deposit_krw: i64,
+    pub active_lease: Option<ActiveHousingLeaseState>,
+    pub active_lease_arrears: Vec<LeaseArrearState>,
+    pub has_more_active_lease_arrears: bool,
+    pub total_lease_arrear_krw: i64,
+    pub active_property_holdings: Vec<PropertyHoldingState>,
+    pub has_more_active_property_holdings: bool,
+    pub total_property_book_value_krw: i64,
+    pub active_welfare_applications: Vec<ActiveWelfareApplicationState>,
+    pub insurance_capability: InsuranceCapabilityState,
+    pub active_insurance_contracts: Vec<InsuranceContractState>,
+    pub pending_insurance_claims: Vec<PendingInsuranceClaimState>,
+    pub pending_events: Vec<PendingLifeEventState>,
+}
+
+impl LifeSnapshotState {
+    pub fn empty() -> Self {
+        Self {
+            rate_status: LifeRateStatus::RateUnavailable,
+            household: None,
+            residence: None,
+            current_month: None,
+            active_arrears: Vec::new(),
+            has_more_active_arrears: false,
+            total_essential_arrear_krw: 0,
+            credit_band: None,
+            credit_reasons: vec![CreditReasonState::ModelUnavailable],
+            active_loans: Vec::new(),
+            next_loan_installment: None,
+            total_loan_balance_krw: 0,
+            tenant_lease_deposit_krw: 0,
+            active_lease: None,
+            active_lease_arrears: Vec::new(),
+            has_more_active_lease_arrears: false,
+            total_lease_arrear_krw: 0,
+            active_property_holdings: Vec::new(),
+            has_more_active_property_holdings: false,
+            total_property_book_value_krw: 0,
+            active_welfare_applications: Vec::new(),
+            insurance_capability: InsuranceCapabilityState::Unavailable,
+            active_insurance_contracts: Vec::new(),
+            pending_insurance_claims: Vec::new(),
+            pending_events: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateLifeBudgetCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub selections: Vec<LifeBudgetSelectionState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayEssentialArrearCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub arrear_id: ResourceId,
+    pub amount_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayLeaseArrearCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub arrear_id: ResourceId,
+    pub amount_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateLoanQuoteCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub product_version_id: ResourceId,
+    pub principal_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateLeaseDepositLoanQuoteCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub listing_id: ResourceId,
+    pub offer_kind: HousingLeaseOfferKind,
+    pub product_version_id: ResourceId,
+    pub principal_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateMortgageQuoteCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub listing_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub principal_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecuteLoanCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub quote_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrepayLoanCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub loan_id: ResourceId,
+    pub principal_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateLifeBudgetReceipt {
+    pub command_id: CommandId,
+    pub applied_game_day: u32,
+    pub selections: Vec<LifeBudgetSelectionState>,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EssentialArrearPaymentReceipt {
+    pub command_id: CommandId,
+    pub arrear_id: ResourceId,
+    pub paid_krw: i64,
+    pub remaining_krw: i64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeaseArrearPaymentReceipt {
+    pub command_id: CommandId,
+    pub arrear_id: ResourceId,
+    pub payment_id: ResourceId,
+    pub paid_krw: i64,
+    pub remaining_krw: i64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanQuoteReceipt {
+    pub command_id: CommandId,
+    pub quote_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub requested_principal_krw: i64,
+    pub created_game_day: u32,
+    pub expires_game_day: u32,
+    pub decision_code: LoanQuoteDecisionState,
+    pub decision_reasons: Vec<LoanQuoteReasonState>,
+    pub verified_annual_income_krw: Option<i64>,
+    pub verified_income_source: Option<VerifiedIncomeSourceState>,
+    pub existing_loan_balance_krw: i64,
+    pub post_execution_balance_krw: i64,
+    pub dsr_applied: bool,
+    pub dsr: Option<LoanQuoteDsrState>,
+    pub stress_rate_bp: i64,
+    pub quoted_terms: LoanQuotedTermsState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LeaseDepositLoanQuoteDecisionState {
+    Eligible,
+    CreditRestricted,
+    CollateralLimit,
+    IncomeUnavailable,
+    AffordabilityLimit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LeaseDepositLoanQuoteReasonState {
+    ActiveDefault,
+    ActiveDelinquency,
+    ActiveRestructuring,
+    CreditBandRestricted,
+    ActiveLoanLimit,
+    CollateralLimit,
+    IncomeUnavailable,
+    AffordabilityLimit,
+    Eligible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeaseDepositLoanAffordabilityState {
+    pub numerator_krw: i64,
+    pub denominator_krw: i64,
+    pub ratio_ppm: i64,
+    pub limit_ppm: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeaseDepositLoanQuoteReceipt {
+    pub command_id: CommandId,
+    pub quote_id: ResourceId,
+    pub listing_id: ResourceId,
+    pub offer_kind: HousingLeaseOfferKind,
+    pub product_version_id: ResourceId,
+    pub requested_principal_krw: i64,
+    pub deposit_krw: i64,
+    pub funding_limit_ppm: i64,
+    pub maximum_funding_krw: i64,
+    pub created_game_day: u32,
+    pub expires_game_day: u32,
+    pub decision_code: LeaseDepositLoanQuoteDecisionState,
+    pub decision_reasons: Vec<LeaseDepositLoanQuoteReasonState>,
+    pub verified_annual_income_krw: Option<i64>,
+    pub verified_income_source: Option<VerifiedIncomeSourceState>,
+    pub existing_loan_balance_krw: i64,
+    pub post_execution_balance_krw: i64,
+    pub regulatory_dsr_applied: bool,
+    pub affordability: Option<LeaseDepositLoanAffordabilityState>,
+    pub quoted_terms: LoanQuotedTermsState,
+    pub replaced_loan_id: Option<ResourceId>,
+    pub replaced_loan_principal_krw: i64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MortgageQuoteDecisionState {
+    Eligible,
+    CreditRestricted,
+    PurchaseRestricted,
+    CollateralLimit,
+    IncomeUnavailable,
+    DebtServiceLimit,
+    InsufficientOwnFunds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MortgageQuoteReasonState {
+    ActiveDefault,
+    ActiveDelinquency,
+    ActiveRestructuring,
+    CreditBandRestricted,
+    ActiveLoanLimit,
+    ActiveHolding,
+    ResidenceChangedToday,
+    LeaseExitRestricted,
+    CollateralLimit,
+    IncomeUnavailable,
+    DebtServiceLimit,
+    InsufficientOwnFunds,
+    Eligible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MortgageLtvRegionClassState {
+    RegulatedCapitalProxy,
+    NonRegulatedProxy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MortgageStressTreatmentState {
+    FullTermFixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanQuoteLtvState {
+    pub numerator_krw: i64,
+    pub denominator_krw: i64,
+    pub ratio_ppm: i64,
+    pub limit_ppm: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MortgageQuoteReceipt {
+    pub command_id: CommandId,
+    pub quote_id: ResourceId,
+    pub listing_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub requested_principal_krw: i64,
+    pub purchase_price_krw: i64,
+    pub recognized_collateral_value_krw: i64,
+    pub ltv_region_class: MortgageLtvRegionClassState,
+    pub ltv_limit_ppm: i64,
+    pub maximum_mortgage_krw: i64,
+    pub ltv: LoanQuoteLtvState,
+    pub created_game_day: u32,
+    pub expires_game_day: u32,
+    pub decision_code: MortgageQuoteDecisionState,
+    pub decision_reasons: Vec<MortgageQuoteReasonState>,
+    pub verified_annual_income_krw: Option<i64>,
+    pub verified_income_source: Option<VerifiedIncomeSourceState>,
+    pub existing_loan_balance_krw: i64,
+    pub post_execution_balance_krw: i64,
+    pub dsr_applied: bool,
+    pub dsr: Option<LoanQuoteDsrState>,
+    pub stress_rate_bp: i64,
+    pub stress_treatment: MortgageStressTreatmentState,
+    pub acquisition_incidental_cost_krw: i64,
+    pub moving_cost_krw: i64,
+    pub returned_deposit_krw: i64,
+    pub replaced_loan_id: Option<ResourceId>,
+    pub replaced_loan_principal_krw: i64,
+    pub available_buyer_cash_krw: i64,
+    pub required_buyer_cash_krw: i64,
+    pub quoted_terms: LoanQuotedTermsState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanExecutionReceipt {
+    pub command_id: CommandId,
+    pub loan_id: ResourceId,
+    pub quote_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub principal_krw: i64,
+    pub activated_game_day: u32,
+    pub maturity_game_day: u32,
+    pub annual_rate_bp: i64,
+    pub repayment_method: LoanRepaymentMethod,
+    pub term_months: u16,
+    pub first_installment: LoanQuoteFirstInstallmentState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LoanPrepaymentStatusState {
+    Active,
+    PaidOff,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanPrepaymentNextInstallmentState {
+    pub installment_no: u16,
+    pub due_game_day: u32,
+    pub fee_krw: i64,
+    pub principal_krw: i64,
+    pub interest_krw: i64,
+    pub total_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoanPrepaymentReceipt {
+    pub command_id: CommandId,
+    pub loan_id: ResourceId,
+    pub payment_id: ResourceId,
+    pub principal_krw: i64,
+    pub fee_krw: i64,
+    pub total_debited_krw: i64,
+    pub applied_game_day: u32,
+    pub remaining_principal_krw: i64,
+    pub status: LoanPrepaymentStatusState,
+    pub prepayment_effect: LoanPrepaymentEffect,
+    pub remaining_installments: u16,
+    pub next_installment: Option<LoanPrepaymentNextInstallmentState>,
+    pub final_installment_due_game_day: Option<u32>,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LifeFailureCode {
+    InvalidCommand,
+    CharacterRequired,
+    HousingResourceNotFound,
+    WelfareResourceNotFound,
+    EventNotFound,
+    EventExpired,
+    InsuranceResourceNotFound,
+    ClaimNotCovered,
+    InsufficientWalletCash,
+    RateUnavailable,
+    CreditRestricted,
+    IncomeUnavailable,
+    DebtServiceLimit,
+    CollateralLimit,
+    AffordabilityLimit,
+    ContractConflict,
+    IdempotencyConflict,
+    SettlementConflict,
+    PolicyUnsupported,
+    Ineligible,
+    ValuationUnavailable,
+    Busy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HousingListingsQueryState {
+    pub region: Option<LifeRegionKey>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HousingRateStatusState {
+    Active,
+    RateUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HousingRegionState {
+    pub region_key: LifeRegionKey,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HousingListingState {
+    pub id: ResourceId,
+    pub region_key: LifeRegionKey,
+    pub property_type: PropertyType,
+    pub exclusive_area_square_meters: u16,
+    pub available_from_game_day: u32,
+    pub available_to_game_day: u32,
+    pub offers: Vec<PropertyListingOffer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HousingListingsState {
+    pub rate_status: HousingRateStatusState,
+    pub model_version_id: ResourceId,
+    pub game_day: u32,
+    pub year_month: YearMonth,
+    pub residence_region_key: LifeRegionKey,
+    pub selected_region_key: LifeRegionKey,
+    pub regions: Vec<HousingRegionState>,
+    pub price_index_ppm: Option<i64>,
+    pub rent_index_ppm: Option<i64>,
+    pub listings: Vec<HousingListingState>,
+}
+
+pub type HousingLeaseCapabilityState = HousingLeaseCapability;
+pub type HousingLeaseRenewalRuleState = HousingLeaseRenewalRule;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MonthlyRentTermsState {
+    pub rent_charge_rule: HousingRentChargeRule,
+    pub arrear_repayment_rule: HousingLeaseArrearRepaymentRule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MonthlyRentTerminationReviewTermsState {
+    pub rule: HousingLeaseTerminationReviewRule,
+    pub after_game_days: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeaseLifecycleTermsState {
+    pub term_months: u16,
+    pub renewal_notice_lead_days: u16,
+    pub monthly_rent_termination_review: Option<MonthlyRentTerminationReviewTermsState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActiveLeaseTermState {
+    pub term_no: u32,
+    pub effective_from_game_day: u32,
+    pub effective_to_game_day: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeaseRenewalNoticeState {
+    pub term_no: u32,
+    pub published_game_day: u32,
+    pub renews_on_game_day: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum LeaseTerminationReviewStatusState {
+    UnderReview,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeaseTerminationReviewState {
+    pub status: LeaseTerminationReviewStatusState,
+    pub opened_game_day: u32,
+    pub trigger_arrear_id: ResourceId,
+    pub active_lease_arrear_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeaseArrearState {
+    pub id: ResourceId,
+    pub lease_id: ResourceId,
+    pub rent_charge_id: ResourceId,
+    pub due_year_month: YearMonth,
+    pub original_krw: i64,
+    pub paid_krw: i64,
+    pub remaining_krw: i64,
+    pub created_game_day: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HousingMovingCostState {
+    pub region_key: LifeRegionKey,
+    pub moving_cost_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActiveHousingLeaseState {
+    pub id: ResourceId,
+    pub listing_id: ResourceId,
+    pub role: HousingLeaseRole,
+    pub offer_kind: HousingLeaseOfferKind,
+    pub region_key: LifeRegionKey,
+    pub property_type: PropertyType,
+    pub exclusive_area_square_meters: u16,
+    pub deposit_krw: i64,
+    pub monthly_rent_krw: Option<i64>,
+    pub next_rent_due_game_day: Option<u32>,
+    pub effective_from_game_day: u32,
+    pub effective_to_game_day: Option<u32>,
+    pub renewal_rule: HousingLeaseRenewalRuleState,
+    pub current_term: Option<ActiveLeaseTermState>,
+    pub renewal_notice: Option<LeaseRenewalNoticeState>,
+    pub termination_review: Option<LeaseTerminationReviewState>,
+    pub deposit_loan_id: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HousingLeaseCurrentState {
+    pub lease_capability: HousingLeaseCapabilityState,
+    pub renewal_rule: Option<HousingLeaseRenewalRuleState>,
+    pub lease_lifecycle_terms: Option<LeaseLifecycleTermsState>,
+    pub moving_costs: Vec<HousingMovingCostState>,
+    pub tenant_lease_deposit_krw: i64,
+    pub active_lease: Option<ActiveHousingLeaseState>,
+    pub monthly_rent_terms: Option<MonthlyRentTermsState>,
+    pub active_arrears: Vec<LeaseArrearState>,
+    pub has_more_active_arrears: bool,
+    pub total_lease_arrear_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartHousingLeaseCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub listing_id: ResourceId,
+    pub offer_kind: HousingLeaseOfferKind,
+    pub loan_quote_id: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DepositLoanExecutionReceipt {
+    pub loan_id: ResourceId,
+    pub quote_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub principal_krw: i64,
+    pub annual_rate_bp: i64,
+    pub maturity_game_day: u32,
+    pub first_installment: LoanQuoteFirstInstallmentState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RepaidDepositLoanReceipt {
+    pub loan_id: ResourceId,
+    pub payment_id: ResourceId,
+    pub principal_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HousingPurchaseCapabilityState {
+    OwnerOccupiedSingleHome,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertyHoldingStatusState {
+    Active,
+    Disposed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertyHoldingPurposeState {
+    OwnerOccupied,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertyHoldingState {
+    pub id: ResourceId,
+    pub listing_id: ResourceId,
+    pub status: PropertyHoldingStatusState,
+    pub purpose: PropertyHoldingPurposeState,
+    pub region_key: LifeRegionKey,
+    pub property_type: PropertyType,
+    pub exclusive_area_square_meters: u16,
+    pub acquired_game_day: u32,
+    pub acquisition_price_krw: i64,
+    pub acquisition_incidental_cost_krw: i64,
+    pub book_value_krw: i64,
+    pub mortgage_loan_id: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HousingPropertyHoldingsState {
+    pub purchase_capability: HousingPurchaseCapabilityState,
+    pub maximum_active_holdings: u8,
+    pub holdings: Vec<PropertyHoldingState>,
+    pub total_property_book_value_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurchasePropertyCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub listing_id: ResourceId,
+    pub mortgage_quote_id: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MortgageExecutionReceipt {
+    pub loan_id: ResourceId,
+    pub quote_id: ResourceId,
+    pub product_version_id: ResourceId,
+    pub property_holding_id: ResourceId,
+    pub principal_krw: i64,
+    pub activated_game_day: u32,
+    pub annual_rate_bp: i64,
+    pub maturity_game_day: u32,
+    pub repayment_method: LoanRepaymentMethod,
+    pub term_months: u16,
+    pub first_installment: LoanQuoteFirstInstallmentState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertyPurchaseReceipt {
+    pub command_id: CommandId,
+    pub holding: PropertyHoldingState,
+    pub residence_id: ResourceId,
+    pub listing_id: ResourceId,
+    pub purchase_price_krw: i64,
+    pub acquisition_incidental_cost_krw: i64,
+    pub moving_cost_krw: i64,
+    pub returned_deposit_krw: i64,
+    pub wallet_delta_krw: i64,
+    pub effective_from_game_day: u32,
+    pub ended_lease_id: Option<ResourceId>,
+    pub repaid_deposit_loan: Option<RepaidDepositLoanReceipt>,
+    pub mortgage_execution: Option<MortgageExecutionReceipt>,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertySaleOrderStatusState {
+    Active,
+    Filled,
+    Cancelled,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertySaleOrderRevisionKindState {
+    Listing,
+    Cancellation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertySaleOrderRejectionReasonState {
+    MortgageNotPayable,
+    InsufficientProceeds,
+    PolicyUnsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatePropertySaleOrderCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub holding_id: ResourceId,
+    pub asking_price_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepricePropertySaleOrderCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub order_id: ResourceId,
+    pub asking_price_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelPropertySaleOrderCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub order_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertySaleOrderListingReceipt {
+    pub command_id: CommandId,
+    pub order_id: ResourceId,
+    pub holding_id: ResourceId,
+    pub revision_no: u32,
+    pub asking_price_krw: i64,
+    pub reference_value_krw: i64,
+    pub asking_to_reference_ppm: i64,
+    pub candidate_game_day: u32,
+    pub status: PropertySaleOrderStatusState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertySaleOrderCancellationReceipt {
+    pub command_id: CommandId,
+    pub order_id: ResourceId,
+    pub holding_id: ResourceId,
+    pub revision_no: u32,
+    pub cancelled_game_day: u32,
+    pub status: PropertySaleOrderStatusState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertySaleExecutionState {
+    pub filled_game_day: u32,
+    pub gross_sale_price_krw: i64,
+    pub transaction_cost_krw: i64,
+    pub mortgage_principal_krw: i64,
+    pub mortgage_fee_krw: i64,
+    pub capital_gains_tax_krw: i64,
+    pub wallet_proceeds_krw: i64,
+    pub realized_gain_loss_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertySaleOrderSummaryState {
+    pub order_id: ResourceId,
+    pub holding_id: ResourceId,
+    pub revision_no: u32,
+    pub revision_kind: PropertySaleOrderRevisionKindState,
+    pub asking_price_krw: Option<i64>,
+    pub reference_value_krw: Option<i64>,
+    pub asking_to_reference_ppm: Option<i64>,
+    pub candidate_game_day: Option<u32>,
+    pub status: PropertySaleOrderStatusState,
+    pub cancelled_game_day: Option<u32>,
+    pub rejection_reason: Option<PropertySaleOrderRejectionReasonState>,
+    pub execution: Option<PropertySaleExecutionState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PropertySaleOrderPageQuery {
+    pub before: Option<ResourceId>,
+    pub limit: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertySaleOrderPageState {
+    pub items: Vec<PropertySaleOrderSummaryState>,
+    pub next_before: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertyTaxEventKindState {
+    Acquisition,
+    AnnualHolding,
+    CapitalGains,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertyTaxEventStatusState {
+    Scheduled,
+    PartiallyPaid,
+    Paid,
+    NoPaymentRequired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertyTaxPaymentStatusState {
+    Pending,
+    Applied,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertyTaxComponentState {
+    pub component_key: String,
+    pub component_order: u8,
+    pub tax_base_krw: i64,
+    pub deduction_krw: i64,
+    pub taxable_amount_krw: i64,
+    pub rate_ppm: i64,
+    pub progressive_deduction_krw: i64,
+    pub amount_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertyTaxPaymentState {
+    pub payment_no: u8,
+    pub due_game_day: u32,
+    pub paid_game_day: Option<u32>,
+    pub status: PropertyTaxPaymentStatusState,
+    pub amount_krw: i64,
+    pub wallet_paid_krw: i64,
+    pub tax_obligation_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertyTaxEventState {
+    pub id: ResourceId,
+    pub holding_id: ResourceId,
+    pub policy_set_id: ResourceId,
+    pub policy_key: String,
+    pub rule_id: ResourceId,
+    pub rule_key: String,
+    pub legal_basis_date: String,
+    pub kind: PropertyTaxEventKindState,
+    pub status: PropertyTaxEventStatusState,
+    pub tax_year: Option<i32>,
+    pub assessed_game_day: u32,
+    pub taxable_game_day: u32,
+    pub paid_game_day: Option<u32>,
+    pub household_home_count: u8,
+    pub gross_amount_krw: i64,
+    pub valuation_game_day: Option<u32>,
+    pub valuation_price_index_ppm: Option<i64>,
+    pub official_value_krw: Option<i64>,
+    pub tax_base_krw: i64,
+    pub deduction_krw: i64,
+    pub taxable_amount_krw: i64,
+    pub total_tax_krw: i64,
+    pub paid_tax_krw: i64,
+    pub components: Vec<PropertyTaxComponentState>,
+    pub payments: Vec<PropertyTaxPaymentState>,
+    pub exclusion_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PropertyTaxEventPageQuery {
+    pub before: Option<ResourceId>,
+    pub limit: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertyTaxEventPageState {
+    pub holding_id: ResourceId,
+    pub items: Vec<PropertyTaxEventState>,
+    pub next_before: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HousingLeaseMoveReceipt {
+    pub command_id: CommandId,
+    pub lease_id: ResourceId,
+    pub residence_id: ResourceId,
+    pub listing_id: ResourceId,
+    pub offer_kind: HousingLeaseOfferKind,
+    pub region_key: LifeRegionKey,
+    pub property_type: PropertyType,
+    pub exclusive_area_square_meters: u16,
+    pub deposit_krw: i64,
+    pub monthly_rent_krw: Option<i64>,
+    pub returned_deposit_krw: i64,
+    pub moving_cost_krw: i64,
+    pub wallet_delta_krw: i64,
+    pub effective_from_game_day: u32,
+    pub ended_lease_id: Option<ResourceId>,
+    pub renewal_rule: HousingLeaseRenewalRuleState,
+    #[serde(default)]
+    pub deposit_loan_execution: Option<DepositLoanExecutionReceipt>,
+    #[serde(default)]
+    pub repaid_deposit_loan: Option<RepaidDepositLoanReceipt>,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LifeStoreResult<T> {
+    Applied { receipt: T, save: Box<SaveState> },
+    Rejected(LifeFailureCode),
 }
 
 /// The durable state of one save, mirroring what the database holds.
@@ -496,6 +2777,7 @@ pub struct SaveState {
     pub game_day: u32,
     pub cash_krw: i64,
     pub debt_krw: i64,
+    pub property_book_value_krw: i64,
     pub accounts: Vec<FinancialAccount>,
     pub positions: Vec<PositionState>,
     /// The first due items are enough for the bounded snapshot summary.
@@ -510,6 +2792,7 @@ pub struct SaveState {
     pub isa_accounts: Vec<IsaAccountState>,
     pub pension_accounts: Vec<PensionAccountState>,
     pub career: CareerSnapshotState,
+    pub life: LifeSnapshotState,
     /// `None` until a character has been created.
     pub character: Option<Character>,
 }
@@ -565,11 +2848,20 @@ impl From<&SaveState> for GameCommandCursor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartingLoanCommand {
+    pub product_version_id: ResourceId,
+    pub product_kind: LoanProductKind,
+    pub principal_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartGameCommand {
     pub command_id: CommandId,
     pub cursor: CommandCursor,
     /// Semantic validation happens only after the durable identity has been inspected.
     pub draft: CharacterDraft,
+    /// `None` preserves the v1 amount-only fingerprint and legacy catalog mapping.
+    pub starting_loans: Option<Vec<StartingLoanCommand>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -620,6 +2912,22 @@ pub struct CareerCatalogAssignment {
     pub assignment_revision: u64,
 }
 
+/// Immutable employment policy selected for a newly started run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmploymentPolicyAssignment {
+    pub policy_set_id: ResourceId,
+    pub assignment_revision: u64,
+}
+
+/// Immutable M4 catalog and model versions selected for a newly started run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunRuleBundleAssignment {
+    pub life_catalog_set_id: ResourceId,
+    pub credit_model_version_id: ResourceId,
+    pub real_estate_model_version_id: ResourceId,
+    pub assignment_revision: u64,
+}
+
 impl From<&SaveState> for SaveCursor {
     fn from(state: &SaveState) -> Self {
         Self {
@@ -639,6 +2947,8 @@ pub struct ActiveRunConfiguration {
     pub policy_set: PolicySetAssignment,
     pub product_bundle_id: Option<ResourceId>,
     pub career_catalog: CareerCatalogAssignment,
+    pub employment_policy: EmploymentPolicyAssignment,
+    pub rule_bundle: RunRuleBundleAssignment,
 }
 
 /// Result of one committed daily pipeline attempt.
@@ -1057,6 +3367,47 @@ pub trait CareerStore: Send + Sync + 'static {
         Err(anyhow::anyhow!("M3-B employment is not wired"))
     }
 
+    async fn payroll(
+        &self,
+        _user_id: u64,
+        _query: CareerPageQuery,
+    ) -> Result<CareerPayrollPageState> {
+        Err(anyhow::anyhow!("M3-C payroll is not wired"))
+    }
+
+    async fn employment_tax_year(
+        &self,
+        _user_id: u64,
+        _tax_year: u16,
+    ) -> Result<CareerEmploymentTaxYearState> {
+        Err(anyhow::anyhow!("M3-C employment tax years are not wired"))
+    }
+
+    async fn military_options(&self, _user_id: u64) -> Result<MilitaryOptionsState> {
+        Err(anyhow::anyhow!("M3-D military options are not wired"))
+    }
+
+    async fn military_service(&self, _user_id: u64) -> Result<MilitaryServiceState> {
+        Err(anyhow::anyhow!("M3-D military service is not wired"))
+    }
+
+    async fn military_savings_products(
+        &self,
+        _user_id: u64,
+    ) -> Result<MilitarySavingsProductsState> {
+        Err(anyhow::anyhow!(
+            "M3-D military savings products are not wired"
+        ))
+    }
+
+    async fn military_savings(
+        &self,
+        _user_id: u64,
+        _query: CareerPageQuery,
+    ) -> Result<MilitarySavingsPageState> {
+        Err(anyhow::anyhow!("M3-D military savings are not wired"))
+    }
+
     async fn focus(
         &self,
         user_id: u64,
@@ -1144,12 +3495,218 @@ pub trait CareerStore: Send + Sync + 'static {
     ) -> Result<CareerStoreResult<CareerOfferReceipt>> {
         Err(anyhow::anyhow!("M3-B recruitment offers are not wired"))
     }
+
+    async fn start_military_service(
+        &self,
+        _user_id: u64,
+        _command: &StartMilitaryServiceCommand,
+    ) -> Result<CareerStoreResult<MilitaryServiceCommandReceipt>> {
+        Err(anyhow::anyhow!("M3-D military service is not wired"))
+    }
+
+    async fn open_military_savings(
+        &self,
+        _user_id: u64,
+        _command: &OpenMilitarySavingsCommand,
+    ) -> Result<CareerStoreResult<MilitarySavingsCommandReceipt>> {
+        Err(anyhow::anyhow!("M3-D military savings are not wired"))
+    }
+
+    async fn close_military_savings(
+        &self,
+        _user_id: u64,
+        _command: &CloseMilitarySavingsCommand,
+    ) -> Result<CareerStoreResult<MilitarySavingsCommandReceipt>> {
+        Err(anyhow::anyhow!("M3-D military savings are not wired"))
+    }
+}
+
+/// M4 household costs, credit, loans, and cursor-protected commands.
+#[async_trait]
+pub trait LifeStore: Send + Sync + 'static {
+    async fn life_events(
+        &self,
+        user_id: u64,
+        query: LifeEventsQueryState,
+    ) -> Result<LifeEventsReadResult>;
+
+    async fn resolve_life_event(
+        &self,
+        user_id: u64,
+        command: &ResolveLifeEventCommand,
+    ) -> Result<LifeStoreResult<LifeEventChoiceReceipt>>;
+
+    async fn insurance(
+        &self,
+        user_id: u64,
+        query: InsuranceQueryState,
+    ) -> Result<InsuranceReadResult>;
+
+    async fn enroll_insurance_contract(
+        &self,
+        user_id: u64,
+        command: &EnrollInsuranceContractCommand,
+    ) -> Result<LifeStoreResult<InsuranceEnrollmentReceipt>>;
+
+    async fn cancel_insurance_contract(
+        &self,
+        user_id: u64,
+        command: &CancelInsuranceContractCommand,
+    ) -> Result<LifeStoreResult<InsuranceCancellationReceipt>>;
+
+    async fn file_insurance_claim(
+        &self,
+        user_id: u64,
+        command: &FileInsuranceClaimCommand,
+    ) -> Result<LifeStoreResult<InsuranceClaimReceipt>>;
+
+    async fn welfare_programs(&self, user_id: u64) -> Result<Option<WelfareProgramsState>>;
+
+    async fn apply_welfare_program(
+        &self,
+        user_id: u64,
+        command: &ApplyWelfareProgramCommand,
+    ) -> Result<LifeStoreResult<WelfareApplicationReceipt>>;
+
+    async fn housing_listings(
+        &self,
+        user_id: u64,
+        query: HousingListingsQueryState,
+    ) -> Result<Option<HousingListingsState>>;
+
+    async fn housing_lease_current(&self, user_id: u64)
+    -> Result<Option<HousingLeaseCurrentState>>;
+
+    async fn start_housing_lease(
+        &self,
+        user_id: u64,
+        command: &StartHousingLeaseCommand,
+    ) -> Result<LifeStoreResult<HousingLeaseMoveReceipt>>;
+
+    async fn housing_property_holdings(
+        &self,
+        user_id: u64,
+    ) -> Result<Option<HousingPropertyHoldingsState>>;
+
+    async fn quote_mortgage(
+        &self,
+        user_id: u64,
+        command: &CreateMortgageQuoteCommand,
+    ) -> Result<LifeStoreResult<MortgageQuoteReceipt>>;
+
+    async fn purchase_property(
+        &self,
+        user_id: u64,
+        command: &PurchasePropertyCommand,
+    ) -> Result<LifeStoreResult<PropertyPurchaseReceipt>>;
+
+    async fn create_property_sale_order(
+        &self,
+        user_id: u64,
+        command: &CreatePropertySaleOrderCommand,
+    ) -> Result<LifeStoreResult<PropertySaleOrderListingReceipt>>;
+
+    async fn reprice_property_sale_order(
+        &self,
+        user_id: u64,
+        command: &RepricePropertySaleOrderCommand,
+    ) -> Result<LifeStoreResult<PropertySaleOrderListingReceipt>>;
+
+    async fn cancel_property_sale_order(
+        &self,
+        user_id: u64,
+        command: &CancelPropertySaleOrderCommand,
+    ) -> Result<LifeStoreResult<PropertySaleOrderCancellationReceipt>>;
+
+    async fn property_sale_orders(
+        &self,
+        user_id: u64,
+        query: PropertySaleOrderPageQuery,
+    ) -> Result<Option<PropertySaleOrderPageState>>;
+
+    async fn property_tax_events(
+        &self,
+        user_id: u64,
+        holding_id: ResourceId,
+        query: PropertyTaxEventPageQuery,
+    ) -> Result<Option<PropertyTaxEventPageState>>;
+
+    async fn loan_products(&self, user_id: u64) -> Result<LoanProductCatalogState>;
+
+    async fn loan_detail(
+        &self,
+        user_id: u64,
+        loan_id: ResourceId,
+    ) -> Result<Option<LoanDetailState>>;
+
+    async fn loan_installments(
+        &self,
+        user_id: u64,
+        loan_id: ResourceId,
+        query: LoanInstallmentPageQuery,
+    ) -> Result<Option<LoanInstallmentPageState>>;
+
+    async fn credit(&self, user_id: u64) -> Result<CreditOverviewState>;
+
+    async fn quote_loan(
+        &self,
+        user_id: u64,
+        command: &CreateLoanQuoteCommand,
+    ) -> Result<LifeStoreResult<LoanQuoteReceipt>>;
+
+    async fn quote_lease_deposit_loan(
+        &self,
+        user_id: u64,
+        command: &CreateLeaseDepositLoanQuoteCommand,
+    ) -> Result<LifeStoreResult<LeaseDepositLoanQuoteReceipt>>;
+
+    async fn execute_loan(
+        &self,
+        user_id: u64,
+        command: &ExecuteLoanCommand,
+    ) -> Result<LifeStoreResult<LoanExecutionReceipt>>;
+
+    async fn prepay_loan(
+        &self,
+        user_id: u64,
+        command: &PrepayLoanCommand,
+    ) -> Result<LifeStoreResult<LoanPrepaymentReceipt>>;
+
+    async fn budget(&self, user_id: u64) -> Result<LifeBudgetState>;
+
+    async fn update_budget(
+        &self,
+        user_id: u64,
+        command: &UpdateLifeBudgetCommand,
+    ) -> Result<LifeStoreResult<UpdateLifeBudgetReceipt>>;
+
+    async fn pay_essential_arrear(
+        &self,
+        user_id: u64,
+        command: &PayEssentialArrearCommand,
+    ) -> Result<LifeStoreResult<EssentialArrearPaymentReceipt>>;
+
+    async fn pay_lease_arrear(
+        &self,
+        user_id: u64,
+        command: &PayLeaseArrearCommand,
+    ) -> Result<LifeStoreResult<LeaseArrearPaymentReceipt>>;
 }
 
 /// Prepares shared immutable recruitment postings before a player transaction (§6.1).
 #[async_trait]
 pub trait RecruitmentPostingStore: Send + Sync + 'static {
     async fn ensure_postings_for_user(&self, user_id: u64, target_game_day: u32) -> Result<()>;
+}
+
+/// Prepares the held property's shared immutable price row before a player-day transaction.
+#[async_trait]
+pub trait RealEstateDailyPreparationStore: Send + Sync + 'static {
+    async fn ensure_property_market_for_user(
+        &self,
+        user_id: u64,
+        target_game_day: u32,
+    ) -> Result<()>;
 }
 
 /// Shared immutable market paths and their generated daily cache.

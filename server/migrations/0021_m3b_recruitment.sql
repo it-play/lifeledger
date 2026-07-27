@@ -21,6 +21,10 @@ CREATE TABLE recruitment_ruleset (
         AND ruleset_key REGEXP '^[a-z0-9][a-z0-9._-]{0,63}$'
     ),
     CONSTRAINT ck_recruitment_ruleset_ranked CHECK (ranked_eligible IN (FALSE, TRUE)),
+    CONSTRAINT ck_recruitment_ruleset_ranked_key CHECK (
+        ranked_eligible = FALSE
+        OR ruleset_key NOT LIKE 'dev-unranked-%'
+    ),
     CONSTRAINT ck_recruitment_ruleset_limits CHECK (
         active_application_limit BETWEEN 1 AND 10
         AND daily_application_limit BETWEEN 1 AND 3
@@ -156,6 +160,10 @@ SET NEW.ruleset_key = IF(
         AND NEW.id = OLD.id
         AND BINARY NEW.ruleset_key = BINARY OLD.ruleset_key
         AND NEW.ranked_eligible = OLD.ranked_eligible
+        AND (
+            NEW.ranked_eligible = FALSE
+            OR NEW.ruleset_key NOT LIKE 'dev-unranked-%'
+        )
         AND NEW.active_application_limit = OLD.active_application_limit
         AND NEW.daily_application_limit = OLD.daily_application_limit
         AND NEW.open_invitation_limit = OLD.open_invitation_limit
@@ -173,6 +181,19 @@ SET NEW.ruleset_key = IF(
             WHERE component.recruitment_ruleset_id = OLD.id
             GROUP BY component.stage
             HAVING COUNT(*) <> 3 OR SUM(component.weight_bp) <> 10000
+        )
+        AND (
+            SELECT COUNT(*)
+            FROM recruitment_score_band AS band
+            WHERE band.recruitment_ruleset_id = OLD.id
+        ) = 3
+        AND NOT EXISTS (
+            SELECT 1
+            FROM recruitment_score_band AS band
+            WHERE band.recruitment_ruleset_id = OLD.id
+              AND BINARY band.score_band_key NOT IN (
+                  BINARY 'low', BINARY 'medium', BINARY 'high'
+              )
         )
         AND EXISTS (
             SELECT 1
@@ -521,9 +542,20 @@ SET NEW.career_catalog_bundle_id = IF(
               SELECT 1
               FROM job_template AS template
               WHERE template.career_catalog_bundle_id = bundle.id
-                AND ((template.maximum_annual_salary_krw
-                    - template.minimum_annual_salary_krw)
-                    DIV template.salary_step_krw) + 1 < 3
+                AND (
+                    template.minimum_annual_salary_krw > 9007199254740991
+                    OR template.maximum_annual_salary_krw > 9007199254740991
+                    OR template.salary_step_krw > 9007199254740991
+                    OR ((template.maximum_annual_salary_krw
+                        - template.minimum_annual_salary_krw)
+                        DIV template.salary_step_krw) + 1 < 3
+                )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM platform_catalog AS platform
+              WHERE platform.career_catalog_bundle_id = bundle.id
+                AND platform.first_pay_reward_krw > 9007199254740991
           )
     ),
     NEW.career_catalog_bundle_id,
@@ -1007,12 +1039,14 @@ CREATE TABLE job_application (
         (status NOT IN ('withdrawn', 'closed') AND terminal_from_status IS NULL)
         OR (
             status = 'withdrawn'
+            AND terminal_from_status IS NOT NULL
             AND terminal_from_status IN (
                 'submitted', 'interviewAwaitingConfirmation', 'interviewConfirmed'
             )
         )
         OR (
             status = 'closed'
+            AND terminal_from_status IS NOT NULL
             AND terminal_from_status IN (
                 'submitted', 'interviewAwaitingConfirmation',
                 'interviewConfirmed', 'offered'
@@ -1038,7 +1072,13 @@ CREATE TABLE job_application (
             AND possessed_project_score_bp IS NULL
         )
         OR (
-            possessed_education_score_bp BETWEEN 0 AND 10000
+            possessed_education_score_bp IS NOT NULL
+            AND possessed_certification_score_bp IS NOT NULL
+            AND possessed_language_score_bp IS NOT NULL
+            AND possessed_training_score_bp IS NOT NULL
+            AND possessed_experience_score_bp IS NOT NULL
+            AND possessed_project_score_bp IS NOT NULL
+            AND possessed_education_score_bp BETWEEN 0 AND 10000
             AND possessed_certification_score_bp BETWEEN 0 AND 10000
             AND possessed_language_score_bp BETWEEN 0 AND 10000
             AND possessed_training_score_bp BETWEEN 0 AND 10000
@@ -1048,7 +1088,8 @@ CREATE TABLE job_application (
     ),
     CONSTRAINT ck_job_application_document_result CHECK (
         (
-            document_visible_fit_bp IS NULL
+            source_kind = 'direct'
+            AND document_visible_fit_bp IS NULL
             AND document_platform_affinity_bp IS NULL
             AND document_score_bp IS NULL
             AND document_probability_ppm IS NULL
@@ -1056,7 +1097,24 @@ CREATE TABLE job_application (
             AND document_decided_game_day IS NULL
         )
         OR (
-            document_visible_fit_bp BETWEEN 0 AND 10000
+            source_kind = 'invitation'
+            AND document_visible_fit_bp IS NULL
+            AND document_platform_affinity_bp IS NULL
+            AND document_score_bp IS NULL
+            AND document_probability_ppm IS NULL
+            AND document_roll IS NULL
+            AND document_decided_game_day IS NOT NULL
+            AND document_decided_game_day = submitted_game_day
+        )
+        OR (
+            source_kind = 'direct'
+            AND document_visible_fit_bp IS NOT NULL
+            AND document_platform_affinity_bp IS NOT NULL
+            AND document_score_bp IS NOT NULL
+            AND document_probability_ppm IS NOT NULL
+            AND document_roll IS NOT NULL
+            AND document_decided_game_day IS NOT NULL
+            AND document_visible_fit_bp BETWEEN 0 AND 10000
             AND document_platform_affinity_bp BETWEEN 0 AND 10000
             AND document_score_bp BETWEEN 0 AND 10000
             AND document_probability_ppm BETWEEN 0 AND 1000000
@@ -1075,7 +1133,15 @@ CREATE TABLE job_application (
             AND interview_decided_game_day IS NULL
         )
         OR (
-            possessed_fit_bp BETWEEN 0 AND 10000
+            possessed_fit_bp IS NOT NULL
+            AND experience_project_fit_bp IS NOT NULL
+            AND profile_consistency_bp IS NOT NULL
+            AND interview_score_bp IS NOT NULL
+            AND interview_probability_ppm IS NOT NULL
+            AND interview_roll IS NOT NULL
+            AND interview_decided_game_day IS NOT NULL
+            AND interview_game_day IS NOT NULL
+            AND possessed_fit_bp BETWEEN 0 AND 10000
             AND experience_project_fit_bp BETWEEN 0 AND 10000
             AND profile_consistency_bp BETWEEN 0 AND 10000
             AND interview_score_bp BETWEEN 0 AND 10000
@@ -1105,6 +1171,8 @@ CREATE TABLE job_application (
         OR (
             status = 'interviewAwaitingConfirmation'
             AND document_decided_game_day IS NOT NULL
+            AND interview_game_day IS NOT NULL
+            AND confirmation_expires_exclusive_game_day IS NOT NULL
             AND interview_game_day > document_decided_game_day
             AND confirmation_expires_exclusive_game_day = interview_game_day
             AND interview_decided_game_day IS NULL
@@ -1113,6 +1181,8 @@ CREATE TABLE job_application (
         OR (
             status = 'interviewConfirmed'
             AND document_decided_game_day IS NOT NULL
+            AND interview_game_day IS NOT NULL
+            AND confirmation_expires_exclusive_game_day IS NOT NULL
             AND interview_game_day > document_decided_game_day
             AND confirmation_expires_exclusive_game_day = interview_game_day
             AND interview_decided_game_day IS NULL
@@ -1121,6 +1191,8 @@ CREATE TABLE job_application (
         OR (
             status IN ('interviewRejected', 'offered', 'accepted', 'declined', 'expired')
             AND document_decided_game_day IS NOT NULL
+            AND interview_game_day IS NOT NULL
+            AND confirmation_expires_exclusive_game_day IS NOT NULL
             AND interview_game_day > document_decided_game_day
             AND confirmation_expires_exclusive_game_day = interview_game_day
             AND interview_decided_game_day IS NOT NULL
@@ -1142,6 +1214,8 @@ CREATE TABLE job_application (
                         'interviewAwaitingConfirmation', 'interviewConfirmed'
                     )
                     AND document_decided_game_day IS NOT NULL
+                    AND interview_game_day IS NOT NULL
+                    AND confirmation_expires_exclusive_game_day IS NOT NULL
                     AND interview_game_day > document_decided_game_day
                     AND confirmation_expires_exclusive_game_day = interview_game_day
                 )
@@ -1155,15 +1229,17 @@ CREATE TABLE job_application (
                 OR (
                     terminal_from_status = 'interviewAwaitingConfirmation'
                     AND document_decided_game_day IS NOT NULL
-                    AND confirmation_expires_exclusive_game_day = interview_game_day
+                    AND confirmation_expires_exclusive_game_day IS NOT NULL
                     AND interview_game_day IS NOT NULL
+                    AND confirmation_expires_exclusive_game_day = interview_game_day
                     AND interview_decided_game_day IS NULL
                 )
                 OR (
                     terminal_from_status = 'interviewConfirmed'
                     AND document_decided_game_day IS NOT NULL
-                    AND confirmation_expires_exclusive_game_day = interview_game_day
+                    AND confirmation_expires_exclusive_game_day IS NOT NULL
                     AND interview_game_day IS NOT NULL
+                    AND confirmation_expires_exclusive_game_day = interview_game_day
                     AND interview_decided_game_day IS NULL
                 )
                 OR (
@@ -1286,6 +1362,7 @@ CREATE TABLE job_invitation (
         OR (
             status = 'expired'
             AND accepted_application_id IS NULL
+            AND decided_game_day IS NOT NULL
             AND decided_game_day >= expires_exclusive_game_day
         )
     )
@@ -1403,6 +1480,7 @@ CREATE TABLE job_offer (
         OR (
             status = 'expired'
             AND employment_contract_id IS NULL
+            AND decided_game_day IS NOT NULL
             AND decided_game_day >= expires_exclusive_game_day
         )
     )
@@ -1521,6 +1599,7 @@ CREATE TABLE employment_contract (
             status = 'active'
             AND end_game_day IS NULL
             AND credited_experience_days > 0
+            AND last_credited_game_day IS NOT NULL
             AND last_credited_game_day >= start_game_day
             AND credited_experience_days
                 = last_credited_game_day - start_game_day + 1
@@ -1536,6 +1615,7 @@ CREATE TABLE employment_contract (
                 )
                 OR (
                     credited_experience_days > 0
+                    AND last_credited_game_day IS NOT NULL
                     AND last_credited_game_day >= start_game_day
                     AND credited_experience_days
                         = last_credited_game_day - start_game_day + 1
@@ -1715,6 +1795,7 @@ CREATE TABLE career_scheduled_action (
                 AND job_application_id IS NULL
                 AND platform_catalog_id IS NOT NULL
                 AND platform_key IS NOT NULL
+                AND invitation_generation_game_day IS NOT NULL
                 AND invitation_generation_game_day = due_game_day
             )
         )
@@ -1728,7 +1809,7 @@ CREATE TABLE career_scheduled_action (
         OR (
             status = 'completed'
             AND completed_game_day IS NOT NULL
-            AND completed_game_day >= due_game_day
+            AND completed_game_day = due_game_day
             AND cancelled_game_day IS NULL
         )
         OR (
@@ -1756,6 +1837,9 @@ SET NEW.save_id = IF(
            AND posting.id = NEW.job_posting_id
            AND posting.recruitment_ruleset_id = NEW.recruitment_ruleset_id
            AND posting.market_world_id = save.market_world_id
+        INNER JOIN platform_catalog AS platform
+            ON platform.career_catalog_bundle_id = posting.career_catalog_bundle_id
+           AND platform.id = posting.platform_catalog_id
         INNER JOIN recruitment_ruleset AS ruleset
             ON ruleset.id = posting.recruitment_ruleset_id
            AND ruleset.published_at IS NOT NULL
@@ -1764,6 +1848,78 @@ SET NEW.save_id = IF(
           AND save.game_day = NEW.submitted_game_day
           AND save.game_day >= posting.posted_game_day
           AND save.game_day < posting.closes_exclusive_game_day
+          AND `character`.military NOT IN ('serving', 'alternative')
+          AND (
+              posting.military_requirement = 'none'
+              OR `character`.military IN ('completed', 'exempted')
+          )
+          AND (
+              platform.same_region_only = FALSE
+              OR BINARY `character`.region = BINARY posting.region
+          )
+          AND (
+              posting.minimum_education IS NULL
+              OR CASE `character`.education
+                          WHEN 'highSchool' THEN 1
+                          WHEN 'associate' THEN 2
+                          WHEN 'bachelor' THEN 3
+                          WHEN 'master' THEN 4
+                          WHEN 'doctorate' THEN 5
+                          ELSE 0
+              END >= CASE posting.minimum_education
+                          WHEN 'highSchool' THEN 1
+                          WHEN 'associate' THEN 2
+                          WHEN 'bachelor' THEN 3
+                          WHEN 'master' THEN 4
+                          WHEN 'doctorate' THEN 5
+                          ELSE 6
+              END
+          )
+          AND (
+              posting.required_certification_entry_id IS NULL
+              OR EXISTS (
+                          SELECT 1
+                          FROM spec_evidence AS certification
+                          WHERE certification.save_id = NEW.save_id
+                            AND certification.run_revision = NEW.run_revision
+                            AND certification.career_catalog_bundle_id
+                                = NEW.career_catalog_bundle_id
+                            AND certification.kind = 'certification'
+                            AND certification.spec_catalog_entry_id
+                                = posting.required_certification_entry_id
+                            AND certification.acquired_game_day
+                                <= NEW.submitted_game_day
+                            AND (
+                                certification.expires_on_game_day IS NULL
+                                OR certification.expires_on_game_day
+                                    >= NEW.submitted_game_day
+                            )
+              )
+          )
+          AND posting.minimum_experience_days <= (
+              SELECT COALESCE(SUM(
+                          CASE
+                              WHEN experience.kind = 'experience'
+                                AND experience.period_start_date IS NOT NULL
+                                AND experience.period_end_exclusive_date IS NOT NULL
+                              THEN DATEDIFF(
+                                  experience.period_end_exclusive_date,
+                                  experience.period_start_date
+                              )
+                              ELSE 0
+                          END
+              ), 0)
+              FROM spec_evidence AS experience
+              WHERE experience.save_id = NEW.save_id
+                AND experience.run_revision = NEW.run_revision
+                AND experience.career_catalog_bundle_id
+                    = NEW.career_catalog_bundle_id
+                AND experience.acquired_game_day <= NEW.submitted_game_day
+                AND (
+                    experience.expires_on_game_day IS NULL
+                    OR experience.expires_on_game_day >= NEW.submitted_game_day
+                )
+          )
           AND NEW.possessed_education_score_bp IS NULL
           AND NEW.interview_decided_game_day IS NULL
           AND NOT EXISTS (
@@ -1881,6 +2037,7 @@ SET NEW.save_id = IF(
                             = NEW.recruitment_ruleset_id
                         AND invitation.job_posting_id = NEW.job_posting_id
                         AND invitation.status = 'open'
+                        AND invitation.invitation_game_day <= save.game_day
                         AND invitation.expires_exclusive_game_day > save.game_day
                         AND invitation.artifact_completeness_bp
                             = NEW.artifact_completeness_bp
@@ -1990,10 +2147,48 @@ SET NEW.id = IF(
                       AND action.status = 'pending'
                       AND action.due_game_day = NEW.document_decided_game_day
                 )
+                AND NEW.document_decided_game_day = (
+                    SELECT game_day + 1
+                    FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
                 AND NEW.document_decided_game_day = OLD.submitted_game_day + (
                     SELECT posting.document_review_days
                     FROM job_posting AS posting
                     WHERE posting.id = OLD.job_posting_id
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM job_posting AS posting
+                    INNER JOIN recruitment_score_band AS score_band
+                        ON score_band.recruitment_ruleset_id
+                            = posting.recruitment_ruleset_id
+                       AND NEW.document_score_bp >= score_band.minimum_score_bp
+                       AND NEW.document_score_bp
+                            < score_band.maximum_exclusive_score_bp
+                    INNER JOIN recruitment_pass_probability AS probability
+                        ON probability.recruitment_ruleset_id
+                            = score_band.recruitment_ruleset_id
+                       AND probability.score_band_key = score_band.score_band_key
+                       AND probability.stage = 'document'
+                       AND probability.competition_band = posting.competition_band
+                    WHERE posting.id = OLD.job_posting_id
+                      AND posting.recruitment_ruleset_id
+                          = OLD.recruitment_ruleset_id
+                      AND NEW.document_probability_ppm
+                          = probability.pass_probability_ppm
+                      AND (
+                          (
+                              NEW.status = 'documentRejected'
+                              AND NEW.document_roll
+                                  >= probability.pass_probability_ppm
+                          )
+                          OR (
+                              NEW.status = 'interviewAwaitingConfirmation'
+                              AND NEW.document_roll
+                                  < probability.pass_probability_ppm
+                          )
+                      )
                 )
                 AND OLD.document_decided_game_day IS NULL
                 AND OLD.possessed_education_score_bp IS NULL
@@ -2048,11 +2243,33 @@ SET NEW.id = IF(
                 AND NEW.status = 'withdrawn'
                 AND NEW.terminal_from_status = OLD.status
                 AND (
-                    NEW.terminal_game_day = (
-                        SELECT game_day FROM save WHERE id = OLD.save_id
+                    (
+                        NEW.terminal_game_day = (
+                            SELECT game_day
+                            FROM save
+                            WHERE id = OLD.save_id
+                              AND run_revision = OLD.run_revision
+                        )
+                        AND (
+                            (
+                                OLD.status = 'interviewAwaitingConfirmation'
+                                AND NEW.terminal_game_day
+                                    < OLD.confirmation_expires_exclusive_game_day
+                            )
+                            OR (
+                                OLD.status = 'interviewConfirmed'
+                                AND NEW.terminal_game_day < OLD.interview_game_day
+                            )
+                        )
                     )
                     OR (
                         OLD.status = 'interviewAwaitingConfirmation'
+                        AND NEW.terminal_game_day = (
+                            SELECT game_day + 1
+                            FROM save
+                            WHERE id = OLD.save_id
+                              AND run_revision = OLD.run_revision
+                        )
                         AND EXISTS (
                             SELECT 1
                             FROM career_scheduled_action AS action
@@ -2091,6 +2308,11 @@ SET NEW.id = IF(
                     <=> OLD.confirmation_expires_exclusive_game_day
                 AND NEW.interview_game_day <=> OLD.interview_game_day
                 AND NEW.interview_decided_game_day = OLD.interview_game_day
+                AND NEW.interview_decided_game_day = (
+                    SELECT game_day + 1
+                    FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
                 AND EXISTS (
                     SELECT 1
                     FROM career_scheduled_action AS action
@@ -2100,6 +2322,39 @@ SET NEW.id = IF(
                       AND action.job_application_id = OLD.id
                       AND action.status = 'pending'
                       AND action.due_game_day = NEW.interview_decided_game_day
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM job_posting AS posting
+                    INNER JOIN recruitment_score_band AS score_band
+                        ON score_band.recruitment_ruleset_id
+                            = posting.recruitment_ruleset_id
+                       AND NEW.interview_score_bp >= score_band.minimum_score_bp
+                       AND NEW.interview_score_bp
+                            < score_band.maximum_exclusive_score_bp
+                    INNER JOIN recruitment_pass_probability AS probability
+                        ON probability.recruitment_ruleset_id
+                            = score_band.recruitment_ruleset_id
+                       AND probability.score_band_key = score_band.score_band_key
+                       AND probability.stage = 'interview'
+                       AND probability.competition_band = posting.competition_band
+                    WHERE posting.id = OLD.job_posting_id
+                      AND posting.recruitment_ruleset_id
+                          = OLD.recruitment_ruleset_id
+                      AND NEW.interview_probability_ppm
+                          = probability.pass_probability_ppm
+                      AND (
+                          (
+                              NEW.status = 'interviewRejected'
+                              AND NEW.interview_roll
+                                  >= probability.pass_probability_ppm
+                          )
+                          OR (
+                              NEW.status = 'offered'
+                              AND NEW.interview_roll
+                                  < probability.pass_probability_ppm
+                          )
+                      )
                 )
                 AND (
                     NEW.status = 'interviewRejected'
@@ -2150,6 +2405,26 @@ SET NEW.id = IF(
                 AND NEW.terminal_from_status = OLD.status
                 AND NEW.terminal_game_day = (
                     SELECT game_day FROM save WHERE id = OLD.save_id
+                )
+                AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM job_offer AS accepted_offer
+                        WHERE accepted_offer.save_id = OLD.save_id
+                          AND accepted_offer.run_revision = OLD.run_revision
+                          AND accepted_offer.status = 'accepted'
+                          AND accepted_offer.employment_contract_id IS NOT NULL
+                          AND accepted_offer.decided_game_day
+                              = NEW.terminal_game_day
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM command_identity AS identity
+                        WHERE identity.save_id = OLD.save_id
+                          AND identity.command_kind = 'startGame'
+                          AND identity.initial_run_revision = OLD.run_revision
+                          AND identity.initial_game_day = NEW.terminal_game_day
+                    )
                 )
                 AND NEW.document_visible_fit_bp <=> OLD.document_visible_fit_bp
                 AND NEW.document_platform_affinity_bp
@@ -2226,8 +2501,29 @@ SET NEW.save_id = IF(
                AND artifact.career_catalog_bundle_id
                     = career_run.career_catalog_bundle_id
                AND artifact.sealed_at IS NOT NULL
+               AND artifact.created_game_day <= NEW.invitation_game_day
+               AND artifact.completeness_bp = NEW.artifact_completeness_bp
             WHERE save.id = NEW.save_id
               AND save.run_revision = NEW.run_revision
+              AND NEW.invitation_game_day = save.game_day + 1
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM profile_artifact_version AS newer_artifact
+                  WHERE newer_artifact.save_id = artifact.save_id
+                    AND newer_artifact.run_revision = artifact.run_revision
+                    AND BINARY newer_artifact.artifact_kind
+                        = BINARY artifact.artifact_kind
+                    AND newer_artifact.sealed_at IS NOT NULL
+                    AND newer_artifact.created_game_day
+                        <= NEW.invitation_game_day
+                    AND (
+                        newer_artifact.version_no > artifact.version_no
+                        OR (
+                            newer_artifact.version_no = artifact.version_no
+                            AND newer_artifact.id > artifact.id
+                        )
+                    )
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM employment_contract AS contract
@@ -2398,27 +2694,13 @@ SET NEW.id = IF(
         AND NEW.occurrence = OLD.occurrence
         AND NEW.created_at = OLD.created_at
         AND (
-            NEW.decided_game_day = (
-                SELECT game_day FROM save
-                WHERE id = OLD.save_id AND run_revision = OLD.run_revision
-            )
-            OR (
-                NEW.status = 'expired'
-                AND EXISTS (
-                    SELECT 1
-                    FROM career_scheduled_action AS action
-                    WHERE action.save_id = OLD.save_id
-                      AND action.run_revision = OLD.run_revision
-                      AND action.action_kind = 'invitationGeneration'
-                      AND action.platform_catalog_id = OLD.platform_catalog_id
-                      AND action.status = 'pending'
-                      AND action.due_game_day = NEW.decided_game_day
-                )
-            )
-        )
-        AND (
             (
                 NEW.status = 'accepted'
+                AND NEW.decided_game_day IS NOT NULL
+                AND NEW.decided_game_day = (
+                    SELECT game_day FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
                 AND NEW.decided_game_day < OLD.expires_exclusive_game_day
                 AND EXISTS (
                     SELECT 1
@@ -2434,16 +2716,60 @@ SET NEW.id = IF(
             OR (
                 NEW.status = 'declined'
                 AND NEW.accepted_application_id IS NULL
+                AND NEW.decided_game_day IS NOT NULL
+                AND NEW.decided_game_day = (
+                    SELECT game_day FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
                 AND NEW.decided_game_day < OLD.expires_exclusive_game_day
             )
             OR (
                 NEW.status = 'expired'
                 AND NEW.accepted_application_id IS NULL
+                AND NEW.decided_game_day IS NOT NULL
                 AND NEW.decided_game_day >= OLD.expires_exclusive_game_day
+                AND NEW.decided_game_day = (
+                    SELECT game_day + 1 FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM career_scheduled_action AS action
+                    WHERE action.save_id = OLD.save_id
+                      AND action.run_revision = OLD.run_revision
+                      AND action.action_kind = 'invitationGeneration'
+                      AND action.platform_catalog_id = OLD.platform_catalog_id
+                      AND action.status = 'pending'
+                      AND action.due_game_day = NEW.decided_game_day
+                )
             )
             OR (
                 NEW.status = 'closed'
                 AND NEW.accepted_application_id IS NULL
+                AND NEW.decided_game_day IS NOT NULL
+                AND NEW.decided_game_day = (
+                    SELECT game_day FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
+                AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM job_offer AS accepted_offer
+                        WHERE accepted_offer.save_id = OLD.save_id
+                          AND accepted_offer.run_revision = OLD.run_revision
+                          AND accepted_offer.status = 'accepted'
+                          AND accepted_offer.employment_contract_id IS NOT NULL
+                          AND accepted_offer.decided_game_day = NEW.decided_game_day
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM command_identity AS identity
+                        WHERE identity.save_id = OLD.save_id
+                          AND identity.command_kind = 'startGame'
+                          AND identity.initial_run_revision = OLD.run_revision
+                          AND identity.initial_game_day = NEW.decided_game_day
+                    )
+                )
             )
         ),
     OLD.id,
@@ -2490,6 +2816,7 @@ SET NEW.save_id = IF(
                 ON ruleset.id = posting.recruitment_ruleset_id
             WHERE save.id = NEW.save_id
               AND save.run_revision = NEW.run_revision
+              AND NEW.offered_game_day = save.game_day + 1
               AND EXISTS (
                   SELECT 1
                   FROM career_scheduled_action AS action
@@ -2550,27 +2877,13 @@ SET NEW.id = IF(
         AND NEW.occurrence = OLD.occurrence
         AND NEW.created_at = OLD.created_at
         AND (
-            NEW.decided_game_day = (
-                SELECT game_day FROM save
-                WHERE id = OLD.save_id AND run_revision = OLD.run_revision
-            )
-            OR (
-                NEW.status = 'expired'
-                AND EXISTS (
-                    SELECT 1
-                    FROM career_scheduled_action AS action
-                    WHERE action.save_id = OLD.save_id
-                      AND action.run_revision = OLD.run_revision
-                      AND action.action_kind = 'offerExpiry'
-                      AND action.job_application_id = OLD.job_application_id
-                      AND action.status = 'pending'
-                      AND action.due_game_day = NEW.decided_game_day
-                )
-            )
-        )
-        AND (
             (
                 NEW.status = 'accepted'
+                AND NEW.decided_game_day IS NOT NULL
+                AND NEW.decided_game_day = (
+                    SELECT game_day FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
                 AND NEW.decided_game_day < OLD.expires_exclusive_game_day
                 AND EXISTS (
                     SELECT 1
@@ -2585,16 +2898,68 @@ SET NEW.id = IF(
             OR (
                 NEW.status = 'declined'
                 AND NEW.employment_contract_id IS NULL
+                AND NEW.decided_game_day IS NOT NULL
+                AND NEW.decided_game_day = (
+                    SELECT game_day FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
                 AND NEW.decided_game_day < OLD.expires_exclusive_game_day
             )
             OR (
                 NEW.status = 'expired'
                 AND NEW.employment_contract_id IS NULL
+                AND NEW.decided_game_day IS NOT NULL
                 AND NEW.decided_game_day >= OLD.expires_exclusive_game_day
+                AND NEW.decided_game_day = (
+                    SELECT game_day + 1 FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM career_scheduled_action AS action
+                    WHERE action.save_id = OLD.save_id
+                      AND action.run_revision = OLD.run_revision
+                      AND action.action_kind = 'offerExpiry'
+                      AND action.job_application_id = OLD.job_application_id
+                      AND action.status = 'pending'
+                      AND action.due_game_day = NEW.decided_game_day
+                )
             )
             OR (
                 NEW.status = 'closed'
                 AND NEW.employment_contract_id IS NULL
+                AND NEW.decided_game_day IS NOT NULL
+                AND NEW.decided_game_day = (
+                    SELECT game_day FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
+                AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM employment_contract AS accepted_contract
+                        INNER JOIN job_application AS accepted_application
+                            ON accepted_application.save_id
+                                = accepted_contract.save_id
+                           AND accepted_application.run_revision
+                                = accepted_contract.run_revision
+                           AND accepted_application.id
+                                = accepted_contract.job_application_id
+                           AND accepted_application.status = 'accepted'
+                        WHERE accepted_contract.save_id = OLD.save_id
+                          AND accepted_contract.run_revision = OLD.run_revision
+                          AND accepted_contract.status IN ('pendingStart', 'active')
+                          AND accepted_contract.created_game_day
+                              = NEW.decided_game_day
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM command_identity AS identity
+                        WHERE identity.save_id = OLD.save_id
+                          AND identity.command_kind = 'startGame'
+                          AND identity.initial_run_revision = OLD.run_revision
+                          AND identity.initial_game_day = NEW.decided_game_day
+                    )
+                )
             )
         ),
     OLD.id,
@@ -2717,6 +3082,16 @@ SET NEW.id = IF(
                 AND NEW.end_game_day = OLD.start_game_day
                 AND NEW.credited_experience_days = 0
                 AND NEW.last_credited_game_day IS NULL
+                AND EXISTS (
+                    SELECT 1
+                    FROM command_identity AS identity
+                    WHERE identity.save_id = OLD.save_id
+                      AND identity.command_kind = 'startGame'
+                      AND identity.initial_run_revision = OLD.run_revision
+                      AND identity.initial_game_day = (
+                          SELECT game_day FROM save WHERE id = OLD.save_id
+                      )
+                )
             )
             OR (
                 OLD.status = 'active'
@@ -2724,6 +3099,16 @@ SET NEW.id = IF(
                 AND NEW.end_game_day = OLD.last_credited_game_day + 1
                 AND NEW.credited_experience_days = OLD.credited_experience_days
                 AND NEW.last_credited_game_day = OLD.last_credited_game_day
+                AND EXISTS (
+                    SELECT 1
+                    FROM command_identity AS identity
+                    WHERE identity.save_id = OLD.save_id
+                      AND identity.command_kind = 'startGame'
+                      AND identity.initial_run_revision = OLD.run_revision
+                      AND identity.initial_game_day = (
+                          SELECT game_day FROM save WHERE id = OLD.save_id
+                      )
+                )
             )
         ),
     OLD.id,
@@ -2887,11 +3272,184 @@ SET NEW.id = IF(
                 NEW.status = 'completed'
                 AND NEW.completed_game_day = OLD.due_game_day
                 AND NEW.cancelled_game_day IS NULL
+                AND OLD.due_game_day = (
+                    SELECT game_day + 1
+                    FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
+                AND (
+                    (
+                        OLD.action_kind = 'employmentStart'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_contract AS contract
+                            WHERE contract.save_id = OLD.save_id
+                              AND contract.run_revision = OLD.run_revision
+                              AND contract.id = OLD.employment_contract_id
+                              AND contract.status = 'active'
+                              AND contract.last_credited_game_day = OLD.due_game_day
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'documentReview'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_application AS application
+                            WHERE application.save_id = OLD.save_id
+                              AND application.run_revision = OLD.run_revision
+                              AND application.id = OLD.job_application_id
+                              AND application.status IN (
+                                  'documentRejected',
+                                  'interviewAwaitingConfirmation'
+                              )
+                              AND application.document_decided_game_day
+                                  = OLD.due_game_day
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'confirmationExpiry'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_application AS application
+                            WHERE application.save_id = OLD.save_id
+                              AND application.run_revision = OLD.run_revision
+                              AND application.id = OLD.job_application_id
+                              AND application.status = 'withdrawn'
+                              AND application.terminal_from_status
+                                  = 'interviewAwaitingConfirmation'
+                              AND application.terminal_game_day = OLD.due_game_day
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'interviewDecision'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_application AS application
+                            WHERE application.save_id = OLD.save_id
+                              AND application.run_revision = OLD.run_revision
+                              AND application.id = OLD.job_application_id
+                              AND application.status IN ('interviewRejected', 'offered')
+                              AND application.interview_decided_game_day
+                                  = OLD.due_game_day
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'offerExpiry'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_offer AS offer
+                            INNER JOIN job_application AS application
+                                ON application.save_id = offer.save_id
+                               AND application.run_revision = offer.run_revision
+                               AND application.id = offer.job_application_id
+                            WHERE offer.save_id = OLD.save_id
+                              AND offer.run_revision = OLD.run_revision
+                              AND offer.job_application_id = OLD.job_application_id
+                              AND offer.status = 'expired'
+                              AND offer.decided_game_day = OLD.due_game_day
+                              AND application.status = 'expired'
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'invitationGeneration'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM job_invitation AS invitation
+                            WHERE invitation.save_id = OLD.save_id
+                              AND invitation.run_revision = OLD.run_revision
+                              AND invitation.status = 'open'
+                              AND invitation.expires_exclusive_game_day
+                                  <= OLD.due_game_day
+                        )
+                    )
+                )
             )
             OR (
                 NEW.status = 'cancelled'
                 AND NEW.completed_game_day IS NULL
                 AND NEW.cancelled_game_day IS NOT NULL
+                AND NEW.cancelled_game_day = (
+                    SELECT game_day
+                    FROM save
+                    WHERE id = OLD.save_id AND run_revision = OLD.run_revision
+                )
+                AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM command_identity AS identity
+                        WHERE identity.save_id = OLD.save_id
+                          AND identity.command_kind = 'startGame'
+                          AND identity.initial_run_revision = OLD.run_revision
+                          AND identity.initial_game_day = NEW.cancelled_game_day
+                    )
+                    OR (
+                        OLD.action_kind = 'documentReview'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_application AS application
+                            WHERE application.save_id = OLD.save_id
+                              AND application.run_revision = OLD.run_revision
+                              AND application.id = OLD.job_application_id
+                              AND application.status IN ('withdrawn', 'closed')
+                              AND application.terminal_game_day
+                                  = NEW.cancelled_game_day
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'confirmationExpiry'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_application AS application
+                            WHERE application.save_id = OLD.save_id
+                              AND application.run_revision = OLD.run_revision
+                              AND application.id = OLD.job_application_id
+                              AND (
+                                  application.status = 'interviewConfirmed'
+                                  OR (
+                                      application.status IN ('withdrawn', 'closed')
+                                      AND application.terminal_game_day
+                                          = NEW.cancelled_game_day
+                                  )
+                              )
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'interviewDecision'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_application AS application
+                            WHERE application.save_id = OLD.save_id
+                              AND application.run_revision = OLD.run_revision
+                              AND application.id = OLD.job_application_id
+                              AND application.status IN ('withdrawn', 'closed')
+                              AND application.terminal_game_day
+                                  = NEW.cancelled_game_day
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'offerExpiry'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM job_offer AS offer
+                            WHERE offer.save_id = OLD.save_id
+                              AND offer.run_revision = OLD.run_revision
+                              AND offer.job_application_id = OLD.job_application_id
+                              AND offer.status IN ('accepted', 'declined', 'closed')
+                              AND offer.decided_game_day = NEW.cancelled_game_day
+                        )
+                    )
+                    OR (
+                        OLD.action_kind = 'employmentStart'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_contract AS contract
+                            WHERE contract.save_id = OLD.save_id
+                              AND contract.run_revision = OLD.run_revision
+                              AND contract.id = OLD.employment_contract_id
+                              AND contract.status = 'ended'
+                        )
+                    )
+                )
             )
         ),
     OLD.id,

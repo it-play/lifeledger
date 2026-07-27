@@ -44,7 +44,13 @@ impl SettlementRules for DefaultSettlementRules {
         }
 
         // Stable sorting keeps this order deterministic if future keys gain equal components.
-        due.sort_by_key(|settlement| (settlement.due_game_day, settlement.id));
+        due.sort_by_key(|settlement| {
+            (
+                settlement.due_game_day,
+                settlement.kind.phase_rank(),
+                settlement.id,
+            )
+        });
         Ok(due)
     }
 }
@@ -67,7 +73,7 @@ mod tests {
         id: u64,
         due_game_day: u32,
         source_id: &str,
-        occurrence: u32,
+        occurrence: u64,
     ) -> ScheduledSettlement {
         ScheduledSettlement {
             id: ResourceId::from_u64(id),
@@ -156,6 +162,44 @@ mod tests {
                 .expect("회차가 다르면 정산할 수 있어야 한다");
 
             assert_eq!(due.len(), 2);
+        }
+
+        #[test]
+        fn given_m4_obligations_on_the_same_day_when_selected_then_phase_precedes_identity() {
+            let rules = create_settlement_rules();
+            let mut living_cost = given_settlement(1, 5, "living-1", 1);
+            living_cost.kind = SettlementKind::LivingCostMonth;
+            living_cost.source.kind = SettlementSourceKind::LivingCostMonth;
+            let mut loan = given_settlement(9, 5, "loan-9", 1);
+            loan.kind = SettlementKind::LoanInstallment;
+            loan.source.kind = SettlementSourceKind::LoanContract;
+            let mut welfare = given_settlement(6, 5, "welfare-6", 1);
+            welfare.kind = SettlementKind::WelfareBenefitPayment;
+            welfare.source.kind = SettlementSourceKind::WelfarePayment;
+            let mut lease_rent = given_settlement(8, 5, "lease-8", 1);
+            lease_rent.kind = SettlementKind::LeaseRent;
+            lease_rent.source.kind = SettlementSourceKind::LeaseContract;
+            let mut insurance = given_settlement(5, 5, "insurance-5", 1);
+            insurance.kind = SettlementKind::InsurancePremium;
+            insurance.source.kind = SettlementSourceKind::InsuranceContract;
+            let settlements = vec![
+                living_cost,
+                lease_rent,
+                insurance,
+                loan,
+                welfare,
+                given_settlement(7, 5, "deposit-7", 1),
+            ];
+
+            let due = rules
+                .due_settlements(given_run(4), 5, settlements)
+                .expect("정산 순서를 정할 수 있어야 한다");
+
+            let ids = due
+                .iter()
+                .map(|settlement| settlement.id.get())
+                .collect::<Vec<_>>();
+            assert_eq!(ids, vec![7, 6, 9, 5, 8, 1]);
         }
     }
 }

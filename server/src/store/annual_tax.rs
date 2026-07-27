@@ -114,10 +114,10 @@ pub(super) struct AnnualTaxFilingPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AnnualTaxRuntimePolicy {
-    policy: AnnualFinancialIncomeTaxPolicy,
-    other_comprehensive_income_krw: i64,
-    credits: TaxCredits,
+pub(super) struct AnnualTaxRuntimePolicy {
+    pub policy: AnnualFinancialIncomeTaxPolicy,
+    pub other_comprehensive_income_krw: i64,
+    pub credits: TaxCredits,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -208,7 +208,7 @@ struct AnnualTaxPolicyRuleRow {
     parameters_json: String,
 }
 
-async fn read_annual_tax_policy(
+pub(super) async fn read_annual_tax_policy(
     tx: &mut Transaction<'_, MySql>,
     policy_set_id: u64,
     effective_on: Date,
@@ -250,9 +250,14 @@ fn parse_annual_tax_policy(parameters_json: &str) -> Result<AnnualTaxRuntimePoli
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct AnnualTaxAssessmentReadRow {
     policy_set_id: u64,
+    year_end_tax_assessment_id: Option<u64>,
     status: String,
     gross_financial_income_krw: i64,
     other_comprehensive_income_krw: i64,
+    employment_taxable_income_krw: i64,
+    employment_deductions_krw: i64,
+    employment_final_prepaid_income_tax_krw: i64,
+    employment_final_prepaid_local_income_tax_krw: i64,
     withheld_income_tax_krw: i64,
     withheld_local_income_tax_krw: i64,
     income_tax_formula_a_krw: i64,
@@ -451,8 +456,12 @@ async fn read_annual_tax_assessment_row(
     tax_year: u16,
 ) -> Result<Option<AnnualTaxAssessmentReadRow>> {
     sqlx::query_as(
-        "SELECT policy_set_id, status, gross_financial_income_krw,
-                other_comprehensive_income_krw, withheld_income_tax_krw,
+        "SELECT policy_set_id, year_end_tax_assessment_id, status,
+                gross_financial_income_krw, other_comprehensive_income_krw,
+                employment_taxable_income_krw, employment_deductions_krw,
+                employment_final_prepaid_income_tax_krw,
+                employment_final_prepaid_local_income_tax_krw,
+                withheld_income_tax_krw,
                 withheld_local_income_tax_krw, income_tax_formula_a_krw,
                 income_tax_formula_b_krw, local_income_tax_formula_a_krw,
                 local_income_tax_formula_b_krw, income_tax_credit_krw,
@@ -511,6 +520,11 @@ fn assessment_state_from_row(
         return Ok(AnnualTaxAssessmentState::Open);
     }
 
+    if row.year_end_tax_assessment_id.is_some() {
+        validate_combined_assessment(tax_year, aggregate, source_years, runtime, row, status)?;
+        return finalized_assessment_state(row, status, world_start_date);
+    }
+
     ensure!(
         row.other_comprehensive_income_krw == runtime.other_comprehensive_income_krw
             && row.income_tax_credit_krw == runtime.credits.income_tax_credit_krw
@@ -565,6 +579,14 @@ fn assessment_state_from_row(
         "stored annual-tax assessment disagrees with its policy or source totals"
     );
 
+    finalized_assessment_state(row, status, world_start_date)
+}
+
+fn finalized_assessment_state(
+    row: &AnnualTaxAssessmentReadRow,
+    status: FinancialIncomeAssessmentStatus,
+    world_start_date: Option<Date>,
+) -> Result<AnnualTaxAssessmentState> {
     let calculated = AnnualTaxCalculatedState {
         comparison_a_income_tax_krw: row.income_tax_formula_a_krw,
         comparison_a_local_income_tax_krw: row.local_income_tax_formula_a_krw,
@@ -618,10 +640,94 @@ fn assessment_state_from_row(
     }
 }
 
+fn validate_combined_assessment(
+    tax_year: u16,
+    aggregate: &FinancialIncomeAggregateRow,
+    source_years: &[FinancialIncomeSourceYear],
+    runtime: &AnnualTaxRuntimePolicy,
+    row: &AnnualTaxAssessmentReadRow,
+    status: FinancialIncomeAssessmentStatus,
+) -> Result<()> {
+    ensure!(
+        status == FinancialIncomeAssessmentStatus::FilingPending
+            || status == FinancialIncomeAssessmentStatus::Filed,
+        "combined annual-tax assessment is not a filing assessment"
+    );
+    ensure!(
+        row.other_comprehensive_income_krw == row.employment_taxable_income_krw
+            && row.employment_taxable_income_krw >= 0
+            && row.employment_deductions_krw >= 0
+            && row.employment_final_prepaid_income_tax_krw >= 0
+            && row.employment_final_prepaid_local_income_tax_krw >= 0,
+        "combined annual-tax employment handoff is invalid"
+    );
+    let finalization_date = row
+        .finalized_on
+        .context("combined annual-tax assessment has no finalization date")?;
+    let calculated = finalize_annual_assessment(
+        &runtime.policy,
+        &AnnualAssessmentFinalizeInput {
+            tax_year: i32::from(tax_year),
+            finalization_date,
+            current_status: FinancialIncomeAssessmentStatus::Open,
+            source_years: source_years.to_vec(),
+            other_comprehensive_income_krw: row.employment_taxable_income_krw,
+            credits: TaxCredits {
+                income_tax_credit_krw: row.income_tax_credit_krw,
+                local_income_tax_credit_krw: row.local_income_tax_credit_krw,
+            },
+        },
+    )
+    .context("failed to revalidate the combined annual-tax comparison formulas")?;
+    let prepaid = row
+        .withheld_income_tax_krw
+        .checked_add(row.withheld_local_income_tax_krw)
+        .and_then(|value| value.checked_add(row.employment_final_prepaid_income_tax_krw))
+        .and_then(|value| value.checked_add(row.employment_final_prepaid_local_income_tax_krw))
+        .context("combined annual-tax prepayments overflowed")?;
+    let assessed = row
+        .final_income_tax_krw
+        .checked_add(row.final_local_income_tax_krw)
+        .context("combined annual-tax assessment overflowed")?;
+    let difference = assessed
+        .checked_sub(prepaid)
+        .context("combined annual-tax reconciliation overflowed")?;
+    let (expected_additional_tax_krw, expected_refund_krw) = if difference >= 0 {
+        (difference, 0)
+    } else {
+        (
+            0,
+            difference
+                .checked_neg()
+                .context("combined annual-tax refund overflowed")?,
+        )
+    };
+    ensure!(
+        row.gross_financial_income_krw == aggregate.gross_financial_income_krw
+            && row.withheld_income_tax_krw == aggregate.withheld_income_tax_krw
+            && row.withheld_local_income_tax_krw == aggregate.withheld_local_income_tax_krw
+            && row.income_tax_formula_a_krw == calculated.income_tax_formula_a_krw
+            && row.income_tax_formula_b_krw == calculated.income_tax_formula_b_krw
+            && row.local_income_tax_formula_a_krw == calculated.local_income_tax_formula_a_krw
+            && row.local_income_tax_formula_b_krw == calculated.local_income_tax_formula_b_krw
+            && row.final_income_tax_krw == calculated.final_income_tax_krw
+            && row.final_local_income_tax_krw == calculated.final_local_income_tax_krw
+            && row.additional_tax_krw == expected_additional_tax_krw
+            && row.refund_krw == expected_refund_krw,
+        "stored combined annual-tax assessment disagrees with its source totals"
+    );
+    Ok(())
+}
+
 fn ensure_open_assessment_read_row(row: &AnnualTaxAssessmentReadRow) -> Result<()> {
     ensure!(
         row.gross_financial_income_krw == 0
+            && row.year_end_tax_assessment_id.is_none()
             && row.other_comprehensive_income_krw == 0
+            && row.employment_taxable_income_krw == 0
+            && row.employment_deductions_krw == 0
+            && row.employment_final_prepaid_income_tax_krw == 0
+            && row.employment_final_prepaid_local_income_tax_krw == 0
             && row.withheld_income_tax_krw == 0
             && row.withheld_local_income_tax_krw == 0
             && row.income_tax_formula_a_krw == 0
@@ -740,15 +846,10 @@ pub(super) async fn prepare_annual_tax_year_boundary(
     }
 
     let current_tax_year = tax_year(context.market_date)?;
-    if is_january_first(context.market_date)
-        && let Some(previous_tax_year) = current_tax_year.checked_sub(1)
-    {
-        finalize_previous_tax_year(tx, context, previous_tax_year).await?;
-    }
     ensure_current_open_year(tx, context, current_tax_year).await
 }
 
-async fn finalize_previous_tax_year(
+pub(super) async fn finalize_previous_tax_year(
     tx: &mut Transaction<'_, MySql>,
     context: AnnualTaxRunContext,
     tax_year: u16,
@@ -808,6 +909,43 @@ async fn finalize_previous_tax_year(
         insert_filing_schedule(tx, context, tax_year, due_game_day).await?;
     }
     Ok(())
+}
+
+/// Plans an M2 assessment while allowing M3-C to inject only its published handoff.
+pub(super) async fn plan_previous_tax_year_with_employment(
+    tx: &mut Transaction<'_, MySql>,
+    context: AnnualTaxRunContext,
+    tax_year: u16,
+    other_comprehensive_income_krw: i64,
+    credits: TaxCredits,
+) -> Result<Option<AnnualAssessmentDraft>> {
+    let Some(snapshot) = lock_tax_year_snapshot(tx, context, tax_year).await? else {
+        return Ok(None);
+    };
+    let assessment = ensure_assessment_row(tx, context, tax_year).await?;
+    ensure!(
+        parse_db_str::<FinancialIncomeAssessmentStatus>(&assessment.status)?
+            == FinancialIncomeAssessmentStatus::Open,
+        "annual-tax coordinator found a non-open financial assessment"
+    );
+    let effective_on = Date::from_calendar_date(i32::from(tax_year), Month::December, 31)
+        .context("previous annual-tax policy date is invalid")?;
+    let runtime = read_annual_tax_policy(tx, context.policy_set_id, effective_on)
+        .await?
+        .context("previous tax year has no pinned annual-tax policy")?;
+    let draft = finalize_annual_assessment(
+        &runtime.policy,
+        &AnnualAssessmentFinalizeInput {
+            tax_year: i32::from(tax_year),
+            finalization_date: context.market_date,
+            current_status: FinancialIncomeAssessmentStatus::Open,
+            source_years: snapshot.source_years,
+            other_comprehensive_income_krw,
+            credits,
+        },
+    )
+    .context("failed to plan the coordinated financial-income assessment")?;
+    Ok(Some(draft))
 }
 
 async fn ensure_current_open_year(
@@ -872,11 +1010,11 @@ struct FinancialIncomeSourceYearRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct LockedTaxYearSnapshot {
-    source_years: Vec<FinancialIncomeSourceYear>,
+pub(super) struct LockedTaxYearSnapshot {
+    pub source_years: Vec<FinancialIncomeSourceYear>,
 }
 
-async fn lock_tax_year_snapshot(
+pub(super) async fn lock_tax_year_snapshot(
     tx: &mut Transaction<'_, MySql>,
     context: AnnualTaxRunContext,
     tax_year: u16,
@@ -1027,7 +1165,7 @@ fn should_finalize_previous(market_date: Date, status: FinancialIncomeAssessment
     is_january_first(market_date) && status == FinancialIncomeAssessmentStatus::Open
 }
 
-async fn persist_assessment_draft(
+pub(super) async fn persist_assessment_draft(
     tx: &mut Transaction<'_, MySql>,
     context: AnnualTaxRunContext,
     draft: &AnnualAssessmentDraft,
@@ -1075,6 +1213,88 @@ async fn persist_assessment_draft(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct AnnualEmploymentAssessmentLink {
+    pub year_end_tax_assessment_id: u64,
+    pub employment_taxable_income_krw: i64,
+    pub employment_deductions_krw: i64,
+    pub employment_final_prepaid_income_tax_krw: i64,
+    pub employment_final_prepaid_local_income_tax_krw: i64,
+}
+
+pub(super) async fn persist_assessment_draft_with_employment(
+    tx: &mut Transaction<'_, MySql>,
+    context: AnnualTaxRunContext,
+    draft: &AnnualAssessmentDraft,
+    employment: AnnualEmploymentAssessmentLink,
+) -> Result<()> {
+    let update = sqlx::query(
+        "UPDATE financial_income_assessment
+         SET status = ?, year_end_tax_assessment_id = ?,
+             gross_financial_income_krw = ?, other_comprehensive_income_krw = ?,
+             employment_taxable_income_krw = ?, employment_deductions_krw = ?,
+             employment_final_prepaid_income_tax_krw = ?,
+             employment_final_prepaid_local_income_tax_krw = ?,
+             withheld_income_tax_krw = ?, withheld_local_income_tax_krw = ?,
+             income_tax_formula_a_krw = ?, income_tax_formula_b_krw = ?,
+             local_income_tax_formula_a_krw = ?, local_income_tax_formula_b_krw = ?,
+             income_tax_credit_krw = ?, local_income_tax_credit_krw = ?,
+             final_income_tax_krw = ?, final_local_income_tax_krw = ?,
+             additional_tax_krw = ?, refund_krw = ?,
+             finalized_on = ?, filing_date = ?, filed_on = NULL
+         WHERE save_id = ? AND run_revision = ? AND tax_year = ? AND status = 'open'",
+    )
+    .bind(to_db_str(&draft.status)?)
+    .bind(employment.year_end_tax_assessment_id)
+    .bind(draft.gross_financial_income_krw)
+    .bind(draft.other_comprehensive_income_krw)
+    .bind(employment.employment_taxable_income_krw)
+    .bind(employment.employment_deductions_krw)
+    .bind(employment.employment_final_prepaid_income_tax_krw)
+    .bind(employment.employment_final_prepaid_local_income_tax_krw)
+    .bind(draft.withheld_income_tax_krw)
+    .bind(draft.withheld_local_income_tax_krw)
+    .bind(draft.income_tax_formula_a_krw)
+    .bind(draft.income_tax_formula_b_krw)
+    .bind(draft.local_income_tax_formula_a_krw)
+    .bind(draft.local_income_tax_formula_b_krw)
+    .bind(draft.income_tax_credit_krw)
+    .bind(draft.local_income_tax_credit_krw)
+    .bind(draft.final_income_tax_krw)
+    .bind(draft.final_local_income_tax_krw)
+    .bind(draft.additional_tax_krw)
+    .bind(draft.refund_krw)
+    .bind(draft.finalization_date)
+    .bind(draft.filing_date)
+    .bind(context.save_id)
+    .bind(context.run_revision)
+    .bind(draft.tax_year)
+    .execute(&mut **tx)
+    .await
+    .context("failed to persist the coordinated annual-tax assessment")?;
+    ensure!(
+        update.rows_affected() == 1,
+        "coordinated annual-tax finalization lost its open assessment"
+    );
+    Ok(())
+}
+
+pub(super) async fn schedule_annual_tax_filing_if_needed(
+    tx: &mut Transaction<'_, MySql>,
+    context: AnnualTaxRunContext,
+    draft: &AnnualAssessmentDraft,
+) -> Result<()> {
+    if draft.status != FinancialIncomeAssessmentStatus::FilingPending {
+        return Ok(());
+    }
+    let filing_date = draft
+        .filing_date
+        .context("filing-pending assessment has no filing date")?;
+    let due_game_day = game_day_for_date(read_world_start_date(tx, context).await?, filing_date)?;
+    insert_filing_schedule(tx, context, u16::try_from(draft.tax_year)?, due_game_day).await?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FinancialIncomeFilingPayload {
@@ -1090,7 +1310,7 @@ struct FilingScheduleRow {
     payload_json: String,
     source_kind: String,
     source_id: String,
-    occurrence: u32,
+    occurrence: u64,
     status: String,
 }
 
@@ -1118,7 +1338,7 @@ async fn lock_filing_schedule_for_tax_year(
     .context("failed to lock the annual-tax filing schedule")
 }
 
-async fn insert_filing_schedule(
+pub(super) async fn insert_filing_schedule(
     tx: &mut Transaction<'_, MySql>,
     context: AnnualTaxRunContext,
     tax_year: u16,
@@ -1199,7 +1419,7 @@ fn decode_filing_schedule(row: &FilingScheduleRow) -> Result<FinancialIncomeFili
         row.id > 0
             && row.kind == FILING_SETTLEMENT_KIND
             && row.source_kind == FILING_SETTLEMENT_SOURCE_KIND
-            && row.occurrence == FILING_SETTLEMENT_OCCURRENCE,
+            && row.occurrence == u64::from(FILING_SETTLEMENT_OCCURRENCE),
         "stored annual-tax filing settlement identity is invalid"
     );
     let payload: FinancialIncomeFilingPayload = serde_json::from_str(&row.payload_json)
@@ -1212,7 +1432,7 @@ fn decode_filing_schedule(row: &FilingScheduleRow) -> Result<FinancialIncomeFili
     Ok(payload)
 }
 
-async fn read_world_start_date(
+pub(super) async fn read_world_start_date(
     tx: &mut Transaction<'_, MySql>,
     context: AnnualTaxRunContext,
 ) -> Result<Date> {
@@ -1231,7 +1451,7 @@ async fn read_world_start_date(
         .context("annual-tax run context no longer matches the current save")
 }
 
-fn game_day_for_date(world_start_date: Date, date: Date) -> Result<u32> {
+pub(super) fn game_day_for_date(world_start_date: Date, date: Date) -> Result<u32> {
     u32::try_from((date - world_start_date).whole_days())
         .context("annual-tax filing date is before the world start or outside game-day range")
 }
@@ -1335,11 +1555,53 @@ pub(super) async fn apply_annual_tax_filing(
         context == plan.context && context.market_date == plan.execution_date,
         "annual-tax filing plan belongs to another run or execution date"
     );
+
+    let assessment_update = sqlx::query(
+        "UPDATE financial_income_assessment
+         SET status = 'filed', filed_on = ?
+         WHERE save_id = ? AND run_revision = ? AND tax_year = ?
+           AND status = 'filingPending' AND filing_date = ?",
+    )
+    .bind(plan.execution_date)
+    .bind(context.save_id)
+    .bind(context.run_revision)
+    .bind(plan.tax_year)
+    .bind(plan.execution_date)
+    .execute(&mut **tx)
+    .await
+    .context("failed to mark the annual-tax assessment filed")?;
+    ensure!(
+        assessment_update.rows_affected() == 1,
+        "annual-tax filing assessment lost its pending state"
+    );
+
+    let debt_increase_krw = match plan.cash_plan.movement {
+        FilingMovement::AdditionalTax {
+            aggregate_debt_increase_krw,
+            ..
+        } => aggregate_debt_increase_krw,
+        FilingMovement::Refund { .. } | FilingMovement::NoMovement { .. } => 0,
+    };
+    let tax_obligation_id =
+        prepare_financial_income_tax_obligation(tx, context, plan.tax_year, debt_increase_krw)
+            .await?;
     let ledger = create_filing_ledger(rules, context, plan)?;
     let ledger_transaction_id = match ledger.as_ref() {
-        Some(ledger) => Some(write_ledger_transaction(tx, ledger).await?),
+        Some(ledger) => {
+            Some(write_annual_tax_ledger_transaction(tx, ledger, tax_obligation_id).await?)
+        }
         None => None,
     };
+    if let Some(tax_obligation_id) = tax_obligation_id {
+        activate_financial_income_tax_obligation(
+            tx,
+            context,
+            plan.tax_year,
+            tax_obligation_id,
+            ledger_transaction_id.context("tax obligation has no authority ledger")?,
+        )
+        .await?;
+    }
 
     if plan.cash_plan.wallet_cash_krw != plan.expected_wallet_cash_krw
         || plan.cash_plan.aggregate_debt_krw != plan.expected_aggregate_debt_krw
@@ -1365,25 +1627,6 @@ pub(super) async fn apply_annual_tax_filing(
             "annual-tax filing shadow balances no longer match the save"
         );
     }
-
-    let assessment_update = sqlx::query(
-        "UPDATE financial_income_assessment
-         SET status = 'filed', filed_on = ?
-         WHERE save_id = ? AND run_revision = ? AND tax_year = ?
-           AND status = 'filingPending' AND filing_date = ?",
-    )
-    .bind(plan.execution_date)
-    .bind(context.save_id)
-    .bind(context.run_revision)
-    .bind(plan.tax_year)
-    .bind(plan.execution_date)
-    .execute(&mut **tx)
-    .await
-    .context("failed to mark the annual-tax assessment filed")?;
-    ensure!(
-        assessment_update.rows_affected() == 1,
-        "annual-tax filing assessment lost its pending state"
-    );
 
     let settlement_update = match plan.cash_plan.movement {
         FilingMovement::NoMovement { .. } => {
@@ -1422,6 +1665,160 @@ pub(super) async fn apply_annual_tax_filing(
         settlement_update.rows_affected() == 1,
         "annual-tax filing settlement lost its pending state"
     );
+    super::loans::validate_debt_projection_in_tx(tx, context.save_id, context.run_revision).await?;
+    Ok(ledger_transaction_id)
+}
+
+async fn prepare_financial_income_tax_obligation(
+    tx: &mut Transaction<'_, MySql>,
+    context: AnnualTaxRunContext,
+    tax_year: u16,
+    amount_krw: i64,
+) -> Result<Option<u64>> {
+    if amount_krw == 0 {
+        return Ok(None);
+    }
+    ensure!(amount_krw > 0, "annual-tax obligation must be positive");
+    let source_id = tax_year.to_string();
+    let insert = sqlx::query(
+        "INSERT INTO tax_obligation
+             (save_id, run_revision, household_id, policy_set_id,
+              source_kind, source_id, due_game_day, original_amount_krw,
+              paid_amount_krw, outstanding_amount_krw, status,
+              authority_ledger_transaction_id)
+         SELECT save.id, save.run_revision, household.id, save.policy_set_id,
+                'financialIncomeAssessment', ?, ?, ?, 0, ?, 'prepared', NULL
+         FROM save
+         INNER JOIN household
+           ON household.save_id = save.id
+          AND household.run_revision = save.run_revision
+         WHERE save.id = ? AND save.run_revision = ? AND save.policy_set_id = ?
+           AND NOT EXISTS (
+               SELECT 1 FROM tax_obligation AS existing
+               WHERE existing.save_id = save.id
+                 AND existing.run_revision = save.run_revision
+                 AND existing.source_kind = 'financialIncomeAssessment'
+                 AND BINARY existing.source_id = BINARY ?
+           )",
+    )
+    .bind(&source_id)
+    .bind(context.game_day)
+    .bind(amount_krw)
+    .bind(amount_krw)
+    .bind(context.save_id)
+    .bind(context.run_revision)
+    .bind(context.policy_set_id)
+    .bind(&source_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to prepare the annual-tax obligation")?;
+    ensure!(
+        insert.rows_affected() == 1,
+        "annual-tax obligation source is missing or already authoritative"
+    );
+    let obligation_id = insert.last_insert_id();
+    ensure!(
+        obligation_id != 0,
+        "annual-tax obligation insert returned no ID"
+    );
+    Ok(Some(obligation_id))
+}
+
+async fn activate_financial_income_tax_obligation(
+    tx: &mut Transaction<'_, MySql>,
+    context: AnnualTaxRunContext,
+    tax_year: u16,
+    obligation_id: u64,
+    ledger_transaction_id: u64,
+) -> Result<()> {
+    let update = sqlx::query(
+        "UPDATE tax_obligation
+         SET status = 'outstanding', authority_ledger_transaction_id = ?
+         WHERE id = ? AND save_id = ? AND run_revision = ?
+           AND policy_set_id = ? AND source_kind = 'financialIncomeAssessment'
+           AND BINARY source_id = BINARY ? AND due_game_day = ?
+           AND status = 'prepared' AND authority_ledger_transaction_id IS NULL",
+    )
+    .bind(ledger_transaction_id)
+    .bind(obligation_id)
+    .bind(context.save_id)
+    .bind(context.run_revision)
+    .bind(context.policy_set_id)
+    .bind(tax_year.to_string())
+    .bind(context.game_day)
+    .execute(&mut **tx)
+    .await
+    .context("failed to activate the annual-tax obligation")?;
+    ensure!(
+        update.rows_affected() == 1,
+        "annual-tax obligation lost its prepared state"
+    );
+    Ok(())
+}
+
+async fn write_annual_tax_ledger_transaction(
+    tx: &mut Transaction<'_, MySql>,
+    ledger: &LedgerTransaction,
+    tax_obligation_id: Option<u64>,
+) -> Result<u64> {
+    let liability_count = ledger
+        .postings()
+        .iter()
+        .filter(|posting| posting.account_code == LedgerAccountCode::TaxObligationLiability)
+        .count();
+    ensure!(
+        liability_count == usize::from(tax_obligation_id.is_some()),
+        "annual-tax ledger obligation reference is incomplete"
+    );
+    let Some(tax_obligation_id) = tax_obligation_id else {
+        return write_ledger_transaction(tx, ledger).await;
+    };
+
+    let policy = ledger.policy();
+    let insert = sqlx::query(
+        "INSERT INTO ledger_transaction
+             (save_id, run_revision, game_day, policy_set_id,
+              source_kind, source_id, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(policy.run.save_id.get())
+    .bind(policy.run.run_revision)
+    .bind(ledger.game_day())
+    .bind(policy.policy_set_id.get())
+    .bind(to_db_str(&ledger.source().kind)?)
+    .bind(&ledger.source().source_id)
+    .bind(ledger.description())
+    .execute(&mut **tx)
+    .await
+    .context("failed to write the annual-tax authority ledger")?;
+    let ledger_transaction_id = insert.last_insert_id();
+    ensure!(
+        ledger_transaction_id != 0,
+        "annual-tax authority ledger insert returned no ID"
+    );
+    for (index, posting) in ledger.postings().iter().enumerate() {
+        let posting_order = u16::try_from(index + 1).context("too many annual-tax postings")?;
+        let posting_obligation_id = (posting.account_code
+            == LedgerAccountCode::TaxObligationLiability)
+            .then_some(tax_obligation_id);
+        sqlx::query(
+            "INSERT INTO ledger_posting
+                 (save_id, run_revision, ledger_transaction_id, posting_order,
+                  account_code, financial_account_id, tax_obligation_id, amount_krw)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(policy.run.save_id.get())
+        .bind(policy.run.run_revision)
+        .bind(ledger_transaction_id)
+        .bind(posting_order)
+        .bind(to_db_str(&posting.account_code)?)
+        .bind(posting.financial_account_id.map(ResourceId::get))
+        .bind(posting_obligation_id)
+        .bind(posting.amount_krw)
+        .execute(&mut **tx)
+        .await
+        .context("failed to write an annual-tax authority posting")?;
+    }
     Ok(ledger_transaction_id)
 }
 
@@ -1464,7 +1861,7 @@ fn create_filing_ledger(
             }
             if aggregate_debt_increase_krw > 0 {
                 postings.push(LedgerPosting {
-                    account_code: LedgerAccountCode::DebtPrincipal,
+                    account_code: LedgerAccountCode::TaxObligationLiability,
                     financial_account_id: None,
                     amount_krw: aggregate_debt_increase_krw
                         .checked_neg()
@@ -1600,9 +1997,14 @@ mod tests {
     ) -> AnnualTaxAssessmentReadRow {
         AnnualTaxAssessmentReadRow {
             policy_set_id: 2,
+            year_end_tax_assessment_id: None,
             status: to_db_str(&status).expect("상태를 DB 문자열로 바꿔야 한다"),
             gross_financial_income_krw: draft.gross_financial_income_krw,
             other_comprehensive_income_krw: draft.other_comprehensive_income_krw,
+            employment_taxable_income_krw: 0,
+            employment_deductions_krw: 0,
+            employment_final_prepaid_income_tax_krw: 0,
+            employment_final_prepaid_local_income_tax_krw: 0,
             withheld_income_tax_krw: draft.withheld_income_tax_krw,
             withheld_local_income_tax_krw: draft.withheld_local_income_tax_krw,
             income_tax_formula_a_krw: draft.income_tax_formula_a_krw,
@@ -1984,6 +2386,53 @@ mod tests {
             let result = decode_filing_schedule(&row);
 
             assert!(result.is_err());
+        }
+    }
+
+    mod context_세금_부족분_ledger를_만드는_경우 {
+        use super::*;
+
+        #[test]
+        fn given_현금부족분_when_ledger를만들면_then_세금의무계정에기록한다() {
+            let context = given_read_context(given_date(2027, Month::May, 31));
+            let plan = AnnualTaxFilingPlan {
+                settlement_id: 17,
+                tax_year: 2026,
+                execution_date: context.market_date,
+                expected_wallet_cash_krw: 1_000,
+                expected_aggregate_debt_krw: 200,
+                cash_plan: FilingCashPlan {
+                    next_status: FinancialIncomeAssessmentStatus::Filed,
+                    wallet_cash_krw: 0,
+                    aggregate_debt_krw: 400,
+                    movement: FilingMovement::AdditionalTax {
+                        wallet_debit_krw: 1_000,
+                        aggregate_debt_increase_krw: 200,
+                    },
+                },
+                context,
+            };
+
+            let ledger = create_filing_ledger(
+                crate::finance::create_finance_rules().as_ref(),
+                context,
+                &plan,
+            )
+            .expect("정산 ledger를 만들 수 있어야 한다")
+            .expect("부족분 정산에는 ledger가 있어야 한다");
+
+            assert_eq!(
+                ledger
+                    .postings()
+                    .iter()
+                    .map(|posting| posting.account_code)
+                    .collect::<Vec<_>>(),
+                vec![
+                    LedgerAccountCode::Wallet,
+                    LedgerAccountCode::TaxObligationLiability,
+                    LedgerAccountCode::TaxSettlement,
+                ]
+            );
         }
     }
 }

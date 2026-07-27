@@ -2450,7 +2450,7 @@ struct DueSettlementRow {
     payload_json: String,
     source_kind: String,
     source_id: String,
-    occurrence: u32,
+    occurrence: u64,
 }
 
 impl DueSettlementRow {
@@ -2463,7 +2463,8 @@ impl DueSettlementRow {
             CashSettlementSource {
                 kind: from_db_str(&self.source_kind)?,
                 source_id,
-                occurrence: self.occurrence,
+                occurrence: u32::try_from(self.occurrence)
+                    .context("cash settlement occurrence exceeds the supported range")?,
             },
             from_db_str(&self.kind)?,
             serde_json::from_str(&self.payload_json)
