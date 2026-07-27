@@ -1008,12 +1008,21 @@ ALTER TABLE spec_evidence
     ADD COLUMN credited_experience_days INT UNSIGNED NULL
         AFTER period_end_exclusive_date;
 
+-- Published evidence is immutable at runtime, but this one-time backfill must update existing
+-- experience rows before the new column becomes required.
+DROP TRIGGER tr_spec_evidence_no_update;
+
 UPDATE spec_evidence
 SET credited_experience_days = DATEDIFF(
     period_end_exclusive_date,
     period_start_date
 )
 WHERE kind = 'experience';
+
+CREATE TRIGGER tr_spec_evidence_no_update
+BEFORE UPDATE ON spec_evidence
+FOR EACH ROW
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'spec evidence is immutable';
 
 ALTER TABLE spec_evidence
     ADD CONSTRAINT ck_spec_evidence_credited_experience CHECK (
