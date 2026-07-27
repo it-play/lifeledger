@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-A·M4-B·M4-C·M4-D1·M4-D2 완료, M4-D3 기능 구현 중, 시각 스타일링 보류
+- 상태: M4-A·M4-B·M4-C·M4-D1·M4-D2 완료, M4-D3 기능 구현·로컬 검증 완료 및 최종 인수 중, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -19,6 +19,56 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 4. **M4-D 복지·생애 사건·보험** — 데이터 조건식 판정, 결정론적 사건, 보장 청구
 5. **M4-E 위기·재기·단순 법인** — 파산·회생·면책 상태기계와 최소 법인 손익
 6. **M4-F 기능 화면·장기 검증** — 스타일 없는 조작 화면, 30년 회귀와 실제 MySQL 8 검증
+
+### 1.1 현재 재개 지점 (2026-07-28)
+
+권위 checkpoint는 `main`의 M4-D3 구현 커밋 `4b2b3db`와 운영 복구 커밋 `aea745d`, `0b2c20b`,
+`eac0b92`다. D3 기능과 운영 배포는 끝났지만 §7.13의 최종 인수 한 묶음이 남아 있으므로 아직 D3 완료로
+승격하지 않는다.
+
+완료된 범위는 다음과 같다.
+
+- 서버 `cargo test` 1,170건, `cargo check`, clippy, fmt와 클라이언트 30 suite·551 tests,
+  typecheck·lint·build, Docker build check, `git diff --check`가 통과했다.
+- fresh MySQL 8.4에서 `0001→0040`, migration 40 success, draft guard 복구, 239 base tables·11 views,
+  전체 719 triggers와 보험 12 tables·36 triggers를 확인했다. manifest projection/rehash와 보험 원장 balance도
+  일치했다.
+- public HTTP에서 인증·pre-start·strict protocol, 기존 unavailable run과 새 aggregate v4 pin, D0 가입 전
+  empty contract pin과 notCovered, 가입·replay의 단일 10,000원 차감, stale cursor 충돌을 확인했다.
+- D30 보험료와 D31 insured 사건의 contract pin·ready 100,000원 claim·지급·replay를 확인했다. 장기 정상
+  term 경로는 D300 charge 11, D330 charge 12, D360 exclusive expiry까지 진행했고 charge 13이나 tail
+  coverage가 없었다.
+- D360 뒤 같은 바이너리와 DB로 서버를 재시작했다. 재시작 전후 보험 DB aggregate hash와 `/api/state`
+  canonical hash가 각각 같았고, 재시작 뒤 계약 API도 HTTP 200이었다.
+- 운영 CD 실행 [`30314779686`](https://github.com/it-play/lifeledger/actions/runs/30314779686)은 성공했다.
+  production MySQL 8.0.46은 migration `40/40`, 실패 0건이고
+  `0023`·`0040` 모두 success다. 서버는 `readygsm-net`의 직접 MySQL 연결에서 restart 0·healthy였으며
+  내부·외부 `/api/health`가 모두 HTTP 200이었다. 이 운영 확인은 아래에 남은 D3 전체 invariant 재현을
+  대체하지 않는다.
+
+마지막 acceptance 서버·MySQL container·volume과 scratch DB는 이미 정리되어 기존 D360 상태를 이어서 쓸 수
+없다. 남은 검증은 다음 순서로 **fresh 격리 환경에서 한 번에 재현**한다.
+
+1. `0001→0040`과 populated `0039→0040` 전진, metadata 수, migration 40, draft guard, 기존/신규 run pin과
+   canonical hash를 다시 확인한다.
+2. D0·D30/D31 주 경로와 cancel·deadline expiry·premium 부족 lapse·term D360을 재생해 contract, charge,
+   pin, claim, cash와 balanced ledger를 확인한다.
+3. 같은 DB로 서버를 재시작하고 contract/charge/pin/claim/cash/ledger와 `/api/state`의 전후 hash를 비교한다.
+4. 재시작 뒤 paid/reserved aggregate, contract/event pin 수, orphan reference 0건, ledger balance 0원과
+   sealed catalog update/delete 거절을 포함한 최종 global invariant SQL을 실행한다.
+5. 위 네 단계가 모두 통과한 뒤에만 §13.15를 완료 기록으로 바꾸고 D3 상태를 완료로 승격한다.
+6. 다음 기능 구현은 §8.1~§8.9의 M4-E1이다. core rule → SQLx `0041` → store/state/API → 스타일 없는
+   `/recovery` → 실제 MySQL/public HTTP 순서로 진행하며 §9 법인과 시각 스타일링은 시작하지 않는다.
+
+재개 전에 이 문서의 §2, §7.8~§7.13, §8.1~§8.9, §10~§13.15와 상위
+[`development-plan.md` §12](./development-plan.md)를 읽는다. 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와
+migration은 [database-schema](../.agents/skills/database-schema/SKILL.md)·
+[migration-guide](../.agents/skills/migration-guide/SKILL.md), API는
+[api-design](../.agents/skills/api-design/SKILL.md), 화면은
+[client-foundation](../.agents/skills/client-foundation/SKILL.md), 검증은
+[test](../.agents/skills/test/SKILL.md)·[security-checklist](../.agents/skills/security-checklist/SKILL.md)를
+따른다. 운영 배포는 [deploy workflow](../.github/workflows/deploy-server.yml),
+[deployspec](../server/deploy/deployspec.yml), [Dockerfile](../server/Dockerfile)을 함께 확인한다.
 
 M4는 M3의 다음 권위를 **소비만** 한다.
 
@@ -2995,6 +3045,59 @@ schema가 배포되기 전 알 수 없는 보험 component를 fail-closed한다.
 - D2 합본은 서버 1,141 tests와 clippy/fmt, 클라이언트 27 suite·518 tests와 typecheck/lint/build,
   `git diff --check`를 통과했다. production build의 596 KiB 크기 경고는 기존 비차단 경고이며 기능 오류는
   아니다.
+
+### 13.15 M4-D3 검증 진행 기록 (2026-07-28)
+
+M4-D3의 가상 보험 계약·보험료·중도 취소·사건 시점 pin·비소급 claim·지급·만기와 스타일 없는
+`/events-insurance` 기능은 커밋 `4b2b3db`에 구현했다. 기능 구현과 로컬 gate는 끝났고 실제 MySQL/HTTP
+인수의 마지막 global invariant 재현만 남아 있다.
+
+- SQLx `0040`은 insurance fact/product/coverage catalog와 contract·premium·claim·allocation·transition·
+  receipt runtime을 추가했다. fresh MySQL 8.4에서 migration 40 success, 239 base tables·11 views·719
+  triggers, 보험 12 tables·36 triggers와 세 draft guard 복구를 확인했다.
+- 기존 unavailable run은 빈 보험 응답을 유지했고 새 run만 life aggregate v4, event v2와 insurance v1을
+  고정했다. component/product/coverage hash와 manifest projection 재계산도 저장값과 일치했다.
+- D0 사건은 계약이 없는 contract pin 0건으로 고정돼 뒤 가입 후에도 `notCovered`였다. 가입과 replay는
+  계약·receipt와 10,000원 차감 원장을 한 번만 만들었고 stale cursor는 `contractConflict`였다.
+- D30 두 번째 보험료, D31 insured 사건의 contract pin 1건, ready 100,000원 claim과 지급/replay를 확인했다.
+  DB에는 `notCovered:pin0`, `paid:pin1`이 남았고 가입·보험료·claim 원장은 모두 balance 0이었다.
+- 장기 정상 경로는 D300 charge 11, D330 charge 12, D360 `expired/termEnded`까지 통과했다. 12개 premium
+  charge와 원장이 정확히 한 번씩 존재했고 13번째 charge와 D360 이후 보장은 없었다.
+- 동일 scratch DB에서 서버를 재시작한 뒤에도 보험 aggregate와 `/api/state` hash가 각각 동일했고 계약
+  API가 HTTP 200이었다. 다만 그 뒤 최종 aggregate·pin·orphan invariant SQL을 재실행하기 전에 scratch
+  container·volume을 정리했으므로 §1.1의 fresh 전체 재현이 필요하다.
+- D3 합본은 서버 1,170 tests와 check/clippy/fmt, 클라이언트 30 suite·551 tests와
+  typecheck/lint/build, Docker build check와 `git diff --check`를 통과했다.
+
+운영 CD는 `main`의 `server/**` push에서 source 전송 → Docker image build → container 교체 → health
+validation을 수행하며, 새 binary 시작 시 `sqlx::migrate!()`가 외부 요청 bind 전에 pending migration을
+적용한다. 따라서 migration은 별도 job이 아니라 성공적으로 빌드·기동된 배포 안에서 자동 실행된다.
+
+- `4b2b3db` 실행 `30311828314`는 정확한 source를 전송했지만 7분간 조용한 Rust release build 중 SSH 실행
+  채널이 끊겨 BuildKit이 runtime image 단계 전에 취소됐다. `aea745d`가 20초 build heartbeat와 종료 코드
+  보존을 추가해 이 원인을 수정했다.
+- `aea745d` 실행 `30313085477`은 이미지를 만들고 container를 교체했지만 Docker Desktop의
+  `host.docker.internal` host-port 경로에서 SQLx migration 연결이 멈춰 health가 실패했다. 같은 image와
+  DB를 `readygsm-net`의 `mysql:3306`에 직접 연결한 격리 probe는 `0001→0040`과 health를 통과했다.
+  `0b2c20b`는 compose service를 이 외부 network에 붙이고 production `SERVER_ENV`도 `mysql:3306`으로
+  변경했다.
+- `0b2c20b` 실행 `30313998197`에서는 이전 host-gateway 연결이 남긴 transaction·SQLx lock을 정확히
+  해제한 뒤 populated production DB에서 migration `0023`의 기존 결함이 드러났다. `0019`가 모든
+  `spec_evidence` update를 막은 상태에서 `0023`이 `credited_experience_days`를 backfill하고 있었으며,
+  empty fresh DB에서는 대상 행이 없어 숨었던 문제였다. `eac0b92`는 backfill 직전에 해당 trigger만 내리고
+  즉시 같은 immutable trigger를 복원한다.
+- 실패 직후 DB를 mode 600의
+  `/Users/snowykte0426/Downloads/lifeledger-pre-migration23-repair-20260728.sql`로 보존했다. 크기는
+  1,079,164 bytes, SHA-256은
+  `df71584ee8d6c4009cea2e34c879d9d59df24ed97e739c715b1414855a949440`이다. 그 복제본에서 수정된 `0023`
+  tail과 `0024→0040`, health를 먼저 통과시킨 뒤 같은 복구를 production에 적용했다. 이 dump를 MySQL
+  client로 복원할 때 trigger 행 끝의 `; */;;`는 `LC_ALL=C sed`로 ` */;;`로 정규화해야 한다. 사용자·
+  save·character 각 1건과 기존 경력 증빙을 보존했고 `0023` checksum도 새 source와 일치시켰다.
+- 최종 실행 [`30314779686`](https://github.com/it-play/lifeledger/actions/runs/30314779686)은 6분 4초 만에
+  성공했다. production은 migration `40/40`, 실패 0건,
+  container restart 0·healthy이며 `172.19.0.6`에서 MySQL container network로 직접 연결됐다. 내부
+  `http://127.0.0.1:10105/api/health`와 외부 `https://kimtaeeun.site/lifeledger/api/health`가 모두 HTTP
+  200을 반환했다. 두 probe container·DB와 전송한 임시 SQL은 삭제했다.
 
 ## 14. M4 완료 조건
 
