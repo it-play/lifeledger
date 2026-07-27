@@ -1,7 +1,7 @@
 # M3 커리어·병역 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M3-A 기능 구현 및 자동/실제 MySQL 검증 완료, M3-B 구현 준비
+- 상태: M3-A·M3-B·M3-C·M3-D 기능 구현 및 자동/실제 MySQL 검증 완료
 - 상위 계획: [`development-plan.md` §4.2, §7, §8.1, §12](./development-plan.md)
 - 선행 조건: [`m2-accounts-tax.md` §12](./m2-accounts-tax.md)의 M2 완료
 
@@ -24,6 +24,23 @@ M3-A는 migration 0017~0020, 서버 도메인·store·strict API, `/career` 기�
 세 산출물의 불변 version과 cursor page를 실제 MySQL 8과 HTTP에서 검증했다. CSS와 시각 다듬기는 기능
 마일스톤을 모두 닫은 뒤 진행한다.
 
+M3-B는 migration 0021, 결정론적 일일 공고, 직접·초대 지원, 서류·면접·오퍼 상태기계, 근로계약과
+일일 경력 반영, strict API와 `/career` 기능 화면까지 구현됐다. fresh MySQL 8 전체 migration, 상태·확률·
+날짜·원인 불변성의 부정 probe, HTTP 명령 replay와 입사 전날·당일·익일 경계를 검증했다.
+
+M3-C는 migration 0022의 정책·급여 사실, 정수 급여·4대보험·원천징수 규칙,
+settlement·원장·지갑·연간 누계·원티드 보상·다음 급여 예약, strict API와 `/career` 기능 화면까지 구현됐다.
+1월 1일 annual coordinator, 연금 세원층 재분류, 2월 reconciliation과 M2 금융소득 combined 연결도
+완료했다. 전체 자동 검증과 fresh MySQL 8의 public HTTP 흐름에서 부분월 gross, 지급일 귀속연도, net 입금,
+balanced ledger, 2월 급여 선행·추가납부, 600만원 연금 allocation·환급, 금융소득 combined assessment와
+5월 신고 연결을 각각 대조했다.
+
+M3-D는 migration 0023의 durable 병역 상태·typed 복무 정책, 복무 시작/완료 action, 군 급여·근로소득,
+장병내일준비적금 가입·납입·중도해지·만기·정부지원, strict API와 `/career` 기능 화면까지 구현됐다.
+fresh MySQL 8과 public HTTP에서 546일 현역 복무, 군 급여 18회, 적금 납입 18회, 동일 기관 재가입 제한,
+만기 원금·은행이자·정부지원 및 2026년 연말정산을 끝까지 대조했다. 다음 구현 경계는 M4-A 생활비·가구며
+CSS와 시각 다듬기는 계속 보류한다.
+
 M3는 커리어 콘텐츠를 대량으로 채우는 단계가 아니다. 각 업종·직무·활동의 최소 불변 카탈로그만 제공하고
 추가 공고·자격증·교육·프로젝트는 M5 데이터 작업으로 남긴다. 생활비·실업급여·복지 판정·주거·부동산·
 대출·퇴직금·이직·해고·휴직은 M4 이후 범위다. 따라서 M3 v1은 동시에 하나의 근로계약만 허용하고,
@@ -44,6 +61,12 @@ M3는 런에 다음 두 불변 키를 고정한다.
 이미 시작한 런의 과거 급여·지원·판정에는 소급하지 않는다. 법령상 지급일·귀속연도에 따라 새 규칙이
 적용되어야 하는 항목은 런의 policy set 안에서 `effectiveFrom · effectiveTo`가 겹치지 않는 하위 버전을
 게임 날짜로 선택한다. 벽시계의 현재 날짜나 외부 API 응답을 계산 중에 읽지 않는다.
+
+ranked employment policy는 coverage의 모든 지급일과 귀속연도에 exact 하위 버전을 가져야 한다. 단,
+`rankedEligible = false`이고 key가 `dev-unranked-*`인 개발 fixture는 장기 시뮬레이션이 정책 공백에서
+멈추지 않도록 마지막 지급일 policy와 `taxYear <= targetTaxYear`인 최신 annual policy를 명시적으로
+carry-forward할 수 있다. 이 fallback은 미래 법령을 검수했다는 뜻이 아니며 ranked run에는 절대 적용하지
+않는다. 어떤 fallback을 썼는지도 pinned policy/source ID로 결과에 남긴다.
 
 최초 `careerCatalogBundle`은 M3-A를 pin하기 전에 A의 spec·activity·artifact checklist, B의 플랫폼·업종·
 직무군·공고·가상 고용주, D의 복무 option·가상 금융기관을 모두 포함한 **하나의 완전한 최소 bundle**로
@@ -72,10 +95,23 @@ bundle/policy key를 한 번만 pin한다. 이 pin은
 시장 모델·일봉·M2 상품 bundle을 바꾸지 않으며, M3 행이 없는 기존 런의 `snapshot.career`는 마이그레이션
 직후 §2.3의 bridge 초기 상태로 합성한다. 새 캐릭터 시작은 같은 key로 새 `run_revision`의 M3 상태를 만든다.
 
+M3-B 계약이 이미 진행 중인 런에 M3-C 급여를 붙일 때는 과거 급여를 소급 지급하지 않는다. 계약에
+`payrollBaselinePeriodNo`를 불변으로 pin하고, 마이그레이션 시 현재 `save.gameDay`보다 지급일이 엄격히 뒤인
+첫 period를 baseline으로 선택해 그 회차부터 예약한다. 신규 계약의 baseline은 1이다. 첫 payroll row는
+period 1이 아니라 그 계약의 baseline과 같아야 하고, 이후 period는 빈틈 없이 1씩 증가한다. 따라서 이미
+지난 지급일을 pending으로 만들어 overdue 상태에 빠뜨리거나, 지급일만 현재 이후로 임의 변경하지 않는다.
+
 M2의 `run_tax_profile`에 들어 있던 prior-year placeholder는 더 이상 근로소득 권위가 아니다. M3 이후에는
 마감된 `employment_income_year`와 `year_end_tax_assessment`만 연금 공제율과 금융소득 종합과세의 다른
 종합소득 입력을 제공한다. M3 이전 연도는 기존 값과 구분되는 `legacyProfile` source로 보존하고 새 급여와
 섞지 않는다.
+
+귀속연도에 M3 과세 급여나 `employment_income_year`가 하나라도 있으면 그 연도의 `run_tax_profile` 값은
+읽지 않는다. `run_tax_profile`은 연도 열이 없으므로 그 legacy 값은 정확히 `worldStartDate.year - 1`에만
+대응하며 다른 연도에 반복 사용하지 않는다. 그 한 연도에도 M3 근로소득과 legacy를 합산하는 경로는 없다.
+M2 `save.policy_set_id`는 금융계좌·연금 납입과 금융소득세의 권위로 계속 유지한다. employment policy는
+그 값을 복제하지 않고 게시 시 요구 M2 policy와의 compatibility를 명시하며, 런 pin transaction은 현재 두
+policy 조합이 게시된 compatibility와 일치할 때만 성공한다.
 
 단계 구현 중에는 첫 소비 시점에 맞춰 pin을 추가한다. M3-A의 `career_run`은 아직 소비하지 않는
 `employmentPolicySetKey`를 임시 값으로 만들지 않고 `careerCatalogBundleKey · focusedJobFamilyKey ·
@@ -137,6 +173,12 @@ activity/contract/service ID를 가진다. 기간 evidence는 `[periodStartDate,
 기간이 없는 evidence는 두 값을 모두 비운다. 이미 취득한 evidence는 수정하지 않고 정정 event나 새 버전으로만
 바꾼다. 시작 학력·경력·자격증도 캐릭터 생성 transaction에서 같은 형태로 만들어 이후 경로와 예외를 두지
 않는다.
+
+`experience` evidence는 실제 활동 기간과 별도로 nonnegative `creditedExperienceDays`를 반드시 보존한다.
+일반 근로계약과 기존 period evidence는 period 일수, 0년 bridge는 0일이며, military evidence는 누적
+`creditedExperienceDayPpm`을 1,000,000으로 나눈 몫이다. 이력서에는 실제 period를 표시하지만 공고의
+`minimumExperienceDays`는 period 길이가 아니라 `creditedExperienceDays` 합을 사용해 부분 인정 경력을
+과대계상하지 않는다. 다른 evidence kind의 이 필드는 null이다.
 
 각 evidence catalog row는 직무군별 `contributionBp`를 가진다. 특정 공고에서 한 차원의 보유 점수는
 적용 가능한, 만료되지 않은 evidence의 기여도를 모두 더한 뒤 `10,000bp`에서 자른다. 합산과 cap은 i64로
@@ -437,9 +479,27 @@ phase 10에서 pending 계약이 start day에 active가 된 뒤 그 날을 첫 �
 급여연도 1..r월은 `q + 1원`, 나머지는 `q원`으로 계산해 12개월 합계를 정확히 연봉과 맞춘다. M3 v1은
 과세 기본급만 있고 상여·초과근무·비과세 수당·퇴직급여는 없다.
 
+급여 period는 계약별 단조 증가 `periodNo`를 1부터 영구 보존하고,
+`salaryMonthOrdinal = ((periodNo - 1) mod 12) + 1`로 연봉 분할 순번을 파생한다. 첫 입사월이 부분월이어도
+`periodNo = 1`, ordinal 1이고 계약이 바뀌면 새 계약은 다시 1에서 시작한다. 따라서 2년 차 settlement도
+첫해와 unique key가 충돌하지 않으며, 어느 달에 입사해도 연속한 12개 기본 월액의 합은 연봉과 같다.
+첫 부분월에만 그 ordinal의 기본 월액을 아래 일수 비율로 줄인다.
+
 급여 period는 직전 달력 월이고 catalog의 payday에 지급한다. payday가 없는 달은 말일로 당긴다.
 입사 첫 달은 `[startDate, monthEnd]`의 재직일수/그 달의 달력일수로 gross를 내림한다. 이후 완전한 달은
 월급 전액이다. 급여일마다 다음 급여 settlement를 한 번 예약하며 동일 contract/period를 unique로 막는다.
+
+M3 v1의 `payroll_record.taxYear`와 `employment_income_year.taxYear`는 실제 `payday`의 달력연도다.
+따라서 12월 근무분을 다음 1월에 지급하면 다음 귀속연도 누계에 들어가며, 1월 1일 coordinator는 직전
+12월 31일까지 실제 지급이 끝난 payroll만 닫는다. 미지급 급여의 법정 의제지급·발생주의 조정은 별도
+accrual 권위가 필요한 규칙이므로 M3 v1에서는 지원하지 않고, period 날짜는 일할 gross와 보험 부과
+판정에만 쓴다.
+
+원티드 채용보상은 고용주 급여가 아니라 플랫폼이 지급하는 `otherIncomeReward`다. 고용 유지 후 첫 급여일에
+같은 planner transaction에서 지급하되 별도 `career_reward_payment`와 원장 transaction으로 기록하고,
+근로소득·4대보험·연말정산 총급여에는 넣지 않는다. M3 v1은 gross의 소득세 20%와 지방소득세 2%를 각각
+원천징수한 뒤 나머지를 지갑에 넣고 이 지급으로 과세를 종결한다. 이 분류·요율은 employment policy row와
+근거 provenance를 가져야 하며, 공식 검수 전 fixture는 `dev-unranked-*`에서만 사용할 수 있다.
 
 ## 8. 월급, 4대보험과 근로소득 원천징수
 
@@ -458,6 +518,31 @@ phase 10에서 pending 계약이 start day에 active가 된 뒤 그 날을 첫 �
 M3는 간이세액 비율 선택을 제공하지 않고 100%로 고정한다. 부양가족 입력은 캐릭터의 현재 확정값만 쓰며
 M4 전에는 장애·출산·주거·의료·교육비 같은 증빙을 합성하지 않는다. policy에 필요한 row가 없거나 기간이
 겹치거나 rounding metadata가 없으면 급여일 전체를 `policyUnavailable`로 실패시키며 0원으로 대체하지 않는다.
+
+간이세액표는 급여 귀속월이 아니라 실제 지급일에 유효한 version을 고른다. 2026-01-01부터
+2026-02-28 지급분은 2024-02-29 개정 별표 2, 2026-03-01 지급분부터는 2026 개정 별표 2를 쓴다.
+M3의 캐릭터에는 배우자·자녀의 나이와 관계 정보가 없으므로 `공제대상가족수 = 1 + dependents`로 고정하고
+자녀 수는 0으로 전달한다. `dependents`의 서버 범위가 0..=6이므로 표 조회 가족 수는 1..=7이다. M4가 관계와
+나이를 도입하기 전에는 임의로 자녀 공제나 배우자 공제를 추정하지 않는다.
+
+첫 `dev-unranked-m3-employment-2026-v1` fixture는 다음 검수된 경계를 typed row로 저장한다.
+
+- 국민연금은 2026년 근로자·사용자 각각 4.75%다. 최초 기준소득월액은 계약 월평균 과세급여의 1,000원
+  미만을 버린 뒤 상·하한을 적용한다. 2026-01-01..06-30은 400,000..6,370,000원,
+  2026-07-01..12-31은 410,000..6,590,000원이며 두 부담분을 각각 계산하고 10원 미만을 버린다.
+- 직장 건강보험은 총 7.19%, 근로자·사용자 각각 3.595%다. 장기요양은 각자의 건강보험료에
+  `0.9448 / 7.19`를 곱한다. 공개 원문에서 근로자 급여공제의 정확한 단수 예시까지 확인되지 않았으므로
+  개발 fixture는 각 단계 10원 미만 절사를 명시하고 ranked policy 게시를 막는다. 검수된 단수 규칙은 기존
+  row를 수정하지 않고 새 policy version으로 게시한다.
+- 고용보험 실업급여분은 근로자·사용자 각각 0.9%다. 현재 가상 고용주는 모두 `under150`으로 mapping해
+  사용자 고용안정·직업능력개발 0.25%를 더한다. 산재보험은 업종별 사용자 전액 부담이고 근로자 공제는 0이다.
+  업종별 공식 고시 mapping이 끝나기 전에는 개발용 최소 rate만 unranked policy에 둔다.
+
+부분월 보험료는 gross 급여 일할과 별도로 계산한다. 입사일이 그 달 1일이면 국민연금·건강보험·장기요양을
+그 달부터 월액 전액 부과하고, 2일 이후면 다음 달부터 부과한다. 국민연금의 선택적 취득월 납부는 M3 v1에서
+신청하지 않는다. 이 세 보험은 부과하는 달 안에서 재직일수로 다시 일할하지 않는다. 고용보험과 산재보험은
+실제 해당 period gross를 보수로 사용하므로 부분월 gross만큼만 계산한다. 각 보험의 기준보수·부과 여부·rate·
+rounding 결과는 `payroll_record`에 분리해 저장한다.
 
 국민연금·건강보험·장기요양·고용보험의 근로자 부담은 net pay에서 공제한다. 산재보험과 각 사용자 부담은
 `payroll_record`에 정보로 남기되 플레이어 지갑·순자산 원장에는 posting하지 않는다.
@@ -480,7 +565,7 @@ withheldLocalIncomeTaxKrw`이며 음수면 정책 오류로 급여 전체를 롤
 
 1월 1일 일일 planner는 당일 소득·정산 전에 직전 귀속연도를 닫는다.
 
-1. 직전 연도의 payroll·군 복무 중 과세 근로소득·근로자 보험료·원천세 누계를 고정한다.
+1. 직전 연도를 `taxYear`로 가진 payroll·군 복무 중 과세 근로소득·근로자 보험료·원천세 누계를 고정한다.
 2. policy의 근로소득공제, 인적공제, 보험료 소득공제, 기본세율, 근로소득세액공제를 정수로 계산한다.
 3. M2 `pension_contribution_year`의 납입과 예상 eligible을 읽되 아직 실제 공제로 간주하지 않는다.
 4. 금융소득 종합과세 대상이 아니면 employment-only assessment가 definitive다.
@@ -489,6 +574,24 @@ withheldLocalIncomeTaxKrw`이며 음수면 정책 오류로 급여 전체를 롤
 6. definitive assessment가 실제 사용한 연금 세액공제와 세원층 재분류를 확정한다.
 7. employment-only 원천세 차액은 다음 2월 급여일 settlement로, combined 추가세액·환급은 M2의 5월
    신고 settlement로 예약한다.
+
+M2와 M3가 각자 연도를 닫지 않는다. 하나의 annual coordinator가 employment 입력을 먼저 고정한 뒤 기존
+M2 비교과세 엔진을 호출하고 `employment_income_year · year_end_tax_assessment ·
+financial_income_assessment`를 한 transaction에서 서로 연결한다. 같은 `(save, run, taxYear)`에 대한 재시도는
+이미 확정된 coordinator receipt를 replay한다. M2의 연금저축 단독 6,000,000원, 연금저축+IRP 합산
+9,000,000원과 계좌별 납입 권위는 계속 M2 pinned finance policy에서 읽고 employment policy에 복제하지 않는다.
+
+coordinator가 2월 reconciliation을 예약하기 전 정산 anchor를 고정한다. 우선순위는 같은 런의 계속되는
+민간 2월 payroll, 계속 복무 중인 2월 military pay, employment annual policy의 독립
+`februaryReconciliationDayOfMonth` 순서다. 앞의 두 급여 anchor를 쓰면 해당 settlement를 먼저 ensure하고
+그 뒤 reconciliation을 insert해 같은 due day에는 급여가 더 작은 settlement ID를 갖게 한다.
+`dev-unranked-m3-employment-2026-v1`의 독립 정산일은 28일이며, 해당 일이 없는 달은 말일로 당긴다.
+이 값은 급여 anchor가 없는 기능 fixture의 결정론적 fallback일 뿐이므로 ranked policy는 검수된 독립
+정산일을 명시하지 않으면 게시할 수 없다. 과세
+근로소득·보험료·원천세·추가세·환급이 모두 0이고 income event도 없는 연도는 reconciliation을 만들지
+않으며 API의 `reconciliationGameDay`는 null이다. combined
+assessment는 근로소득 과세표준·공제와 2월 정산 후 최종 employment income/local tax 선납액을 명시적으로
+보존하고 M2 비교과세 입력으로 넘긴다. 기존 `otherComprehensiveIncome` 한 숫자로 이를 대신하지 않는다.
 
 이 순서로 2월 환급 뒤 5월에 같은 원천세를 다시 공제하거나, 연금 공제를 두 번 쓰는 것을 막는다.
 금융소득 신고 계산은 2월 정산 후 최종적으로 부담한 employment income/local tax를 원천납부액으로 보고
@@ -516,17 +619,56 @@ M2 납입 시점의 `expectedCreditKrw`는 안내 값일 뿐 현금이나 확정
 단독 한도까지 채운 뒤, 같은 순서의 IRP 납입으로 합산 한도의 나머지를 채운다. 실제 세액공제액이 산출세액에
 막힌 경우, 해당 rate로 실제 credit을 만들 수 있는 최대 원 단위 납입액을 정수 이분 탐색해
 `taxExcludedContribution`에서 `creditedContribution`으로 옮긴다. 판정 함수는 policy의 공식 rounding을
-그대로 쓰며, 이동액에 대응하는 credit이 0원이면 이동하지 않는다. 계좌별 이동 합은 실제 eligible 납입을
-넘지 않고 네 세원층 총합은 재분류 전후 같아야 한다.
+연간 합산액에 한 번 적용하며, 전체 이동액이 만드는 credit이 0원이면 이동하지 않는다. source 순서대로
+누적 절사 차이를 귀속하므로 앞선 소액 source의 귀속 credit이 0원이어도 뒤 source까지 합친 전체 이동액의
+credit이 양수일 수 있다. 이 경우 양수 이동 source는 모두 allocation과 세원층 원장에 남기고 assessment별
+source credit 합은 연간 실제 credit과 같아야 한다. 계좌별 이동 합은 실제 eligible 납입을 넘지 않고 네
+세원층 총합은 재분류 전후 같아야 한다.
 
-재분류는 돈을 움직이지 않지만 M2가 예약한 감사 경계를 지킨다. 계좌별로
+같은 귀속연도 안에 연금 인출이 있었다면 납입 총액만으로 공제를 만들지 않는다. append-only
+`pensionContribution`과 `pensionWithdrawal` event를 게임일·ledger ID 순서로 replay하고, M2 인출 순서대로
+소진된 `taxExcludedContribution`을 가장 오래된 미확정 납입 source부터 차감한다. 12월 31일 종료 시점에
+해당 source에 남아 있는 금액만 공제 대상 pool에 들어간다. 이미 인출된 원금을 뒤늦게
+`creditedContribution`으로 재분류할 수 없고, 닫힌 계좌라도 남은 세원층이 있으면 같은 규칙으로 판정한다.
+
+재분류는 돈을 움직이지 않지만 M2가 예약한 감사 경계를 지킨다. 양수 이동 source별로 해당 계좌의
 `pensionTaxExcludedContribution`과 `pensionCreditedContribution` 사이에 같은 금액의 반대 posting을 가진
-한 balanced ledger transaction을 만들고, append-only `pension_credit_allocation`과
-`tax_account_value_event(kind: pensionCreditFinalized)`를 assessment와 같은 transaction에 기록한다.
+한 balanced ledger transaction을 만든다. 따라서 한 계좌의 여러 납입 source는 각 source identity를 가진
+여러 balanced transaction으로 감사할 수 있다. append-only `pension_credit_allocation`과
+`tax_account_value_event(cause: pensionCreditFinalized)`를 assessment와 같은 transaction에 기록한다.
 재시도는 `(save_id, run_revision, tax_year, contribution_source_id)` unique key로 같은 allocation과 원장에
 수렴한다. M3 v1은 수정신고를 지원하지 않아 definitive assessment와 allocation을 다시 열지 않는다.
 
+M3-C migration은 `tax_account_value_event`의 cause CHECK와 insert trigger를 함께 확장한다. 이 자동 event는
+command identity를 요구하지 않고 assessment/source allocation identity를 사용하며, 연말 전에 계좌가 닫혔어도
+남아 있는 세원층의 최종 재분류 event를 허용한다. 기존 daily valuation/trade event의 active-account 제약과
+delta 검증은 그대로 유지하고 `pensionCreditFinalized` branch에서만 총액 불변·두 contribution layer 간 이동을
+검증한다.
+
 ## 10. 병역
+
+### 10.0 M3-D 활성화와 기존 런 bridge
+
+M3-D migration은 `career_run.militaryStatus`를 durable 권위로 추가한다. 새 런과 기존 런 모두
+`character.military`를 한 번만 읽어 `notServed → unserved`, `completed → completed`,
+`exempted → exempt`로 옮긴다. 이미 복무 중인 legacy 값은 경과일을 복원할 근거가 없으므로
+`serving → activeDuty`, `alternative → socialService`의 pending service를 다음 게임일에 시작하고 전체
+policy 기간을 미래에 다시 센다. 과거 급여·경력·적금 회차는 소급하지 않는다. 이 bridge service는 다른
+복무 시작과 동일한 durable row/action을 사용하며, 시작 전에도 외부 status는 `serving`으로 유지해 채용
+우회를 막는다.
+
+0017~0022가 이미 게시한 `dev-unranked-m3-v1` bundle과
+`dev-unranked-m3-employment-2026-v1` policy에는 D runtime이 요구하는 일부 typed child가 없다. 0023은
+두 key가 비랭크이고 기존 child checksum이 예상값과 정확히 같을 때만 한 transaction에서 D 전용 child를
+보강한 뒤 새 update/delete·publish-completeness trigger를 설치한다. 이 staged migration 예외는 해당 두
+개발 key에만 허용하며 ranked/published production graph에는 절대 row를 덧붙이지 않는다.
+
+0018의 개발 bundle에 남은 `military_option_version.minimumEducation`과 단일 자격증 FK는 M3-A 당시의
+호환 projection이며 M3-D 자격 판정 권위가 아니다. 0023의 typed eligibility child가 모든 option에 대해
+`minimumEducation · requiredCertificationCount · minimumExperienceDays`를 완전하게 명시하고 runtime은
+그 child만 읽는다. 기존 published option row는 바꾸지 않는다. 특히 `industrial-technical-v1`은 typed
+child에서 `minimumEducation = null · requiredCertificationCount = 1`로 고정하며, 기존 `associate` 값으로
+학력을 추가 요구하지 않는다. 새 bundle은 typed child 없이는 게시할 수 없다.
 
 ### 10.1 상태와 형태
 
@@ -547,6 +689,11 @@ M2 납입 시점의 `expectedCreditKrw`는 안내 값일 뿐 현금이나 확정
 hard requirement만 검사한다. 성별은 시작 설정에서 확정된 법정 대상 여부 외에는 급여·경력·채용 확률에
 쓰지 않는다.
 
+복무 시작 명령은 현재 cursor에서 자격을 확정하고 `startGameDay = currentGameDay + 1`인 phase 10 action을
+만든다. 별도 선발 확률은 만들지 않으며 장교·부사관의 “선발”은 M3 v1에서 option의 typed 최소 학력·
+자격증 수·경력일 hard requirement를 모두 충족한 것으로 표현한다. 산업기능요원은 최소 자격증 수 1을,
+전문연구요원은 석사 이상을 요구하고, 정확한 자격 종목을 추정하지 않는다.
+
 `military_service`는 `[startGameDay, endGameDay)`와 immutable option/policy key를 가진다. end day 시작에
 `completed`로 전이하므로 마지막 복무·급여·경력 일은 `endGameDay - 1`이다. 조기전역·복무중단·예비군·
 민방위 세부 이벤트는 M3에서 구현하지 않는다.
@@ -556,12 +703,49 @@ hard requirement만 검사한다. 성별은 시작 설정에서 확정된 법정
 복무 option은 보수 분류, 지급 주기, 단계별 급여, effort capacity, 인정 업종·직무와 하루 경력 비율을
 typed catalog로 가진다. 실제 기간·급여표는 `employmentPolicySet` 하위 버전이고 코드에 숫자로 넣지 않는다.
 
+기간의 월 계산은 `startDate`에 policy의 `serviceDurationMonths`를 달력 월로 더하고 없는 일자는 말일로
+당긴 exclusive end date를 사용한다. pay stage의 `serviceMonth`는 start date부터 완전히 지난 달력 월 수다.
+첫 `dev-unranked-m3-employment-2026-v1`의 기능 fixture는 다음처럼 고정한다.
+
+| service type | 기간 | 월 급여 stage / 개발 가정 |
+|---|---:|---|
+| `activeDuty` | 18개월 | 복무월 `[0,2) 750,000 · [2,8) 900,000 · [8,14) 1,200,000 · [14,18) 1,500,000`원 |
+| `socialService` | 21개월 | 복무월 `[0,3) 750,000 · [3,9) 900,000 · [9,15) 1,200,000 · [15,21) 1,500,000`원 |
+| `industrialTechnical` | 34개월 | 현역 대상·자격증 1개·지정 가상고용주 경로. 2026 최저임금 월 환산 2,156,880원을 개발 계약 하한으로 사용 |
+| `professionalResearch` | 36개월 | 석사 이상·지정 가상연구기관 경로. 2,156,880원을 개발 계약 하한으로 사용 |
+| `commissionedOfficer` | 36개월 | 일반 단기복무·소위 1호봉 기본봉 2,150,400원만 쓰는 `basePayOnly` 개발 경로 |
+| `nonCommissionedOfficer` | 48개월 | 일반 단기복무·하사 1호봉 기본봉 2,133,000원만 쓰는 `basePayOnly` 개발 경로 |
+
+현역 stage는 일반 진급 최저복무기간을 고정 적용하는 `ordinaryMinimumPromotion` 게임 가정이다. 사회복무의
+식비·교통비는 위치·실제 출근일 데이터가 없으므로 gross 0으로 섞지 않고
+`reimbursementNotModeled`로 표시한다. 산업·전문요원의 실제 계약 급여와 장교·부사관의 초임호봉·수당은
+경로별로 달라 위 숫자를 production/ranked policy로 게시하지 않는다. ranked option은 지정 고용/임용 경로와
+보수표가 모두 typed row로 검수되기 전 `policyUnavailable`이다.
+
+`dev-unranked-m3-employment-2026-v1`의 모든 option은 `paydayDayOfMonth = 10`인 monthly schedule을 쓴다.
+복무 시작일 당일 또는 그 뒤의 첫 보정 지급일부터 `payday < endExclusiveDate`인 회차만 예약하며 없는
+일자는 말일로 당긴다. M3 v1 개발 fixture는 부분월 일할 없이 지급일에 해당하는 pay stage의 월 gross
+전액을 지급한다. 이 지급일과 무일할 규칙은 결정론적 기능 가정이므로 ranked policy는 실제 지급주기와
+부분월 산식의 검수된 typed metadata가 없으면 게시할 수 없다.
+
 - 현역·사회복무 급여는 `militaryPayIncome`으로 기록하고 policy가 정한 과세·사회보험 분류를 적용한다.
 - 산업기능·전문연구·장교·부사관 급여는 option의 compensation rule에 따라 일반 payroll 계산기를
   재사용하되 `military_service_id`를 source로 고정한다.
 - 경력 인정형은 매 복무일에 `experience` evidence progress를 누적하고, 복무 완료 때 기간 evidence를
-  확정한다. 중간 조회는 progress와 완료 예정 효과를 구분한다.
+  확정한다. period는 실제 service `[startDate,endExclusiveDate)`이고 `creditedExperienceDays`는 직무별
+  누적 ppm의 정수 몫이다. dev-unranked bundle은 option·job family별 stackable military experience entry를
+  typed mapping으로 두고, 기존 experience 기여 단위 300bp에 `experienceCreditPpm`을 곱해 내림한 양수
+  contribution만 해당 직무군에 부여한다. evidence key는
+  `militaryService:{serviceId}:{careerJobFamilyId}`이며 acquired day는 `endGameDay`다. 중간 조회는 progress와
+  완료 예정 효과를 구분한다.
 - 현역 중 자산 계좌 주문은 계속 허용한다. 활동 시작·진행 여부만 `allowedLifeStatuses`와 effort로 제한한다.
+
+M3-D는 append-only `employment_income_event`를 급여 종류와 무관한 연간 누계 권위로 둔다. source는
+`employmentPayroll · militaryPay`이고 source ID·occurrence, 지급 게임일/`taxYear`, gross, 근로자 보험료
+각 항목과 원천세를 보존한다. 0023은 기존 `payroll_record`를 event로 한 번 backfill하고 이후 민간·군 급여
+transaction은 payroll 사실과 income event를 함께 쓴다. `employment_income_year`는
+`incomeEventCount · lastIncomeEventId`와 event 합으로 검증하며 payroll ID를 일반화된 권위로 사용하지
+않는다. 이 구조가 군 급여만 있는 연도와 민간·군 급여가 섞인 연도를 같은 coordinator로 닫는다.
 
 ## 11. 장병내일준비적금
 
@@ -570,15 +754,50 @@ M3는 M2의 가상 기관 `life-bank-a · life-bank-b`에 장병내일준비적�
 비과세, 정부 매칭률, 만기·중도해지 자격은 공식 근거를 가진 policy data다. 은행 금리·우대 조건은 불변
 product catalog다.
 
+2026 policy는 `activeDuty · socialService`만 가입 가능하고 최소 잔여복무 1개월, 한 기관당 1계좌·전체
+2계좌, 기관별 월 300,000원·개인 합산 월 550,000원, 한도 설정 50,000원 단위로 고정한다. 개발 상품의
+실제 회차 납입은 최소 1,000원·1원 단위이며 가입 뒤 월 한도는 바꾸지 않는다. 가입일이
+2026-12-31을 넘으면 새 policy version 없이는 `policyUnavailable`이다. 2024년 이후 납입원금의 정부
+매칭률은 1,000,000ppm이고 이자에는 적용하지 않는다.
+
+가상 두 은행의 최초 unranked product는 우대조건 없이 계약기간 1~11개월 4.00%, 12~14개월 4.50%,
+15~24개월 5.00%의 가입일 고정 기본금리만 쓴다. 공개 약관에서 가상 상품 공통 day-count와 단수 규칙을
+확정할 수 없으므로 `actual/365 · 원 미만 버림`은 dev-unranked 계산 가정으로 명시하고 ranked 상품에는
+쓰지 않는다. 일반 중도해지 상품은 원금만 돌려주는 0% 개발 중도해지율을 명시하며 비과세와 정부지원을
+주지 않는다.
+
 `military_savings_contract`는 institution별 최대 하나이며 service와 product version을 pin한다. 납입일에는
 지갑이 충분하면 원금을 잠긴 상품원금으로 옮기고 `paid`, 부족하면 `missed/noMovement`로 확정하며 같은
 회차를 재시도하지 않는다. 모든 회차는 가입 때 service end까지 예약하고 `(contract_id, installment_no)`로
 중복을 막는다.
 
+가입 명령은 serving 상태에서만 받고 현재 날짜보다 엄격히 뒤인 첫 `debitDayOfMonth`를 1회차로 삼는다.
+해당 일이 없는 달은 말일로 당기며, 이번 달 보정일이 이미 지났거나 명령 당일이면 다음 달로 넘긴다.
+`dueGameDay < service.endGameDay`인 회차만 예약한다. 최소 잔여복무는 명령일에 policy의
+`minimumRemainingServiceMonths`를 달력 월로 더하고 말일 보정한 날짜가 service end 이하여야 충족한다.
+고정 30일로 환산하지 않는다. 따라서 명령과 같은 날 이미 끝난 financial phase에 납입을 끼워 넣지 않는다.
+최초 dev-unranked 상품의 `contractTermMonths`는 가입 때 실제로 예약된 monthly installment 수이며, 해당
+구간의 금리를 가입 시 pin한다. 단순 경과일 나눗셈으로 기간을 다시 계산하지 않는다. 이는 전역일 고정
+상품을 위한 개발 fixture 규칙이므로 ranked 상품은 검수된 상품 약관의 계약기간 산식을 별도 typed
+metadata로 제공해야 한다.
+
 각 paid installment는 납입 게임일과 그 날의 matching policy version을 보존한다. 만기에는 installment별
-보유일수로 은행 gross 이자를 정수 계산하고, 원금·이자·각 납입분의 정부 지원을 합쳐 지갑에 넣는다.
-이자 day-count, rounding, 비과세와 지원 지급 시점은 product/policy 값이다. 중도해지는 원금과 policy가
-허용한 이자만 지급하고 비과세·정부지원을 임의로 유지하지 않는다.
+보유일수로 은행 gross 이자를 정수 계산해 원금·은행 이자만 먼저 지갑에 넣고, 각 납입분의 정부 지원은
+별도 `militarySavingsGovernmentMatch` settlement로 지급한다. 지원 지급일은 policy의
+`nextMonthDayOfMonth`를 **계약 만기일의 다음 달**에 말일 보정하며 최초 unranked fixture는 그 달 25일이다.
+settlement와 source identity는 paid installment별로 나누지만 같은 계약의 지원금은 모두 이 하나의 지급일을
+쓴다. 납입일의 다음 달로 소급 예약하지 않는다. 이자 day-count,
+rounding, 비과세와 지원 지급 시점은 product/policy 값이다. 중도해지는 원금과 policy가 허용한 이자만
+지급하고 비과세·정부지원을 임의로 유지하지 않는다.
+
+모든 회차가 `missed`라서 만기 원금·은행 이자·정부 지원이 모두 0원이면 계약과 만기 settlement는
+정상적으로 `matured`·`settled/noMovement`로 확정하지만 ledger transaction은 만들지 않는다. 원장은 0원
+posting을 허용하지 않으므로 이 경우 `maturityLedgerTransactionId`는 null이고, 실제 지급액이 양수일 때만
+만기 ledger와 그 참조를 요구한다.
+
+중도해지는 command transaction에서 즉시 지급하며 예약 settlement를 만들지 않는다. 원장 source kind는
+`militarySavingsEarlyClose`, source ID는 contract ID, occurrence는 1로 고정해
+`militarySavingsMaturity`와 구분한다.
 
 만기와 복무 완료가 같은 날이면 먼저 시작-of-day 복무 완료 자격을 확정한 뒤 financial settlement에서
 만기를 실행한다. 계약 원금, 은행 이자, 정부 지원금은 별도 ledger account와 API 필드로 보여 주며 서로
@@ -630,7 +849,7 @@ job_application(id) → job_invitation(id) → job_offer(id) → employment_cont
 military_service(id) → military_savings_contract(id) → military_savings_installment(contract_id, no) →
 financial_account(id) → M2 account/position/product rows in §11.1 order →
 career_scheduled_action(phase_rank, due_game_day, id) → scheduled_settlement(due_game_day, id) →
-employment_income_year(tax_year) → year_end_tax_assessment(tax_year) →
+employment_income_event(id) → employment_income_year(tax_year) → year_end_tax_assessment(tax_year) →
 pension_credit_allocation(tax_year, source_id) → M2 financial-income tax rows`
 
 없는 단계는 건너뛰고 각 단계는 표시한 key 오름차순으로 `FOR UPDATE`한다. job posting과 게시된 bundle,
@@ -655,22 +874,43 @@ M3 migration은 최소 다음 표를 역할별로 둔다.
 
 - 불변 데이터: `career_catalog_bundle · spec_catalog_entry · activity_catalog_entry · platform_catalog ·
   job_template · artifact_checklist_rule · recruitment_ruleset · recruitment_stage_component_weight ·
-  recruitment_score_band · recruitment_pass_probability · employment_policy_version ·
-  military_option_version · military_savings_product_version`
-- 버전 선택: `career_recruitment_compatibility · recruitment_ruleset_assignment`
+  recruitment_score_band · recruitment_pass_probability · employment_policy_set · employment_policy_source ·
+  national_pension_policy · health_insurance_policy · long_term_care_policy · employment_insurance_policy ·
+  industrial_accident_policy · employment_withholding_table_version · employment_withholding_table_row ·
+  local_income_withholding_policy · employment_annual_tax_policy · other_income_reward_policy ·
+  military_option_version · military_option_experience_evidence_mapping · military_savings_product_version`
+- 버전 선택: `career_recruitment_compatibility · recruitment_ruleset_assignment ·
+  employment_policy_assignment · employment_finance_compatibility`
 - 런 기준: `career_run`
 - 스펙·문서: `spec_activity · spec_evidence · profile_artifact_version · profile_artifact_evidence`
 - 채용: `job_posting · job_application · job_invitation · job_offer`
-- 고용·세금: `employment_contract · payroll_record · employment_income_year ·
-  year_end_tax_assessment · pension_credit_allocation`
+- 고용·세금: `employment_contract · payroll_record · career_reward_payment · employment_income_event ·
+  employment_income_year · year_end_tax_assessment · pension_credit_allocation`
 - 병역: `military_service · military_service_progress · military_savings_contract ·
   military_savings_installment`
 - 예약: `career_scheduled_action`, 기존 `scheduled_settlement`의 새 strict kind
+
+M3-D의 `career_scheduled_action`은 군 lifecycle branch에서 recruitment ruleset FK를 요구하지 않는다.
+employment/recruitment action은 기존 non-null ruleset을 유지하고 military action만 option/policy와
+`militaryServiceId`로 소유권을 검증한다. 새 settlement kind는 `militaryPay ·
+militarySavingsInstallment · militarySavingsMaturity · militarySavingsGovernmentMatch`이며 모두 exact
+version 1 payload를 쓴다.
 
 현재 런의 가변·append-only 행은 모두 `(save_id, run_revision, id)` 복합 FK로 소유권을 강제한다. 돈은
 `BIGINT` 원, rate는 `INTEGER ppm/bp`, 날짜는 게임 epoch에 매핑된 `DATE`, cursor는 game day 정수다.
 MySQL `ENUM`이나 느슨한 parameters JSON 대신 `VARCHAR`+Rust enum과 kind별 typed 열/CHECK를 사용한다.
 strict action/settlement payload JSON만 `version: 1` tagged object로 허용한다.
+
+employment policy set은 draft에서만 typed 자식 row를 받고 publish 뒤 update/delete하지 않는다. publish는
+필수 effective range가 빈틈·중첩 없이 닫히는지, 간이세액표 family/pay band가 완전한지, 모든 rate와 money가
+정수 안전범위인지, provenance URL·확인일·원문 checksum이 있는지와 요구 M2 finance policy compatibility를
+검증한다. 새 settlement kind는 `employmentPayroll · employmentReconciliation`이며 원티드 보상은 최초
+`employmentPayroll`과 같은 날 별도 source identity로 실행한다.
+
+`payroll_record`는 `(save_id, run_revision, employment_contract_id, period_no)`를 unique로 두고
+`period_no`는 계약의 `payrollBaselinePeriodNo`부터 빈틈 없이 증가한다. `financial_income_assessment`에는 combined 계산이 사용한 employment
+taxable income, deductions, final prepaid income tax와 final prepaid local income tax를 추가해 1월에 pin하고
+게시된 assessment에서는 바꾸지 않는다.
 
 M3 최종 `career_run`은 pinned 두 key, bundle의 기본값으로 시작하는 `focused_job_family_key`, §2.3의
 `birth_date`를 보존한다. M3-A의 단계적 예외와 M3-C pin 순서는 §2.2를 따른다. `spec_evidence`의 nullable
@@ -694,6 +934,7 @@ published 상태로 바꾼다.
 - `GET /api/military/options`
 - `GET /api/military/service`
 - `GET /api/military/savings-products`
+- `GET /api/military/savings?before=&limit=`
 
 명령은 다음 경로를 제공한다.
 
@@ -738,6 +979,29 @@ specs·activities와 위의 모든 history/list 조회는 `before · limit`를 �
 offer는 terminal 뒤에도 불변 조건과 결과를 보존하며 전용 상태 `offered · accepted · declined · expired ·
 closed`를 쓴다. DB의 `pending`만 API의 `offered`로 변환한다.
 
+`/career/payroll` item은 exact object
+`{ id, contractId, periodNo, salaryMonthOrdinal, periodStartDate, periodEndExclusiveDate, paidGameDay,
+grossPayKrw, employeeNationalPensionKrw, employerNationalPensionKrw,
+employeeHealthInsuranceKrw, employerHealthInsuranceKrw, employeeLongTermCareKrw,
+employerLongTermCareKrw, employeeEmploymentInsuranceKrw, employerEmploymentInsuranceKrw,
+employerIndustrialAccidentKrw, withheldIncomeTaxKrw, withheldLocalIncomeTaxKrw, netPayKrw,
+reward? }`다. `reward`는
+`{ paymentId, grossRewardKrw, withheldIncomeTaxKrw, withheldLocalIncomeTaxKrw, netRewardKrw }`이며
+원티드 첫 지급에만 존재한다. 근로자 부담과 사용자 부담을 합친 모호한 `insuranceTotal`만 보내지 않는다.
+
+`/career/tax-years/{year}`는 exact object
+`{ taxYear, status, source, grossEmploymentIncomeKrw, employeeInsuranceDeductionKrw,
+earnedIncomeDeductionKrw, personalDeductionKrw, taxableIncomeKrw, calculatedIncomeTaxKrw,
+earnedIncomeTaxCreditKrw, pensionCreditEligibleContributionKrw,
+actualPensionIncomeTaxCreditKrw, actualPensionLocalIncomeTaxEffectKrw,
+withheldIncomeTaxKrw, withheldLocalIncomeTaxKrw, assessedIncomeTaxKrw,
+assessedLocalIncomeTaxKrw, additionalTaxKrw, refundKrw, reconciliationGameDay? }`다.
+`source`는 `employmentOnly · combined · legacyProfile`이고 `status`는 `open · provisional · definitive`다.
+아직 닫히지 않은 연도는 확정 계산 필드를 null로 보내며 누락하지 않는다. `legacyProfile` definitive는 기존
+profile이 실제로 보존한 총급여·과세표준만 숫자로 보내고, 원천세·세부 공제·산출세액·연금 공제·정산처럼
+원자료가 없는 필드는 0으로 추정하지 않고 null로 보낸다. M3 `employmentOnly · combined` definitive는 모든
+확정 계산 필드가 숫자여야 한다.
+
 리소스 ID와 일반 history cursor는 M2처럼 canonical decimal string이다. 예외적으로 공고 목록의 `before`는
 `postingKey` 자체를 쓰며 lowercase 64자리 SHA-256 hex 문자열이다. 공고의 별도 DB ID를 API 식별자나
 cursor로 노출하지 않는다. KRW는 기존 client
@@ -769,6 +1033,28 @@ assignment가 가리키는 published bundle의 기본 직무군 key와 0점·빈
 - current employment tax year 요약과 가장 최근 finalized assessment 하나
 - military status, nullable active service, active military savings contract 최대 2개
 - M3 관련 다음 scheduled action/settlement를 합쳐 최대 20개
+
+군 요약은 `militaryStatus`와 nullable `activeMilitaryService`를 가진다. active service는 exact
+`{ id, optionVersionId, serviceType, displayName, status, startGameDay, endGameDay,
+creditedServiceDays, totalServiceDays, effortLifeStatus, grantsCareerExperience, nextPayGameDay }`이며
+`status`는 `pendingStart · serving`, `nextPayGameDay`는 nullable이다. active savings item은 exact
+`{ id, productVersionId, institutionKey, status, monthlyContributionKrw, debitDayOfMonth,
+principalKrw, paidInstallmentCount, missedInstallmentCount, nextInstallmentGameDay, maturityGameDay }`이고
+다음 회차가 없으면 `nextInstallmentGameDay`만 null이다. 종료 service와 납입별 paid/missed, 만기·중도해지
+원금/이자/정부지원은 `/api/military/service`와 `/api/military/savings` history에서 조회한다.
+M3-D 이전 `character.military=completed` bridge는 존재하지 않았던 복무 기간·option을 소급 합성하지 않으므로
+`/api/military/service`가 `{ militaryStatus: completed, service: null }`을 반환할 수 있다. M3-D command로
+완료한 경우에는 completed service history가 반드시 함께 온다. exempt도 service가 null이다.
+
+다음 M3 일정은 `pendingCareerSchedule` exact 배열로 합친다. item은
+`{ sourceKind: careerAction, id, dueGameDay, kind }` 또는
+`{ sourceKind: settlement, id, dueGameDay, kind }`의 tagged union이다. action kind는
+`employmentStart · militaryServiceStart · militaryServiceCompletion · documentReview ·
+confirmationExpiry · interviewDecision · offerExpiry · invitationGeneration`, settlement kind는
+`employmentPayroll · employmentReconciliation · militaryPay · militarySavingsInstallment ·
+militarySavingsMaturity · militarySavingsGovernmentMatch`만 허용한다. 배열은 `dueGameDay` 오름차순,
+같은 날은 action을 settlement보다 먼저 두고 action은 `phaseRank, id`, settlement는 `id` 오름차순으로
+정렬해 가장 가까운 20개만 싣는다. 중도해지는 즉시 command이므로 이 배열에 들어가지 않는다.
 
 과거 artifact, 종료 지원, 전체 급여, 과거 세금연도, 적금 회차는 cursor 조회로 분리한다. snapshot 배열은
 항상 안정된 key 순서이며 null을 0원·면제·미필로 해석하지 않는다. snapshot의 focus 점수는 화면 요약일
@@ -845,13 +1131,27 @@ review는 기본 focus, 다섯 education bridge, 순서가 고정된 certificati
 최초 `employmentPolicySet` seed를 만들 때 최소 다음 공식 자료를 원문 기준으로 다시 검수한다.
 
 - [국세청 근로소득·간이세액표 안내](https://j.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7875&mi=6596)
-- [국민연금공단 2026년 이후 사업장가입자 보험료율 안내](https://www.nps.or.kr/pnsinfo/ntpsklg/getOHAF0038M0.do)
-- [국민건강보험공단 보험료율 안내](https://www.nhis.or.kr/english/wbheaa02500m01.do)
+- [2026-02-28까지 적용하는 소득세법 시행령 별표 2 원문](https://www.law.go.kr/LSW/flDownload.do?flSeq=163197407)
+- [2026-03-01부터 적용하는 소득세법 시행령 별표 2 원문](https://www.law.go.kr/LSW/flDownload.do?flSeq=163116877)
+- [국민연금공단 2026년 사업장 실무안내 원문](https://m.nps.or.kr/fileDown.do?atchFileId=FL26000090&atchFileSn=1)
+- [국민연금공단 2026년 7월 기준소득월액 상·하한 안내](https://www.nps.or.kr/pnsgdnc/newgdnc/getOHAE0001M1.do?hmpgBbsCd=BS20240137&hmpgCd=01&menuId=MN24000897&pageIndex=1&pstId=ZZ202600000000000147&searchGbu=&searchText=&sortSe=FR)
+- [국민건강보험공단 2026년 건강·장기요양 보험료율 안내](https://edi.nhis.or.kr/portal/images/popup/20251204_pop01longdesc.html)
+- [고용노동부 고용보험료 부담비율 안내](https://www.moel.go.kr/info/astmgmt/employ/employList.do)
 - [고용노동부 산재보험료율 안내](https://www.moel.go.kr/news/enews/report/enewsView.do?news_seq=18810)
 - [고용노동부 산재보험 근로자 부담 원칙](https://www.moel.go.kr/info/astmgmt/employ/sanjaeList.do)
+- [병무청 육군 복무기간 안내](https://www.mma.go.kr/minwon/contents.do?mc=mma0000728)
+- [병무청 사회복무 소집제도](https://www.mma.go.kr/contents.do?mc=mma0000744)
+- [병무청 산업·전문요원 복무기간](https://www.mma.go.kr/minwon/contents.do?mc=mma0000760)
+- [병무청 산업·전문요원 편입요건](https://www.mma.go.kr/seoul/contents.do?mc=mma0000764)
+- [2026 병 봉급 공무원보수규정 별표 13](https://www.law.go.kr/flDownload.do?flSeq=160436483)
+- [2026 군인 봉급표](https://www.mpm.go.kr/mpm/info/resultPay/bizSalary/2026/)
+- [2026 최저임금 고용노동부 고시](https://www.moel.go.kr/news/enews/report/enewsView.do?news_seq=18144)
 - [국방부 장병내일준비적금 안내](https://www.mnd.go.kr/mnd/288/subview.do)
+- [병역법 시행령 제158조의2](https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lspttninfSeq=171035)
+- [2026 장병내일준비적금 특약](https://img2.kbstar.com/obj/ocommon/260213military_full.pdf)
 
-문서 확인일은 `2026-07-26`이다. 링크의 요약문을 seed로 쓰지 않고 시행 중인 법령·고시·공식 표 원문과
+employment 자료 확인일은 `2026-07-26`, military·장병적금 자료 확인일은 `2026-07-27`이다. 링크의
+요약문을 seed로 쓰지 않고 시행 중인 법령·고시·공식 표 원문과
 교차 검증한다. 원문이 서로 다르거나 2026 귀속 표가 확정되지 않은 항목은 `policyUnavailable` 상태로
 남겨 계산을 막고, 추정 숫자를 production/ranked key에 넣지 않는다. 엔진 개발에 필요한 임시 fixture는
 `dev-unranked-*` key와 ranked-disabled metadata로만 제공하고 calibration과 공식 원문 review 뒤 새

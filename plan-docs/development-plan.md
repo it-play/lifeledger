@@ -4,8 +4,8 @@
 > 플레이어의 자산만 가상이다. 비상업적 개인 프로젝트.
 
 - 최초 작성: 2026-07-25
-- 최근 갱신: 2026-07-26
-- 상태: M0·M1·M2·M3-A 기능 구현 및 자동/실제 MySQL 검증 완료, M3-B 구현 준비
+- 최근 갱신: 2026-07-28
+- 상태: M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2 기능 구현·검증 완료, M4-D3 기능 구현 중
 
 ---
 
@@ -529,11 +529,49 @@ SSE만 그 채널을 구독한다. 전역 채널에서 `save_id`로 사후 필�
 
 ## 12. 로드맵
 
-현재 구현 상태는 **M0·M1·M2·M3-A 완료, M3-B 구현 준비**다. 기존 월드 v1·v2·v3와 그 월드에 고정된
-런은 보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를 사용한다. 다음 구현 경계는
-[M3 커리어·병역](./m3-career.md)의 채용·근로계약이며, 이후 급여·연말정산·병역을 같은 문서의
-M3-B~M3-D 순서로 잇는다. M3-A의 스펙·활동·불변 산출물은 style 없는 기능 화면과 실제 MySQL 8
-전진 마이그레이션·HTTP 스모크까지 완료했다.
+현재 구현 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2 완료, M4-D3 기능 구현 중**이다. 기존 월드 v1·v2·v3와 그 월드에 고정된 런은
+보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를 사용한다. M3는 style 없는 기능 화면,
+fresh MySQL 8 전진 마이그레이션과 실제 HTTP 스모크까지 완료했다. M3-C는 지급일 귀속 월 급여,
+4대보험·원천징수·원장, 1월 1일 annual coordinator, 2월 정산, 연금 세액공제 allocation과 M2 금융소득
+combined coordinator를 실제 employed·pension·combined 런으로 검증했다. M3-D는 복무 시작부터 전역까지
+546일, 군 급여 18회, 장병내일준비적금 납입 18회·중도해지·만기·정부지원과 근로소득 연말정산을 실제
+MySQL 8 및 public HTTP에서 검증했다. M4-A는 가구·거주지·CPI 생활비, 다음 달 예산 변경, 월말 필수액
+연체와 일부·전액 상환, 20건 상환 window를 구현했다. 빈 DB와 실제 M3 DB의 전진 migration, 보존 런
+compatibility, 4개월 public HTTP 진행, 명령 replay와 원장·부채 projection을 실제 MySQL 8에서 검증했다.
+M4-B는 versioned 대출·신용 catalog와 runtime schema, 시작 부채 계약화, legacy bridge, 월별 상환·연체,
+변동금리 reset, 일말 신용 평가, 세금 의무를 포함한 권위 부채 projection부터 상품·신용 조회, DSR quote,
+신규 무담보 대출, 조기상환, 계약 상세와 dual-window 상환표·납부 이력까지 구현했다. 빈 DB와 기존 M4-A
+세이브의 전진 migration, v1·v2 캐릭터 시작, 정상 납부·연체·명령 replay, 부분·전액 조기상환과 조회 cursor를
+실제 MySQL 8과 public HTTP로 검증했다. M4-C1은 결정론적 지역 가격·임대료 지수, 월별 유한 매물,
+동시 최초 조회 수렴과 `/housing` 조회 화면을 구현했다. 기존 disabled 모델과 새 active 모델 pin, 다른 속도의
+두 런, 월 전환과 서버 재시작에서도 같은 응답을 실제 MySQL 8과 public HTTP로 검증했다. M4-C2a는 현금 전세
+계약, 기존 보증금 반환, 새 보증금 지급, 이사비, residence 전환과 replay를 한 transaction으로 연결했다.
+당월 생활비 pin 보존과 다음 달 새 지역·전세 기준 반영, 전세 간 재이사, 잔액 부족 rollback과 재시작 불변을
+실제 MySQL 8과 public HTTP로 검증했다. M4-C2b1은 open-ended 월세 계약, 다음 달 1일 phase 300 청구,
+전액·부분·0원 지급과 typed 연체, 수동 일부·전액 상환, 이사 시 미래 청구 취소를 구현했다. fresh migration,
+명령 replay·충돌·실패 rollback, 원장·부채 projection과 서버 재시작 불변도 실제 MySQL 8과 public HTTP로
+검증했다. M4-C2b2는 12개월 고정기간과 30일 전 정보성 갱신 안내, 같은 조건 자동 갱신, 월세 연체 60일
+종료 검토 상태를 별도 term/action/review 이력으로 구현했다. 안내·갱신·검토의 정확한 경계일, 일부·전액
+상환과 이사 해소, 과거 연체 보존, 명령 replay, 서버 재시작과 새 게임 cleanup을 실제 MySQL 8과 public
+HTTP에서 검증했다. M4-C2c는 sealed credit v3에 전세보증금 80% 한도·고정 4%·24개월 만기일시상환
+상품을 게시하고, 전용 quote의 신용·담보·소득·개발 상환여력 심사와 법정 DSR 비적용 근거를 저장한다.
+eligible quote 실행은 대출금을 지갑에 입금하지 않고 전세보증금으로 직접 지급하며, 기존 clean linked
+전세대출 상환·새 임대차·residence·원장·receipt를 한 transaction으로 묶는다. fresh MySQL 8에서 공개
+취업 API로 검증 소득을 만든 뒤 소득 없음·담보 초과·적격 quote, 첫 이자 납부, 전세대출 대체상환,
+현금 월세 이동의 자동상환, replay·충돌과 서버 재시작 복구를 public HTTP와 DB projection으로 검증했다.
+M4-C3는 owner-occupied 단독 보유 capability, 현금 매수와 주담대 quote·직접 지급, 소유 residence·holding·
+lien, 부대비용 원장과 순자산 projection을 구현했다. 현금 매수와 담보 매수, LTV 초과·적격 quote,
+replay·충돌, 소유자의 임대차 이동 거절, 전액 조기상환과 담보권 해제를 fresh MySQL 8.4 및 공개 서버
+MySQL 8.0의 격리 DB에서 HTTP와 DB projection으로 검증하고 모든 격리 자원을 삭제했다. M4-C4는 매도
+주문·지연 체결, 주담대 일괄상환, 취득·보유·양도세와 원장·projection을 fresh MySQL 8.4 및 실제 HTTP에서
+검증했다. M4-D1은 typed 복지 조건식, D-start evidence, 신청·승인·D+1 phase 150 지급과 원장을
+SQLx `0038`, 스타일 없는 `/welfare`, 실제 MySQL 8.4·public HTTP로 검증했다. 기존 disabled pin 보존,
+명령 replay·충돌, strict protocol, 서버 재시작 불변과 sealed catalog 보호도 확인했다. M4-D2는 sealed
+event catalog, 독립 HMAC 월 후보, 선택·D+7 자동 만료·비용 원장과 `/events-insurance` 사건 기능을 SQLx
+`0039`로 구현했다. 기존 unavailable run과 새 event v1 pin, 부양가족 0/1, support/decline/expiry,
+small/big step·명령 replay·소유권/strict cursor와 재시작 hash를 실제 MySQL 8.4·public HTTP로 검증했다.
+현재 구현 경계는 [M4 생애](./m4-life.md) §7.8의 M4-D3 가상 보험 계약·보험료·비소급 claim이다.
+시각 스타일링은 계속 보류한다.
 
 | 마일스톤 | 범위 | 완료 기준 |
 |---------|------|-----------|
