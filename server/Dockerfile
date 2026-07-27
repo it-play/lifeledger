@@ -9,6 +9,7 @@ RUN mkdir src \
  && echo 'fn main() {}' > src/main.rs \
  && cargo build --release --locked \
  && rm -rf src target/release/lifeledger-server target/release/deps/lifeledger_server*
+COPY build.rs ./build.rs
 COPY migrations ./migrations
 COPY src ./src
 RUN cargo build --release --locked
