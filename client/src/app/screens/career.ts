@@ -20,10 +20,24 @@ import {
   type CareerIndustry,
   type CareerInvitation,
   type CareerJob,
+  type CareerPayrollItem,
+  type CareerPendingScheduleItem,
   type CareerPlatform,
+  type CareerTaxYearState,
   type EvidenceKind,
   type GameSnapshot,
   type LifeStatus,
+  type MilitaryOption,
+  type MilitarySavingsEnrollmentDraft,
+  MilitarySavingsEnrollmentDraftSchema,
+  type MilitarySavingsHistoryItem,
+  type MilitarySavingsProduct,
+  type MilitaryServiceHistory,
+  type MilitaryServiceResponse,
+  type MilitaryServiceStartDraft,
+  MilitaryServiceStartDraftSchema,
+  type MilitaryServiceType,
+  TaxYearSchema,
 } from '../../api/contracts.js';
 import { asFormValidator } from '../../api/zod-adapters.js';
 import { bindText, el } from '../../lib/dom/index.js';
@@ -41,6 +55,9 @@ import {
   createCareerFocusRetryPolicy,
   createCareerInterviewRetryPolicy,
   createCareerPathRetryPolicy,
+  createMilitarySavingsCloseRetryPolicy,
+  createMilitarySavingsEnrollmentRetryPolicy,
+  createMilitaryServiceStartRetryPolicy,
 } from '../career-retry/index.js';
 import { formatBasisPoints, formatWon } from '../format.js';
 import type { GameStateWriter } from '../game-state/index.js';
@@ -75,6 +92,10 @@ interface CareerPathFormDraft {
   readonly resourceId: string;
 }
 
+interface MilitarySavingsCloseDraft {
+  readonly contractId: string;
+}
+
 interface FixedList<T> {
   readonly element: HTMLUListElement;
   setItems(items: readonly T[]): void;
@@ -105,6 +126,10 @@ const ACTIVE_ACTIVITY_CAPACITY = 3;
 const LATEST_ARTIFACT_CAPACITY = 3;
 const JOB_CAPACITY = 200;
 const OPEN_INVITATION_CAPACITY = 5;
+const MILITARY_OPTION_CAPACITY = 6;
+const MILITARY_SAVINGS_PRODUCT_CAPACITY = 20;
+const ACTIVE_MILITARY_SAVINGS_CAPACITY = 2;
+const PENDING_CAREER_SCHEDULE_CAPACITY = 20;
 
 const FOCUS_FIELDS: readonly FieldSpec[] = [
   {
@@ -232,6 +257,45 @@ const PATH_ACTION_FIELDS: readonly FieldSpec[] = [
   { name: 'resourceId', label: '대상 ID', kind: 'text' },
 ];
 
+const MILITARY_SERVICE_START_FIELDS: readonly FieldSpec[] = [
+  {
+    name: 'militaryOptionVersionId',
+    label: '복무 option',
+    kind: 'select',
+    options: fixedSelectOptions(MILITARY_OPTION_CAPACITY, '복무 option을 선택하세요'),
+  },
+];
+
+const MILITARY_SAVINGS_ENROLLMENT_FIELDS: readonly FieldSpec[] = [
+  {
+    name: 'productVersionId',
+    label: '장병적금 상품',
+    kind: 'select',
+    options: fixedSelectOptions(MILITARY_SAVINGS_PRODUCT_CAPACITY, '상품을 선택하세요'),
+  },
+  {
+    name: 'monthlyContributionKrw',
+    label: '월 납입액 (원)',
+    kind: 'number',
+    help: '상품 목록의 서버 한도와 설정 단위를 확인하세요.',
+  },
+  {
+    name: 'debitDayOfMonth',
+    label: '매월 납입일',
+    kind: 'number',
+    help: '1~31일. 없는 날짜는 서버가 말일로 보정합니다.',
+  },
+];
+
+const MILITARY_SAVINGS_CLOSE_FIELDS: readonly FieldSpec[] = [
+  {
+    name: 'contractId',
+    label: '중도해지할 계약',
+    kind: 'select',
+    options: fixedSelectOptions(ACTIVE_MILITARY_SAVINGS_CAPACITY, '계약을 선택하세요'),
+  },
+];
+
 const FOCUS_VALIDATOR = withKoreanErrors(asFormValidator(CareerFocusDraftSchema), {
   focusedJobFamilyKey: '기본 직무군 키를 1~64자로 입력하세요.',
 });
@@ -340,6 +404,51 @@ const PATH_ACTION_VALIDATOR: FormValidator<CareerPathFormDraft> = {
   },
 };
 
+const MILITARY_SERVICE_START_VALIDATOR = withKoreanErrors(
+  asFormValidator(MilitaryServiceStartDraftSchema),
+  { militaryOptionVersionId: '시작할 복무 option을 선택하세요.' },
+);
+
+const MILITARY_SAVINGS_ENROLLMENT_SCHEMA_VALIDATOR = asFormValidator(
+  MilitarySavingsEnrollmentDraftSchema,
+);
+const MILITARY_SAVINGS_ENROLLMENT_VALIDATOR: FormValidator<MilitarySavingsEnrollmentDraft> = {
+  validate(raw) {
+    return localizeValidation(
+      MILITARY_SAVINGS_ENROLLMENT_SCHEMA_VALIDATOR.validate({
+        productVersionId: raw.productVersionId,
+        monthlyContributionKrw:
+          typeof raw.monthlyContributionKrw === 'string'
+            ? Number(raw.monthlyContributionKrw)
+            : raw.monthlyContributionKrw,
+        debitDayOfMonth:
+          typeof raw.debitDayOfMonth === 'string'
+            ? Number(raw.debitDayOfMonth)
+            : raw.debitDayOfMonth,
+      }),
+      {
+        productVersionId: '가입할 장병적금 상품을 선택하세요.',
+        monthlyContributionKrw: '월 납입액을 원 단위 양의 정수로 입력하세요.',
+        debitDayOfMonth: '납입일을 1~31 사이 정수로 입력하세요.',
+      },
+    );
+  },
+};
+
+const MILITARY_SAVINGS_CLOSE_SCHEMA_VALIDATOR = asFormValidator(
+  MilitaryServiceStartDraftSchema.pick({ militaryOptionVersionId: true }),
+);
+const MILITARY_SAVINGS_CLOSE_VALIDATOR: FormValidator<MilitarySavingsCloseDraft> = {
+  validate(raw) {
+    const result = MILITARY_SAVINGS_CLOSE_SCHEMA_VALIDATOR.validate({
+      militaryOptionVersionId: raw.contractId,
+    });
+    return result.ok
+      ? { ok: true, value: { contractId: result.value.militaryOptionVersionId } }
+      : { ok: false, errors: { contractId: '중도해지할 활성 계약을 선택하세요.' } };
+  },
+};
+
 const EVIDENCE_KIND_LABEL: Record<EvidenceKind, string> = {
   education: '학력',
   certification: '자격증',
@@ -373,6 +482,112 @@ const INDUSTRY_LABEL: Record<CareerIndustry, string> = {
   publicSocial: '공공·사회',
 };
 
+const REGION_LABEL: Record<CareerJob['region'], string> = {
+  capitalArea: '수도권',
+  metropolitan: '광역시',
+  smallCity: '중소도시',
+  rural: '농어촌',
+};
+
+const EMPLOYMENT_TYPE_LABEL: Record<CareerJob['employmentType'], string> = {
+  regular: '정규직',
+};
+
+const MILITARY_REQUIREMENT_LABEL: Record<CareerJob['militaryRequirement'], string> = {
+  any: '제한 없음',
+  completedOrExempt: '군필 또는 면제',
+};
+
+const MILITARY_STATUS_LABEL = {
+  unserved: '미필',
+  serving: '복무 중',
+  completed: '복무 완료',
+  exempt: '면제',
+} as const;
+
+const MILITARY_SERVICE_TYPE_LABEL: Record<MilitaryServiceType, string> = {
+  activeDuty: '현역',
+  socialService: '사회복무요원',
+  industrialTechnical: '산업기능요원',
+  professionalResearch: '전문연구요원',
+  commissionedOfficer: '장교',
+  nonCommissionedOfficer: '부사관',
+};
+
+const MILITARY_SERVICE_STATUS_LABEL: Record<MilitaryServiceHistory['status'], string> = {
+  pendingStart: '시작 대기',
+  serving: '복무 중',
+  completed: '복무 완료',
+};
+
+const MILITARY_SERVICE_SOURCE_LABEL: Record<MilitaryServiceHistory['sourceKind'], string> = {
+  userCommand: '사용자 명령',
+  legacyBridge: '기존 런 연결',
+};
+
+const MILITARY_SAVINGS_STATUS_LABEL: Record<MilitarySavingsHistoryItem['status'], string> = {
+  active: '유지 중',
+  matured: '만기',
+  closed: '중도해지',
+};
+
+const MILITARY_SAVINGS_INSTALLMENT_STATUS_LABEL: Record<
+  MilitarySavingsHistoryItem['installments'][number]['status'],
+  string
+> = {
+  scheduled: '예정',
+  paid: '납입',
+  missed: '미납',
+};
+
+const CAREER_ACTION_SCHEDULE_LABEL: Record<
+  Extract<CareerPendingScheduleItem, { sourceKind: 'careerAction' }>['kind'],
+  string
+> = {
+  employmentStart: '근로계약 시작',
+  militaryServiceStart: '복무 시작',
+  militaryServiceCompletion: '복무 완료',
+  documentReview: '서류 심사',
+  confirmationExpiry: '면접 확인 만료',
+  interviewDecision: '면접 결과',
+  offerExpiry: '오퍼 만료',
+  invitationGeneration: '역제안 생성',
+};
+
+const CAREER_SETTLEMENT_SCHEDULE_LABEL: Record<
+  Extract<CareerPendingScheduleItem, { sourceKind: 'settlement' }>['kind'],
+  string
+> = {
+  employmentPayroll: '급여 지급',
+  employmentReconciliation: '연말정산',
+  militaryPay: '군 급여 지급',
+  militarySavingsInstallment: '장병적금 납입',
+  militarySavingsMaturity: '장병적금 만기',
+  militarySavingsGovernmentMatch: '장병적금 정부지원금',
+};
+
+const EDUCATION_LEVEL_LABEL = {
+  highSchool: '고등학교',
+  associate: '전문학사',
+  bachelor: '학사',
+  master: '석사',
+  doctorate: '박사',
+} as const;
+
+const MILITARY_COMPENSATION_LABEL: Record<MilitaryOption['compensationKind'], string> = {
+  militaryPay: '군 급여',
+  employmentPayroll: '일반 급여 계산',
+};
+
+const JOB_SCORE_DIMENSIONS = [
+  ['education', '학력'],
+  ['certification', '자격증'],
+  ['language', '어학'],
+  ['training', '교육'],
+  ['experience', '경력'],
+  ['project', '프로젝트'],
+] as const satisfies readonly (readonly [keyof CareerJob['requiredScores'], string])[];
+
 /** M3-A career controls and bounded history views. */
 export function createCareerView(deps: CareerDeps): ViewFactory {
   const focusRetries = createCareerFocusRetryPolicy({ createCommandId: deps.createCommandId });
@@ -392,6 +607,15 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
     createCommandId: deps.createCommandId,
   });
   const pathRetries = createCareerPathRetryPolicy({ createCommandId: deps.createCommandId });
+  const militaryServiceStartRetries = createMilitaryServiceStartRetryPolicy({
+    createCommandId: deps.createCommandId,
+  });
+  const militarySavingsEnrollmentRetries = createMilitarySavingsEnrollmentRetryPolicy({
+    createCommandId: deps.createCommandId,
+  });
+  const militarySavingsCloseRetries = createMilitarySavingsCloseRetryPolicy({
+    createCommandId: deps.createCommandId,
+  });
 
   const submitFocus = async (draft: CareerFocusDraft): Promise<void> => {
     const snapshot = commandSnapshot(deps, '기본 직무군을 변경');
@@ -551,6 +775,74 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
     }
   };
 
+  const submitMilitaryServiceStart = async (draft: MilitaryServiceStartDraft): Promise<void> => {
+    const snapshot = commandSnapshot(deps, '복무를 시작');
+    const request = militaryServiceStartRetries.select(snapshot, draft);
+    deps.store.set(paths.gameOrdering, true);
+    try {
+      const response = await deps.api.startMilitaryService(request);
+      militaryServiceStartRetries.complete(request);
+      deps.snapshots.apply(response.snapshot);
+      deps.toasts.show(
+        response.replayed
+          ? '이미 처리된 복무 시작 결과를 확인했습니다.'
+          : `복무 #${response.result.militaryServiceId}의 시작을 예약했습니다.`,
+        { tone: 'success' },
+      );
+    } catch (error) {
+      militaryServiceStartRetries.fail(request, error);
+      throw careerDisplayError(error, '복무 시작');
+    } finally {
+      deps.store.set(paths.gameOrdering, false);
+    }
+  };
+
+  const submitMilitarySavingsEnrollment = async (
+    draft: MilitarySavingsEnrollmentDraft,
+  ): Promise<void> => {
+    const snapshot = commandSnapshot(deps, '장병적금에 가입');
+    const request = militarySavingsEnrollmentRetries.select(snapshot, draft);
+    deps.store.set(paths.gameOrdering, true);
+    try {
+      const response = await deps.api.enrollMilitarySavings(request);
+      militarySavingsEnrollmentRetries.complete(request);
+      deps.snapshots.apply(response.snapshot);
+      deps.toasts.show(
+        response.replayed
+          ? '이미 처리된 장병적금 가입 결과를 확인했습니다.'
+          : `장병적금 #${response.result.militarySavingsContractId}에 가입했습니다.`,
+        { tone: 'success' },
+      );
+    } catch (error) {
+      militarySavingsEnrollmentRetries.fail(request, error);
+      throw careerDisplayError(error, '장병적금 가입');
+    } finally {
+      deps.store.set(paths.gameOrdering, false);
+    }
+  };
+
+  const submitMilitarySavingsClose = async (draft: MilitarySavingsCloseDraft): Promise<void> => {
+    const snapshot = commandSnapshot(deps, '장병적금을 중도해지');
+    const command = militarySavingsCloseRetries.select(snapshot, draft.contractId);
+    deps.store.set(paths.gameOrdering, true);
+    try {
+      const response = await deps.api.closeMilitarySavings(command.contractId, command.request);
+      militarySavingsCloseRetries.complete(command);
+      deps.snapshots.apply(response.snapshot);
+      deps.toasts.show(
+        response.replayed
+          ? '이미 처리된 장병적금 중도해지 결과를 확인했습니다.'
+          : `장병적금 #${response.result.militarySavingsContractId}을 중도해지했습니다.`,
+        { tone: 'success' },
+      );
+    } catch (error) {
+      militarySavingsCloseRetries.fail(command, error);
+      throw careerDisplayError(error, '장병적금 중도해지');
+    } finally {
+      deps.store.set(paths.gameOrdering, false);
+    }
+  };
+
   return (): View => {
     let root: HTMLElement | undefined;
 
@@ -608,12 +900,25 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
         const applicationNextBefore = h.useSignal<string | null>(null);
         const invitationItems = h.useSignal<readonly CareerInvitation[]>([]);
         const employment = h.useSignal<CareerEmploymentContract | null>(null);
+        const payrollItems = h.useSignal<readonly CareerPayrollItem[]>([]);
+        const payrollNextBefore = h.useSignal<string | null>(null);
+        const selectedTaxYear = h.useSignal<number | null>(
+          career.peek()?.currentEmploymentTaxYear.taxYear ?? null,
+        );
+        const taxYearInputError = h.useSignal<string | null>(null);
+        const militaryOptions = h.useSignal<readonly MilitaryOption[]>([]);
+        const militaryService = h.useSignal<MilitaryServiceResponse | undefined>(undefined);
+        const militarySavingsProducts = h.useSignal<readonly MilitarySavingsProduct[]>([]);
+        const militarySavingsItems = h.useSignal<readonly MilitarySavingsHistoryItem[]>([]);
+        const militarySavingsNextBefore = h.useSignal<string | null>(null);
 
         let specsGeneration = 0;
         let activitiesGeneration = 0;
         let artifactsGeneration = 0;
         let jobsGeneration = 0;
         let applicationsGeneration = 0;
+        let payrollGeneration = 0;
+        let militarySavingsGeneration = 0;
         let specsPageRequest: PageLoadRequest = {
           kind: 'initial',
           generation: specsGeneration,
@@ -637,6 +942,16 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
         let applicationsPageRequest: PageLoadRequest = {
           kind: 'initial',
           generation: applicationsGeneration,
+          limit: PAGE_SIZE,
+        };
+        let payrollPageRequest: PageLoadRequest = {
+          kind: 'initial',
+          generation: payrollGeneration,
+          limit: PAGE_SIZE,
+        };
+        let militarySavingsPageRequest: PageLoadRequest = {
+          kind: 'initial',
+          generation: militarySavingsGeneration,
           limit: PAGE_SIZE,
         };
         let jobPlatformFilter: CareerPlatform | undefined;
@@ -675,12 +990,43 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
           return { request, response };
         });
         const employmentRequest = h.useAsync((signal) => deps.api.getEmployment(signal));
+        const payrollRequest = h.useAsync(async (signal) => {
+          const request = payrollPageRequest;
+          const response = await deps.api.getPayroll(pageQuery(request), signal);
+          return { request, response };
+        });
+        const taxYearRequest = h.useAsync(async (signal) => {
+          const year = selectedTaxYear.peek();
+          if (year === null) throw new Error('조회할 귀속연도가 없습니다.');
+          return deps.api.getTaxYear(year, signal);
+        });
+        const militaryOptionsRequest = h.useAsync((signal) => deps.api.getMilitaryOptions(signal));
+        const militaryServiceRequest = h.useAsync((signal) => deps.api.getMilitaryService(signal));
+        const militarySavingsProductsRequest = h.useAsync((signal) =>
+          deps.api.getMilitarySavingsProducts(signal),
+        );
+        const militarySavingsRequest = h.useAsync(async (signal) => {
+          const request = militarySavingsPageRequest;
+          const response = await deps.api.getMilitarySavings(pageQuery(request), signal);
+          return { request, response };
+        });
+        const taxYearResult = h.useComputed<CareerTaxYearState | null>(() => {
+          if (!gameReady.get()) return null;
+          const state = taxYearRequest.state.get();
+          return state.status === 'success' ? state.value : null;
+        });
         const catalogAvailable = h.useComputed(() => {
           return activityCatalog.get().length > 0;
         });
         const activeActivities = h.useComputed<readonly CareerActivitySummary[]>(() => {
           return queriedActiveActivities.get() ?? career.get()?.activeActivities ?? [];
         });
+        const eligibleMilitaryOptions = h.useComputed(() =>
+          militaryOptions.get().filter((option) => option.eligible),
+        );
+        const eligibleMilitarySavingsProducts = h.useComputed(() =>
+          militarySavingsProducts.get().filter((product) => product.eligible),
+        );
 
         const focusForm = renderForm(
           {
@@ -758,6 +1104,36 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
           },
           { initial: { action: 'withdrawApplication' }, onSubmit: submitPathAction },
         );
+        const militaryServiceStartForm = renderForm(
+          {
+            fields: MILITARY_SERVICE_START_FIELDS,
+            validator: MILITARY_SERVICE_START_VALIDATOR,
+            submitLabel: '복무 시작 예약',
+            idPrefix: 'military-service-start',
+          },
+          { onSubmit: submitMilitaryServiceStart },
+        );
+        const militarySavingsEnrollmentForm = renderForm(
+          {
+            fields: MILITARY_SAVINGS_ENROLLMENT_FIELDS,
+            validator: MILITARY_SAVINGS_ENROLLMENT_VALIDATOR,
+            submitLabel: '장병적금 가입',
+            idPrefix: 'military-savings-enrollment',
+          },
+          {
+            initial: { monthlyContributionKrw: 250_000, debitDayOfMonth: 25 },
+            onSubmit: submitMilitarySavingsEnrollment,
+          },
+        );
+        const militarySavingsCloseForm = renderForm(
+          {
+            fields: MILITARY_SAVINGS_CLOSE_FIELDS,
+            validator: MILITARY_SAVINGS_CLOSE_VALIDATOR,
+            submitLabel: '장병적금 중도해지',
+            idPrefix: 'military-savings-close',
+          },
+          { onSubmit: submitMilitarySavingsClose },
+        );
         ctx.bag.add(focusForm);
         ctx.bag.add(activityStartForm);
         ctx.bag.add(activityCancelForm);
@@ -765,6 +1141,9 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
         ctx.bag.add(applicationForm);
         ctx.bag.add(interviewForm);
         ctx.bag.add(pathActionForm);
+        ctx.bag.add(militaryServiceStartForm);
+        ctx.bag.add(militarySavingsEnrollmentForm);
+        ctx.bag.add(militarySavingsCloseForm);
 
         const focusSubmit = submitButtonOf(focusForm.element);
         const activityStartSubmit = submitButtonOf(activityStartForm.element);
@@ -773,6 +1152,11 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
         const applicationSubmit = submitButtonOf(applicationForm.element);
         const interviewSubmit = submitButtonOf(interviewForm.element);
         const pathActionSubmit = submitButtonOf(pathActionForm.element);
+        const militaryServiceStartSubmit = submitButtonOf(militaryServiceStartForm.element);
+        const militarySavingsEnrollmentSubmit = submitButtonOf(
+          militarySavingsEnrollmentForm.element,
+        );
+        const militarySavingsCloseSubmit = submitButtonOf(militarySavingsCloseForm.element);
         const artifactKind = selectFieldOf(artifactForm.element, 'kind');
         const openToWorkRow = fieldRowOf(artifactForm.element, 'openToWork');
         const industriesRow = fieldRowOf(artifactForm.element, 'industries');
@@ -833,7 +1217,93 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
         const applicationsLoadOlder = el('button', { type: 'button' }, '이전 지원 더 보기');
         const applicationList = createFixedList(HISTORY_CAPACITY, applicationText);
         const invitationList = createFixedList(OPEN_INVITATION_CAPACITY, invitationText);
+        const pendingCareerScheduleList = createFixedList(
+          PENDING_CAREER_SCHEDULE_CAPACITY,
+          pendingCareerScheduleText,
+        );
         const employmentStatus = el('p', { attrs: { role: 'status', 'aria-live': 'polite' } });
+        const payrollStatus = el('p', { attrs: { role: 'status', 'aria-live': 'polite' } });
+        const payrollRefresh = el('button', { type: 'button' }, '급여 다시 조회');
+        const payrollLoadOlder = el('button', { type: 'button' }, '이전 급여 더 보기');
+        const payrollList = createFixedList(HISTORY_CAPACITY, payrollText);
+        const taxYearRequestStatus = el('p', {
+          attrs: { role: 'status', 'aria-live': 'polite' },
+        });
+        const taxYearInput = el('input', {
+          type: 'number',
+          attrs: { min: '1', max: '9999', step: '1', 'aria-label': '조회할 귀속연도' },
+        });
+        const initialTaxYear = selectedTaxYear.peek();
+        if (initialTaxYear !== null) taxYearInput.value = initialTaxYear.toString();
+        const taxYearRefresh = el('button', { type: 'button' }, '연말정산 조회');
+        const taxYearValues = {
+          year: el('dd'),
+          status: el('dd'),
+          source: el('dd'),
+          grossEmploymentIncome: el('dd'),
+          employeeInsuranceDeduction: el('dd'),
+          earnedIncomeDeduction: el('dd'),
+          personalDeduction: el('dd'),
+          taxableIncome: el('dd'),
+          calculatedIncomeTax: el('dd'),
+          earnedIncomeTaxCredit: el('dd'),
+          withheldIncomeTax: el('dd'),
+          withheldLocalIncomeTax: el('dd'),
+          currentExpectedPensionCredit: el('dd'),
+          pensionCreditEligibleContribution: el('dd'),
+          actualPensionIncomeTaxCredit: el('dd'),
+          actualPensionLocalIncomeTaxEffect: el('dd'),
+          assessedIncomeTax: el('dd'),
+          assessedLocalIncomeTax: el('dd'),
+          refund: el('dd'),
+          additionalTax: el('dd'),
+          reconciliationGameDay: el('dd'),
+        };
+        const militaryStatusValue = el('dd');
+        const activeMilitaryServiceValue = el('dd');
+        const militaryServiceHistoryValue = el('dd');
+        const militaryOptionsStatus = el('p', {
+          attrs: { role: 'status', 'aria-live': 'polite' },
+        });
+        const militaryOptionsRefresh = el('button', { type: 'button' }, '복무 option 다시 조회');
+        const militaryOptionList = createFixedList(MILITARY_OPTION_CAPACITY, militaryOptionText);
+        const militaryServiceStatus = el('p', {
+          attrs: { role: 'status', 'aria-live': 'polite' },
+        });
+        const militaryServiceRefresh = el('button', { type: 'button' }, '복무 이력 다시 조회');
+        const militarySavingsProductsStatus = el('p', {
+          attrs: { role: 'status', 'aria-live': 'polite' },
+        });
+        const militarySavingsProductsRefresh = el(
+          'button',
+          { type: 'button' },
+          '장병적금 상품 다시 조회',
+        );
+        const militarySavingsProductList = createFixedList(
+          MILITARY_SAVINGS_PRODUCT_CAPACITY,
+          militarySavingsProductText,
+        );
+        const activeMilitarySavingsList = createFixedList(
+          ACTIVE_MILITARY_SAVINGS_CAPACITY,
+          activeMilitarySavingsText,
+        );
+        const militarySavingsHistoryStatus = el('p', {
+          attrs: { role: 'status', 'aria-live': 'polite' },
+        });
+        const militarySavingsHistoryRefresh = el(
+          'button',
+          { type: 'button' },
+          '장병적금 이력 다시 조회',
+        );
+        const militarySavingsHistoryLoadOlder = el(
+          'button',
+          { type: 'button' },
+          '이전 장병적금 더 보기',
+        );
+        const militarySavingsHistoryList = createFixedList(
+          HISTORY_CAPACITY,
+          militarySavingsHistoryText,
+        );
 
         root = el(
           'main',
@@ -930,7 +1400,126 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
             el('fieldset', {}, el('legend', {}, '면접 확인'), interviewForm.element),
             el('fieldset', {}, el('legend', {}, '지원·역제안·오퍼 처리'), pathActionForm.element),
           ),
-          el('section', {}, el('h2', {}, '근로계약'), employmentStatus),
+          el('section', {}, el('h2', {}, '예정된 커리어 일정'), pendingCareerScheduleList.element),
+          el(
+            'section',
+            {},
+            el('h2', {}, '근로계약과 급여'),
+            employmentStatus,
+            payrollStatus,
+            payrollRefresh,
+            payrollList.element,
+            payrollLoadOlder,
+          ),
+          el(
+            'section',
+            {},
+            el('h2', {}, '연말정산'),
+            el('label', {}, '귀속연도 ', taxYearInput),
+            taxYearRefresh,
+            taxYearRequestStatus,
+            el(
+              'dl',
+              {},
+              el('dt', {}, '조회 귀속연도'),
+              taxYearValues.year,
+              el('dt', {}, '정산 상태'),
+              taxYearValues.status,
+              el('dt', {}, '정산 출처'),
+              taxYearValues.source,
+              el('dt', {}, '총급여'),
+              taxYearValues.grossEmploymentIncome,
+              el('dt', {}, '보험료 소득공제'),
+              taxYearValues.employeeInsuranceDeduction,
+              el('dt', {}, '근로소득공제'),
+              taxYearValues.earnedIncomeDeduction,
+              el('dt', {}, '기본 인적공제'),
+              taxYearValues.personalDeduction,
+              el('dt', {}, '과세표준'),
+              taxYearValues.taxableIncome,
+              el('dt', {}, '산출세액'),
+              taxYearValues.calculatedIncomeTax,
+              el('dt', {}, '근로소득세액공제'),
+              taxYearValues.earnedIncomeTaxCredit,
+              el('dt', {}, '원천 소득세'),
+              taxYearValues.withheldIncomeTax,
+              el('dt', {}, '원천 지방소득세'),
+              taxYearValues.withheldLocalIncomeTax,
+              el('dt', {}, '현재 연금 예상 공제 합계'),
+              taxYearValues.currentExpectedPensionCredit,
+              el('dt', {}, '연금 공제 대상 납입액'),
+              taxYearValues.pensionCreditEligibleContribution,
+              el('dt', {}, '실제 연금 소득세공제'),
+              taxYearValues.actualPensionIncomeTaxCredit,
+              el('dt', {}, '실제 연금 지방소득세 효과'),
+              taxYearValues.actualPensionLocalIncomeTaxEffect,
+              el('dt', {}, '확정 소득세'),
+              taxYearValues.assessedIncomeTax,
+              el('dt', {}, '확정 지방소득세'),
+              taxYearValues.assessedLocalIncomeTax,
+              el('dt', {}, '환급'),
+              taxYearValues.refund,
+              el('dt', {}, '추가 납부'),
+              taxYearValues.additionalTax,
+              el('dt', {}, '회사 정산 게임일'),
+              taxYearValues.reconciliationGameDay,
+            ),
+            el(
+              'p',
+              {},
+              '현재 연금 예상 공제 합계는 현재 스냅샷 기준이며, 선택한 과거 귀속연도의 예상치가 아닙니다.',
+            ),
+          ),
+          el(
+            'section',
+            {},
+            el('h2', {}, '병역과 장병내일준비적금'),
+            el(
+              'dl',
+              {},
+              el('dt', {}, '병역 상태'),
+              militaryStatusValue,
+              el('dt', {}, '스냅샷 복무 진행'),
+              activeMilitaryServiceValue,
+              el('dt', {}, '복무 전체 이력'),
+              militaryServiceHistoryValue,
+            ),
+            militaryServiceStatus,
+            militaryServiceRefresh,
+            el('h3', {}, '복무 option과 자격'),
+            militaryOptionsStatus,
+            militaryOptionsRefresh,
+            militaryOptionList.element,
+            el('fieldset', {}, el('legend', {}, '복무 시작'), militaryServiceStartForm.element),
+            el('h3', {}, '장병적금 상품'),
+            militarySavingsProductsStatus,
+            militarySavingsProductsRefresh,
+            militarySavingsProductList.element,
+            el(
+              'fieldset',
+              {},
+              el('legend', {}, '장병적금 가입'),
+              militarySavingsEnrollmentForm.element,
+            ),
+            el('h3', {}, '스냅샷의 활성 장병적금'),
+            activeMilitarySavingsList.element,
+            el(
+              'fieldset',
+              {},
+              el('legend', {}, '장병적금 중도해지'),
+              militarySavingsCloseForm.element,
+            ),
+            el('h3', {}, '장병적금 납입·만기 이력'),
+            militarySavingsHistoryStatus,
+            militarySavingsHistoryRefresh,
+            militarySavingsHistoryList.element,
+            militarySavingsHistoryLoadOlder,
+            el(
+              'p',
+              {},
+              '금리·급여·만기 예상액은 서버가 보낸 값만 표시하며, 화면에서는 다시 계산하지 않습니다.',
+            ),
+          ),
         );
         host.replaceChildren(root);
 
@@ -992,6 +1581,120 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
           ),
         );
         h.bindText(employmentStatus, () => employmentText(employment.get()));
+        h.bindText(payrollStatus, () =>
+          requestStatusText(
+            payrollRequest.state.get(),
+            gameReady.get(),
+            '급여',
+            payrollItems.get().length,
+            payrollNextBefore.get(),
+          ),
+        );
+        h.bindText(taxYearRequestStatus, () =>
+          taxYearRequestStatusText(
+            taxYearRequest.state.get(),
+            gameReady.get(),
+            selectedTaxYear.get(),
+            taxYearInputError.get(),
+          ),
+        );
+        h.bindText(taxYearValues.year, () => taxYearText(taxYearResult.get()));
+        h.bindText(taxYearValues.status, () => taxYearStatusText(taxYearResult.get()));
+        h.bindText(taxYearValues.source, () => taxYearSourceText(taxYearResult.get()));
+        h.bindText(taxYearValues.grossEmploymentIncome, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.grossEmploymentIncomeKrw),
+        );
+        h.bindText(taxYearValues.employeeInsuranceDeduction, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.employeeInsuranceDeductionKrw),
+        );
+        h.bindText(taxYearValues.earnedIncomeDeduction, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.earnedIncomeDeductionKrw),
+        );
+        h.bindText(taxYearValues.personalDeduction, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.personalDeductionKrw),
+        );
+        h.bindText(taxYearValues.taxableIncome, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.taxableIncomeKrw),
+        );
+        h.bindText(taxYearValues.calculatedIncomeTax, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.calculatedIncomeTaxKrw),
+        );
+        h.bindText(taxYearValues.earnedIncomeTaxCredit, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.earnedIncomeTaxCreditKrw),
+        );
+        h.bindText(taxYearValues.withheldIncomeTax, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.withheldIncomeTaxKrw),
+        );
+        h.bindText(taxYearValues.withheldLocalIncomeTax, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.withheldLocalIncomeTaxKrw),
+        );
+        h.bindText(taxYearValues.currentExpectedPensionCredit, () =>
+          currentExpectedPensionCreditText(snapshot.get()),
+        );
+        h.bindText(taxYearValues.pensionCreditEligibleContribution, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.pensionCreditEligibleContributionKrw),
+        );
+        h.bindText(taxYearValues.actualPensionIncomeTaxCredit, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.actualPensionIncomeTaxCreditKrw),
+        );
+        h.bindText(taxYearValues.actualPensionLocalIncomeTaxEffect, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.actualPensionLocalIncomeTaxEffectKrw),
+        );
+        h.bindText(taxYearValues.assessedIncomeTax, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.assessedIncomeTaxKrw),
+        );
+        h.bindText(taxYearValues.assessedLocalIncomeTax, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.assessedLocalIncomeTaxKrw),
+        );
+        h.bindText(taxYearValues.refund, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.refundKrw),
+        );
+        h.bindText(taxYearValues.additionalTax, () =>
+          employmentTaxMoneyText(taxYearResult.get()?.additionalTaxKrw),
+        );
+        h.bindText(taxYearValues.reconciliationGameDay, () =>
+          employmentTaxReconciliationText(taxYearResult.get()?.reconciliationGameDay),
+        );
+        h.bindText(militaryStatusValue, () => {
+          const status = career.get()?.militaryStatus;
+          return status === undefined ? '—' : MILITARY_STATUS_LABEL[status];
+        });
+        h.bindText(activeMilitaryServiceValue, () =>
+          activeMilitaryServiceText(career.get()?.activeMilitaryService),
+        );
+        h.bindText(militaryServiceHistoryValue, () =>
+          militaryServiceHistoryText(militaryService.get()?.service),
+        );
+        h.bindText(militaryServiceStatus, () =>
+          militaryServiceRequestStatusText(militaryServiceRequest.state.get(), gameReady.get()),
+        );
+        h.bindText(militaryOptionsStatus, () =>
+          requestStatusText(
+            militaryOptionsRequest.state.get(),
+            gameReady.get(),
+            '복무 option',
+            militaryOptions.get().length,
+            null,
+          ),
+        );
+        h.bindText(militarySavingsProductsStatus, () =>
+          requestStatusText(
+            militarySavingsProductsRequest.state.get(),
+            gameReady.get(),
+            '장병적금 상품',
+            militarySavingsProducts.get().length,
+            null,
+          ),
+        );
+        h.bindText(militarySavingsHistoryStatus, () =>
+          requestStatusText(
+            militarySavingsRequest.state.get(),
+            gameReady.get(),
+            '장병적금 이력',
+            militarySavingsItems.get().length,
+            militarySavingsNextBefore.get(),
+          ),
+        );
 
         h.bindAttribute(focusSubmit, 'disabled', () => !canMutate.get());
         h.bindAttribute(
@@ -1008,6 +1711,60 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
         h.bindAttribute(applicationSubmit, 'disabled', () => !canMutate.get());
         h.bindAttribute(interviewSubmit, 'disabled', () => !canMutate.get());
         h.bindAttribute(pathActionSubmit, 'disabled', () => !canMutate.get());
+        h.bindAttribute(
+          militaryServiceStartSubmit,
+          'disabled',
+          () => !canMutate.get() || eligibleMilitaryOptions.get().length === 0,
+        );
+        h.bindAttribute(
+          militarySavingsEnrollmentSubmit,
+          'disabled',
+          () => !canMutate.get() || eligibleMilitarySavingsProducts.get().length === 0,
+        );
+        h.bindAttribute(
+          militarySavingsCloseSubmit,
+          'disabled',
+          () => !canMutate.get() || (career.get()?.activeMilitarySavings.length ?? 0) === 0,
+        );
+        h.bindAttribute(
+          militaryOptionsRefresh,
+          'disabled',
+          () => !gameReady.get() || militaryOptionsRequest.state.get().status === 'loading',
+        );
+        h.bindAttribute(
+          militaryServiceRefresh,
+          'disabled',
+          () => !gameReady.get() || militaryServiceRequest.state.get().status === 'loading',
+        );
+        h.bindAttribute(
+          militarySavingsProductsRefresh,
+          'disabled',
+          () => !gameReady.get() || militarySavingsProductsRequest.state.get().status === 'loading',
+        );
+        h.bindAttribute(
+          militarySavingsHistoryRefresh,
+          'disabled',
+          () => !gameReady.get() || militarySavingsRequest.state.get().status === 'loading',
+        );
+        h.bindAttribute(militarySavingsHistoryLoadOlder, 'disabled', () =>
+          cannotLoadOlder(
+            gameReady.get(),
+            militarySavingsRequest.state.get(),
+            militarySavingsItems.get().length,
+            militarySavingsNextBefore.get(),
+          ),
+        );
+        h.bindAttribute(
+          payrollRefresh,
+          'disabled',
+          () => !gameReady.get() || payrollRequest.state.get().status === 'loading',
+        );
+        h.bindAttribute(taxYearInput, 'disabled', () => !gameReady.get());
+        h.bindAttribute(
+          taxYearRefresh,
+          'disabled',
+          () => !gameReady.get() || taxYearRequest.state.get().status === 'loading',
+        );
         h.bindAttribute(
           specsRefresh,
           'disabled',
@@ -1071,6 +1828,14 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
             applicationsRequest.state.get(),
             applicationItems.get().length,
             applicationNextBefore.get(),
+          ),
+        );
+        h.bindAttribute(payrollLoadOlder, 'disabled', () =>
+          cannotLoadOlder(
+            gameReady.get(),
+            payrollRequest.state.get(),
+            payrollItems.get().length,
+            payrollNextBefore.get(),
           ),
         );
 
@@ -1165,6 +1930,94 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
           const state = employmentRequest.state.get();
           if (!gameReady.get() || state.status !== 'success') return;
           employment.set(state.value.contract);
+        });
+        h.useEffect(() => {
+          const state = payrollRequest.state.get();
+          if (!gameReady.get() || state.status !== 'success') return;
+          const { request, response } = state.value;
+          if (!canApplyPage(request, payrollGeneration, payrollNextBefore.peek())) return;
+          payrollItems.set(resolvePageItems(request, payrollItems.peek(), response.items));
+          payrollNextBefore.set(response.nextBefore);
+        });
+        h.useEffect(() => {
+          payrollList.setItems(gameReady.get() ? payrollItems.get() : []);
+        });
+        h.useEffect(() => {
+          const state = militaryOptionsRequest.state.get();
+          if (!gameReady.get() || state.status !== 'success') return;
+          militaryOptions.set(state.value.items);
+        });
+        h.useEffect(() => {
+          const options = gameReady.get() ? militaryOptions.get() : [];
+          militaryOptionList.setItems(options);
+          updateFixedSelectOptions(
+            militaryServiceStartForm.element,
+            'militaryOptionVersionId',
+            options
+              .filter((option) => option.eligible)
+              .map((option) => ({
+                value: option.id,
+                label: `#${option.id} ${option.displayName}`,
+              })),
+            undefined,
+          );
+        });
+        h.useEffect(() => {
+          const state = militaryServiceRequest.state.get();
+          if (!gameReady.get() || state.status !== 'success') return;
+          militaryService.set(state.value);
+        });
+        h.useEffect(() => {
+          const state = militarySavingsProductsRequest.state.get();
+          if (!gameReady.get() || state.status !== 'success') return;
+          militarySavingsProducts.set(state.value.items);
+        });
+        h.useEffect(() => {
+          const products = gameReady.get() ? militarySavingsProducts.get() : [];
+          militarySavingsProductList.setItems(products);
+          updateFixedSelectOptions(
+            militarySavingsEnrollmentForm.element,
+            'productVersionId',
+            products
+              .filter((product) => product.eligible)
+              .map((product) => ({
+                value: product.id,
+                label: `#${product.id} ${product.institutionDisplayName}`,
+              })),
+            undefined,
+          );
+        });
+        h.useEffect(() => {
+          const items = gameReady.get() ? (career.get()?.pendingCareerSchedule ?? []) : [];
+          pendingCareerScheduleList.setItems(items);
+        });
+        h.useEffect(() => {
+          const active = gameReady.get() ? (career.get()?.activeMilitarySavings ?? []) : [];
+          activeMilitarySavingsList.setItems(active);
+          updateFixedSelectOptions(
+            militarySavingsCloseForm.element,
+            'contractId',
+            active.map((contract) => ({
+              value: contract.id,
+              label: `#${contract.id} ${contract.institutionKey}`,
+            })),
+            undefined,
+          );
+        });
+        h.useEffect(() => {
+          const state = militarySavingsRequest.state.get();
+          if (!gameReady.get() || state.status !== 'success') return;
+          const { request, response } = state.value;
+          if (!canApplyPage(request, militarySavingsGeneration, militarySavingsNextBefore.peek())) {
+            return;
+          }
+          militarySavingsItems.set(
+            resolvePageItems(request, militarySavingsItems.peek(), response.items),
+          );
+          militarySavingsNextBefore.set(response.nextBefore);
+        });
+        h.useEffect(() => {
+          militarySavingsHistoryList.setItems(gameReady.get() ? militarySavingsItems.get() : []);
         });
 
         let lastAppliedFocus: string | undefined;
@@ -1263,12 +2116,94 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
             employmentRequest.run();
           }
         };
+        const invalidatePayroll = (): void => {
+          payrollGeneration += 1;
+          payrollRequest.cancel();
+          payrollItems.set([]);
+          payrollNextBefore.set(null);
+          payrollPageRequest = {
+            kind: 'initial',
+            generation: payrollGeneration,
+            limit: PAGE_SIZE,
+          };
+        };
+        const refreshPayroll = (): void => {
+          invalidatePayroll();
+          if (gameReady.peek()) payrollRequest.run();
+        };
+        const invalidateTaxYear = (): void => {
+          taxYearRequest.cancel();
+        };
+        const ensureSelectedTaxYear = (): boolean => {
+          if (selectedTaxYear.peek() !== null) return true;
+          const currentYear = career.peek()?.currentEmploymentTaxYear.taxYear;
+          if (currentYear === undefined) return false;
+          selectedTaxYear.set(currentYear);
+          taxYearInput.value = currentYear.toString();
+          return true;
+        };
+        const refreshTaxYear = (): void => {
+          const parsedYear = TaxYearSchema.safeParse(Number(taxYearInput.value));
+          if (!parsedYear.success) {
+            taxYearInputError.set('귀속연도를 1~9999 사이의 정수로 입력하세요.');
+            return;
+          }
+          taxYearInputError.set(null);
+          selectedTaxYear.set(parsedYear.data);
+          invalidateTaxYear();
+          if (gameReady.peek()) taxYearRequest.run();
+        };
+        const invalidateMilitaryOptions = (): void => {
+          militaryOptionsRequest.cancel();
+          militaryOptions.set([]);
+        };
+        const refreshMilitaryOptions = (): void => {
+          invalidateMilitaryOptions();
+          if (gameReady.peek()) militaryOptionsRequest.run();
+        };
+        const invalidateMilitaryService = (): void => {
+          militaryServiceRequest.cancel();
+          militaryService.set(undefined);
+        };
+        const refreshMilitaryService = (): void => {
+          invalidateMilitaryService();
+          if (gameReady.peek()) militaryServiceRequest.run();
+        };
+        const invalidateMilitarySavingsProducts = (): void => {
+          militarySavingsProductsRequest.cancel();
+          militarySavingsProducts.set([]);
+        };
+        const refreshMilitarySavingsProducts = (): void => {
+          invalidateMilitarySavingsProducts();
+          if (gameReady.peek()) militarySavingsProductsRequest.run();
+        };
+        const invalidateMilitarySavings = (): void => {
+          militarySavingsGeneration += 1;
+          militarySavingsRequest.cancel();
+          militarySavingsItems.set([]);
+          militarySavingsNextBefore.set(null);
+          militarySavingsPageRequest = {
+            kind: 'initial',
+            generation: militarySavingsGeneration,
+            limit: PAGE_SIZE,
+          };
+        };
+        const refreshMilitarySavings = (): void => {
+          invalidateMilitarySavings();
+          if (gameReady.peek()) militarySavingsRequest.run();
+        };
         const invalidateCareerQueries = (): void => {
           invalidateSpecs();
           invalidateActivities();
           invalidateArtifacts();
           invalidateJobs();
           invalidateApplications();
+          invalidatePayroll();
+          invalidateTaxYear();
+          invalidateMilitaryOptions();
+          invalidateMilitaryService();
+          invalidateMilitarySavingsProducts();
+          invalidateMilitarySavings();
         };
         const runCareerQueries = (): void => {
           if (!gameReady.peek()) return;
@@ -1278,6 +2213,12 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
           jobsRequest.run();
           applicationsRequest.run();
           employmentRequest.run();
+          payrollRequest.run();
+          if (ensureSelectedTaxYear()) taxYearRequest.run();
+          militaryOptionsRequest.run();
+          militaryServiceRequest.run();
+          militarySavingsProductsRequest.run();
+          militarySavingsRequest.run();
         };
         const loadOlderSpecs = (): void => {
           const before = evidenceNextBefore.peek();
@@ -1372,6 +2313,43 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
           };
           applicationsRequest.run();
         };
+        const loadOlderPayroll = (): void => {
+          const before = payrollNextBefore.peek();
+          const remaining = HISTORY_CAPACITY - payrollItems.peek().length;
+          if (
+            !gameReady.peek() ||
+            before === null ||
+            remaining <= 0 ||
+            payrollRequest.state.peek().status === 'loading'
+          )
+            return;
+          payrollPageRequest = {
+            kind: 'older',
+            generation: payrollGeneration,
+            before,
+            limit: Math.min(PAGE_SIZE, remaining),
+          };
+          payrollRequest.run();
+        };
+        const loadOlderMilitarySavings = (): void => {
+          const before = militarySavingsNextBefore.peek();
+          const remaining = HISTORY_CAPACITY - militarySavingsItems.peek().length;
+          if (
+            !gameReady.peek() ||
+            before === null ||
+            remaining <= 0 ||
+            militarySavingsRequest.state.peek().status === 'loading'
+          ) {
+            return;
+          }
+          militarySavingsPageRequest = {
+            kind: 'older',
+            generation: militarySavingsGeneration,
+            before,
+            limit: Math.min(PAGE_SIZE, remaining),
+          };
+          militarySavingsRequest.run();
+        };
         const throttledRunCareerQueries = h.useThrottled(runCareerQueries, 250);
         const snapshotCursor = h.useComputed(() => {
           const current = snapshot.get();
@@ -1397,11 +2375,34 @@ export function createCareerView(deps: CareerDeps): ViewFactory {
         h.useEventListener(applicationsRefresh, 'click', () => {
           if (gameReady.peek()) refreshApplications();
         });
+        h.useEventListener(payrollRefresh, 'click', () => {
+          if (gameReady.peek()) refreshPayroll();
+        });
+        h.useEventListener(taxYearRefresh, 'click', () => {
+          if (gameReady.peek()) refreshTaxYear();
+        });
+        h.useEventListener(taxYearInput, 'input', () => {
+          if (taxYearInputError.peek() !== null) taxYearInputError.set(null);
+        });
         h.useEventListener(specsLoadOlder, 'click', loadOlderSpecs);
         h.useEventListener(activitiesLoadOlder, 'click', loadOlderActivities);
         h.useEventListener(artifactsLoadOlder, 'click', loadOlderArtifacts);
         h.useEventListener(jobsLoadOlder, 'click', loadOlderJobs);
         h.useEventListener(applicationsLoadOlder, 'click', loadOlderApplications);
+        h.useEventListener(payrollLoadOlder, 'click', loadOlderPayroll);
+        h.useEventListener(militaryOptionsRefresh, 'click', () => {
+          if (gameReady.peek()) refreshMilitaryOptions();
+        });
+        h.useEventListener(militaryServiceRefresh, 'click', () => {
+          if (gameReady.peek()) refreshMilitaryService();
+        });
+        h.useEventListener(militarySavingsProductsRefresh, 'click', () => {
+          if (gameReady.peek()) refreshMilitarySavingsProducts();
+        });
+        h.useEventListener(militarySavingsHistoryRefresh, 'click', () => {
+          if (gameReady.peek()) refreshMilitarySavings();
+        });
+        h.useEventListener(militarySavingsHistoryLoadOlder, 'click', loadOlderMilitarySavings);
         h.useEventListener(platformFilter, 'change', () => {
           jobPlatformFilter =
             platformFilter.value === '' ? undefined : (platformFilter.value as CareerPlatform);
@@ -1567,6 +2568,64 @@ function requestStatusText<T>(
   return `${subject} ${loadedCount.toLocaleString('ko-KR')}개를 불러왔습니다.${capacityNotice}`;
 }
 
+const EMPLOYMENT_TAX_STATUS_LABEL: Record<CareerTaxYearState['status'], string> = {
+  open: '집계 중',
+  provisional: '회사 정산 잠정 확정',
+  definitive: '최종 확정',
+};
+
+const EMPLOYMENT_TAX_SOURCE_LABEL: Record<CareerTaxYearState['source'], string> = {
+  employmentOnly: '근로소득 단독',
+  combined: '금융소득 합산',
+  legacyProfile: '기존 시작 프로필',
+};
+
+function taxYearRequestStatusText(
+  state: AsyncState<CareerTaxYearState>,
+  gameReady: boolean,
+  selectedYear: number | null,
+  inputError: string | null,
+): string {
+  if (inputError !== null) return inputError;
+  if (!gameReady) return '캐릭터를 만든 뒤 연말정산을 조회할 수 있습니다.';
+  if (state.status === 'idle') return '조회할 귀속연도를 입력하세요.';
+  const subject = selectedYear === null ? '연말정산' : `${selectedYear}년 연말정산`;
+  if (state.status === 'loading') return `${subject}을 불러오는 중…`;
+  if (state.status === 'error') return `${subject}을 불러오지 못했습니다. 다시 시도해 주세요.`;
+  return `${state.value.taxYear}년 연말정산을 불러왔습니다.`;
+}
+
+function taxYearText(year: CareerTaxYearState | null): string {
+  return year === null ? '—' : `${year.taxYear}년`;
+}
+
+function taxYearStatusText(year: CareerTaxYearState | null): string {
+  return year === null ? '—' : EMPLOYMENT_TAX_STATUS_LABEL[year.status];
+}
+
+function taxYearSourceText(year: CareerTaxYearState | null): string {
+  return year === null ? '—' : EMPLOYMENT_TAX_SOURCE_LABEL[year.source];
+}
+
+function employmentTaxMoneyText(value: number | null | undefined): string {
+  if (value === undefined) return '—';
+  return value === null ? '미확정' : formatWon(value);
+}
+
+function employmentTaxReconciliationText(value: number | null | undefined): string {
+  if (value === undefined) return '—';
+  return value === null ? '미확정' : `${value.toLocaleString('ko-KR')}일차`;
+}
+
+function currentExpectedPensionCreditText(snapshot: GameSnapshot | undefined): string {
+  if (snapshot === undefined) return '—';
+  const expectedCreditKrw = snapshot.finance.pensionAccounts.reduce(
+    (total, account) => total + BigInt(account.expectedCreditKrw),
+    0n,
+  );
+  return formatWon(expectedCreditKrw);
+}
+
 function withKoreanErrors<T>(
   validator: FormValidator<T>,
   messages: Readonly<Record<string, string>>,
@@ -1619,7 +2678,11 @@ function selectWithOptions(
 function jobText(job: CareerJob): string {
   const requiredArtifacts =
     job.requiredArtifacts.map((kind) => ARTIFACT_KIND_LABEL[kind]).join(', ') || '없음';
-  return `[${job.platform}/${INDUSTRY_LABEL[job.industry]}] ${job.employerName} · ${job.jobFamilyKey} · ${job.region} · 연봉 ${formatWon(job.minimumAnnualSalaryKrw)}~${formatWon(job.maximumAnnualSalaryKrw)} · 요구 산출물 ${requiredArtifacts} · 키 ${job.postingKey}`;
+  const scores = JOB_SCORE_DIMENSIONS.map(
+    ([dimension, label]) =>
+      `${label} 요구 ${scoreText(job.requiredScores[dimension])}/보유 ${scoreText(job.possessedScores[dimension])}`,
+  ).join(', ');
+  return `[${job.platform}/${INDUSTRY_LABEL[job.industry]}] ${job.employerName} · ${job.jobFamilyKey} · ${REGION_LABEL[job.region]} · ${EMPLOYMENT_TYPE_LABEL[job.employmentType]} · 점수 ${scores} · 병역 ${MILITARY_REQUIREMENT_LABEL[job.militaryRequirement]} · 연봉 밴드 ${formatWon(job.minimumAnnualSalaryKrw)}~${formatWon(job.maximumAnnualSalaryKrw)} (${formatWon(job.salaryStepKrw)} 단위) · 요구 산출물 ${requiredArtifacts} · 키 ${job.postingKey}`;
 }
 
 function applicationText(application: CareerApplication): string {
@@ -1634,9 +2697,169 @@ function invitationText(invitation: CareerInvitation): string {
   return `#${invitation.id} [${invitation.platform}] ${invitation.employerName} · ${invitation.jobFamilyKey} · 산출물 #${invitation.artifactVersionId} · ${invitation.expiresExclusiveGameDay}일 전까지 응답`;
 }
 
+function pendingCareerScheduleText(item: CareerPendingScheduleItem): string {
+  const label =
+    item.sourceKind === 'careerAction'
+      ? CAREER_ACTION_SCHEDULE_LABEL[item.kind]
+      : CAREER_SETTLEMENT_SCHEDULE_LABEL[item.kind];
+  return `#${item.id} · ${item.dueGameDay}일차 · ${label}`;
+}
+
 function employmentText(contract: CareerEmploymentContract | null): string {
   if (contract === null) return '현재 근로계약이 없습니다.';
   return `${contract.employerName} · ${contract.jobFamilyKey} · ${contract.status} · 연봉 ${formatWon(contract.annualSalaryKrw)} · 입사 예정/시작 ${contract.startGameDay}일 · 인정 경력 ${contract.creditedExperienceDays}일`;
+}
+
+function payrollText(payroll: CareerPayrollItem): string {
+  const employeeInsuranceKrw =
+    payroll.employeeNationalPensionKrw +
+    payroll.employeeHealthInsuranceKrw +
+    payroll.employeeLongTermCareKrw +
+    payroll.employeeEmploymentInsuranceKrw;
+  const employerInsuranceKrw =
+    payroll.employerNationalPensionKrw +
+    payroll.employerHealthInsuranceKrw +
+    payroll.employerLongTermCareKrw +
+    payroll.employerEmploymentInsuranceKrw +
+    payroll.employerIndustrialAccidentKrw;
+  const reward =
+    payroll.reward === undefined
+      ? ''
+      : ` · 채용보상 총 ${formatWon(payroll.reward.grossRewardKrw)}/실수령 ${formatWon(payroll.reward.netRewardKrw)}`;
+  return `#${payroll.id} 계약 #${payroll.contractId} ${payroll.periodNo}회차(${payroll.salaryMonthOrdinal}월차) · ${payroll.periodStartDate}~${payroll.periodEndExclusiveDate} · 총급여 ${formatWon(payroll.grossPayKrw)} · 근로자 보험 ${formatWon(employeeInsuranceKrw)} · 사용자 보험 ${formatWon(employerInsuranceKrw)} · 원천세 ${formatWon(payroll.withheldIncomeTaxKrw + payroll.withheldLocalIncomeTaxKrw)} · 실수령 ${formatWon(payroll.netPayKrw)} · 지급 게임일 ${payroll.paidGameDay}${reward}`;
+}
+
+function militaryServiceRequestStatusText(
+  state: AsyncState<MilitaryServiceResponse>,
+  gameReady: boolean,
+): string {
+  if (!gameReady) return '캐릭터를 만든 뒤 복무 이력을 조회할 수 있습니다.';
+  if (state.status === 'idle') return '복무 이력 조회를 기다리는 중입니다.';
+  if (state.status === 'loading') return '복무 이력을 불러오는 중…';
+  if (state.status === 'error') return '복무 이력을 불러오지 못했습니다. 다시 시도해 주세요.';
+  return state.value.service === null
+    ? '복무 이력이 없습니다.'
+    : `복무 #${state.value.service.id} 이력을 불러왔습니다.`;
+}
+
+function activeMilitaryServiceText(
+  service: GameSnapshot['career']['activeMilitaryService'] | null | undefined,
+): string {
+  if (service === undefined) return '—';
+  if (service === null) return '현재 진행 중인 복무가 없습니다.';
+  const nextPay =
+    service.nextPayGameDay === null ? '다음 급여 없음' : `다음 급여 ${service.nextPayGameDay}일차`;
+  return `#${service.id} ${service.displayName} · ${MILITARY_SERVICE_STATUS_LABEL[service.status]} · ${service.creditedServiceDays}/${service.totalServiceDays}일 인정 · ${service.startGameDay}일차 이상 ${service.endGameDay}일차 미만 · ${nextPay}`;
+}
+
+function militaryServiceHistoryText(service: MilitaryServiceHistory | null | undefined): string {
+  if (service === undefined) return '—';
+  if (service === null) return '복무 이력이 없습니다.';
+  const completion =
+    service.completedGameDay === null ? '미완료' : `${service.completedGameDay}일차 완료`;
+  return `#${service.id} ${MILITARY_SERVICE_TYPE_LABEL[service.serviceType]} · ${MILITARY_SERVICE_STATUS_LABEL[service.status]} · ${MILITARY_SERVICE_SOURCE_LABEL[service.sourceKind]} · ${service.startDate} 이상 ${service.endExclusiveDate} 미만 · 인정 ${service.creditedServiceDays}/${service.totalServiceDays}일 · ${completion}`;
+}
+
+function militaryOptionText(option: MilitaryOption): string {
+  const eligibility = option.eligible
+    ? '복무 자격 충족'
+    : `자격 미충족: ${option.ineligibilityReasons.map(militaryOptionIneligibilityText).join(', ')}`;
+  const minimumEducation =
+    option.hardRequirements.minimumEducation === null
+      ? '제한 없음'
+      : EDUCATION_LEVEL_LABEL[option.hardRequirements.minimumEducation];
+  const stages = option.payStages
+    .map(
+      (stage) =>
+        `${stage.startServiceMonth}~${stage.endExclusiveServiceMonth - 1}개월 ${formatWon(stage.grossMonthlyPayKrw)}`,
+    )
+    .join(' / ');
+  const experience =
+    option.experienceCredits.length === 0
+      ? '민간 경력 없음'
+      : option.experienceCredits
+          .map((credit) => `${credit.jobFamilyKey} ${ratePpmText(credit.dailyCreditPpm)}`)
+          .join(', ');
+  return `#${option.id} ${option.displayName} · ${eligibility} · ${option.serviceDurationMonths}개월 · 요구 학력 ${minimumEducation}, 자격증 ${option.hardRequirements.requiredCertificationCount}개, 경력 ${option.hardRequirements.minimumExperienceDays}일 · ${MILITARY_COMPENSATION_LABEL[option.compensationKind]}/월 지급 · 급여 ${stages} · 하루 활동량 ${option.dailyEffortCapacityUnits.toLocaleString('ko-KR')} · ${experience}`;
+}
+
+function militarySavingsProductText(product: MilitarySavingsProduct): string {
+  const eligibility = product.eligible
+    ? '가입 가능'
+    : `가입 불가: ${product.ineligibilityReasons.map(militarySavingsIneligibilityText).join(', ')}`;
+  const serviceTypes = product.eligibleServiceTypes
+    .map((serviceType) => MILITARY_SERVICE_TYPE_LABEL[serviceType])
+    .join(', ');
+  const tiers = product.interestTiers
+    .map(
+      (tier) =>
+        `${tier.minimumTermMonths}~${tier.maximumTermMonthsInclusive}개월 ${ratePpmText(tier.annualInterestRatePpm)}`,
+    )
+    .join(' / ');
+  return `#${product.id} ${product.institutionDisplayName} · ${eligibility} · 대상 ${serviceTypes} · 가입 ${product.joinStartDate}~${product.joinEndDate} · 잔여복무 최소 ${product.minimumRemainingServiceMonths}개월 · 월 ${formatWon(product.minimumMonthlyContributionKrw)}~${formatWon(product.maximumInstitutionMonthlyContributionKrw)} (설정 단위 ${formatWon(product.limitSettingUnitKrw)}, 전체 ${formatWon(product.maximumTotalMonthlyContributionKrw)}) · 금리 ${tiers} · 실제일수/365·원 미만 버림 · 중도해지 ${ratePpmText(product.earlyCloseAnnualInterestRatePpm)} · 정부지원 ${ratePpmText(product.governmentMatchingRatePpm)} (다음 달 ${product.governmentMatchPaymentDayOfMonth}일) · ${product.maturityTaxExempt ? '만기 비과세' : '과세'}`;
+}
+
+function activeMilitarySavingsText(
+  contract: GameSnapshot['career']['activeMilitarySavings'][number],
+): string {
+  const next =
+    contract.nextInstallmentGameDay === null
+      ? '다음 납입 없음'
+      : `다음 납입 ${contract.nextInstallmentGameDay}일차`;
+  return `#${contract.id} ${contract.institutionKey} · 월 ${formatWon(contract.monthlyContributionKrw)} (${contract.debitDayOfMonth}일) · 원금 ${formatWon(contract.principalKrw)} · 납입 ${contract.paidInstallmentCount}회/미납 ${contract.missedInstallmentCount}회 · ${next} · 만기 ${contract.maturityGameDay}일차`;
+}
+
+function militarySavingsHistoryText(contract: MilitarySavingsHistoryItem): string {
+  const projection =
+    contract.projectedMaturity === null
+      ? ''
+      : ` · 서버 예상 원금 ${formatWon(contract.projectedMaturity.principalKrw)}, 은행이자 ${formatWon(contract.projectedMaturity.grossBankInterestKrw)}, 정부지원 ${formatWon(contract.projectedMaturity.governmentMatchKrw)}, 총혜택 ${formatWon(contract.projectedMaturity.totalBenefitKrw)}`;
+  const actual =
+    contract.status === 'active'
+      ? ''
+      : ` · 정산 원금 ${formatWon(contract.settledPrincipalKrw)}, 은행이자 ${formatWon(contract.grossBankInterestKrw)}, 정부지원 ${formatWon(contract.governmentMatchKrw)}, 은행지급 ${formatWon(contract.bankPayoutKrw)}`;
+  const installments = contract.installments
+    .map(
+      (installment) =>
+        `${installment.installmentNo}회 ${MILITARY_SAVINGS_INSTALLMENT_STATUS_LABEL[installment.status]}`,
+    )
+    .join(', ');
+  return `#${contract.id} ${contract.institutionDisplayName} · ${MILITARY_SAVINGS_STATUS_LABEL[contract.status]} · 월 ${formatWon(contract.monthlyContributionKrw)} · 약정 ${contract.contractTermMonths}개월/${ratePpmText(contract.annualInterestRatePpm)} · 현재 원금 ${formatWon(contract.principalKrw)} · 만기 ${contract.maturityGameDay}일차${projection}${actual} · 회차 ${installments || '없음'}`;
+}
+
+function militaryOptionIneligibilityText(
+  reason: MilitaryOption['ineligibilityReasons'][number],
+): string {
+  const labels: Record<MilitaryOption['ineligibilityReasons'][number], string> = {
+    militarySubjectRequired: '복무 대상 아님',
+    militaryStateConflict: '현재 병역 상태',
+    minimumEducation: '최소 학력',
+    minimumCertificationCount: '최소 자격증 수',
+    minimumExperienceDays: '최소 경력',
+    policyUnavailable: '정책 없음',
+  };
+  return labels[reason];
+}
+
+function militarySavingsIneligibilityText(
+  reason: MilitarySavingsProduct['ineligibilityReasons'][number],
+): string {
+  const labels: Record<MilitarySavingsProduct['ineligibilityReasons'][number], string> = {
+    militaryStateConflict: '복무 상태',
+    serviceTypeNotEligible: '가입 대상 복무가 아님',
+    minimumRemainingService: '잔여복무기간 부족',
+    activeContractLimit: '전체 계좌 한도',
+    institutionLimit: '기관별 계좌 한도',
+    joinWindowClosed: '가입 기간 종료',
+    policyUnavailable: '정책 없음',
+  };
+  return labels[reason];
+}
+
+function ratePpmText(ratePpm: number): string {
+  const whole = Math.floor(ratePpm / 10_000);
+  const fraction = (ratePpm % 10_000).toString().padStart(4, '0').replace(/0+$/, '');
+  return `${whole}${fraction.length === 0 ? '' : `.${fraction}`}%`;
 }
 
 function fixedSelectOptions(
@@ -1757,7 +2980,11 @@ function evidenceText(evidence: CareerEvidence): string {
     evidence.periodStartDate === null || evidence.periodEndExclusiveDate === null
       ? '기간 없음'
       : `${evidence.periodStartDate} 이상 ${evidence.periodEndExclusiveDate} 미만`;
-  return `#${evidence.id} ${evidence.displayName} · ${EVIDENCE_KIND_LABEL[evidence.kind]} · ${evidence.acquiredGameDay}일차 취득 · ${expiration} · ${period}`;
+  const creditedExperience =
+    evidence.creditedExperienceDays === null
+      ? ''
+      : ` · 인정 경력 ${evidence.creditedExperienceDays}일`;
+  return `#${evidence.id} ${evidence.displayName} · ${EVIDENCE_KIND_LABEL[evidence.kind]} · ${evidence.acquiredGameDay}일차 취득 · ${expiration} · ${period}${creditedExperience}`;
 }
 
 function activityText(activity: CareerActivitySummary): string {

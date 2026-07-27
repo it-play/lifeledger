@@ -3,7 +3,7 @@ import type { LedgerSourceKind, MarketRegime } from '../api/contracts.js';
 const WON = new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' });
 const DATE = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' });
 
-export const formatWon = (amount: number): string => WON.format(amount);
+export const formatWon = (amount: number | bigint): string => WON.format(amount);
 
 /**
  * Game day to display date. The server sends only the start date; the arithmetic is
@@ -62,6 +62,30 @@ export const LEDGER_SOURCE_LABEL: Record<LedgerSourceKind, string> = {
   isaClose: 'ISA 해지',
   pensionWithdrawal: '연금 인출',
   specActivity: '스펙 활동',
+  employmentPayroll: '급여 지급',
+  careerRewardPayment: '채용보상 지급',
+  pensionCreditAllocation: '연금 공제 확정',
+  militaryPay: '군 급여 지급',
+  militarySavingsInstallment: '장병적금 납입',
+  militarySavingsMaturity: '장병적금 만기',
+  militarySavingsGovernmentMatch: '장병적금 정부지원금',
+  militarySavingsEarlyClose: '장병적금 중도해지',
+  livingCostMonth: '월 생활비',
+  essentialArrearPayment: '필수 생활비 미납 상환',
+  loanOrigination: '신규 대출 실행',
+  loanInstallment: '대출 정기 상환',
+  loanPrepayment: '대출 중도상환',
+  debtAuthorityBridge: '부채 계약 전환',
+  leaseMove: '임대차 이사',
+  leaseRent: '월세 정산',
+  leaseArrearPayment: '월세 연체 상환',
+  propertyPurchase: '주택 매수',
+  propertySale: '주택 매도',
+  propertyTaxPayment: '부동산 세금 납부',
+  welfareBenefitPayment: '복지 급여 지급',
+  lifeEventChoice: '생애 사건 선택',
+  insurancePremiumPayment: '보험료 납부',
+  insuranceClaimPayment: '보험금 지급',
   correction: '정정',
 };
 

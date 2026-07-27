@@ -10,6 +10,10 @@ import type {
   CareerFocusRequest,
   CareerInterviewConfirmationRequest,
   GameSnapshot,
+  MilitarySavingsEnrollmentDraft,
+  MilitarySavingsEnrollmentRequest,
+  MilitaryServiceStartDraft,
+  MilitaryServiceStartRequest,
 } from '../../api/contracts.js';
 
 export interface CareerRetryPolicyDeps {
@@ -86,4 +90,30 @@ export interface CareerPathRetryPolicy {
   select(snapshot: GameSnapshot, action: CareerPathAction, resourceId: string): CareerPathCommand;
   complete(command: CareerPathCommand): void;
   fail(command: CareerPathCommand, error: unknown): void;
+}
+
+export interface MilitaryServiceStartRetryPolicy {
+  select(snapshot: GameSnapshot, draft: MilitaryServiceStartDraft): MilitaryServiceStartRequest;
+  complete(request: MilitaryServiceStartRequest): void;
+  fail(request: MilitaryServiceStartRequest, error: unknown): void;
+}
+
+export interface MilitarySavingsEnrollmentRetryPolicy {
+  select(
+    snapshot: GameSnapshot,
+    draft: MilitarySavingsEnrollmentDraft,
+  ): MilitarySavingsEnrollmentRequest;
+  complete(request: MilitarySavingsEnrollmentRequest): void;
+  fail(request: MilitarySavingsEnrollmentRequest, error: unknown): void;
+}
+
+export interface MilitarySavingsCloseCommand {
+  readonly contractId: string;
+  readonly request: CareerCursorRequest;
+}
+
+export interface MilitarySavingsCloseRetryPolicy {
+  select(snapshot: GameSnapshot, contractId: string): MilitarySavingsCloseCommand;
+  complete(command: MilitarySavingsCloseCommand): void;
+  fail(command: MilitarySavingsCloseCommand, error: unknown): void;
 }

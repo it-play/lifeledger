@@ -40,6 +40,7 @@ export const paths = {
   connectionStatus: 'connection.status',
   gameSnapshot: 'game.snapshot',
   gameCareer: 'game.snapshot.career',
+  gameLife: 'game.snapshot.life',
   gameAdvancing: 'game.advancing',
   gameOrdering: 'game.ordering',
 } as const;

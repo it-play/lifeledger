@@ -169,6 +169,9 @@ describe('수동 진행 명령 검증', () => {
             }),
           ) as Promise<T>;
         },
+        put<T>() {
+          return Promise.reject(new Error('unexpected PUT')) as Promise<T>;
+        },
       };
       const api = createGameApi({ http, stream: givenStream() });
 
@@ -217,6 +220,9 @@ describe('포트폴리오 주문 오류 변환', () => {
             }),
           ) as Promise<T>;
         },
+        put<T>() {
+          return Promise.reject(new Error('unexpected PUT')) as Promise<T>;
+        },
       };
       const api = createGameApi({ http, stream: givenStream() });
 
@@ -243,6 +249,9 @@ describe('금융 명령 오류 변환', () => {
               message: '지갑 잔액이 부족합니다',
             }),
           ) as Promise<T>;
+        },
+        put<T>() {
+          return Promise.reject(new Error('unexpected PUT')) as Promise<T>;
         },
       };
       const api = createGameApi({ http, stream: givenStream() });
@@ -394,6 +403,9 @@ describe('CMA 계좌 명령 상관관계', () => {
             }),
           ) as Promise<T>;
         },
+        put<T>() {
+          return Promise.reject(new Error('unexpected PUT')) as Promise<T>;
+        },
       };
       const api = createGameApi({ http, stream: givenStream() });
 
@@ -532,6 +544,9 @@ describe('절세계좌 개설·해지 상관관계', () => {
               message: '같은 종류의 계좌가 이미 있습니다',
             }),
           ) as Promise<T>;
+        },
+        put<T>() {
+          return Promise.reject(new Error('unexpected PUT')) as Promise<T>;
         },
       };
       const api = createGameApi({ http, stream: givenStream() });
@@ -943,6 +958,9 @@ describe('금 계좌·주문·실물 인출 API', () => {
             }),
           ) as Promise<T>;
         },
+        put<T>() {
+          return Promise.reject(new Error('unexpected PUT')) as Promise<T>;
+        },
       };
       const api = createGameApi({ http, stream: givenStream() });
 
@@ -1078,11 +1096,14 @@ function givenRespondingHttp(response: unknown): HttpClient {
     async post(_path, _body, decoder) {
       return decoder.parse(response);
     },
+    async put(_path, _body, decoder) {
+      return decoder.parse(response);
+    },
   };
 }
 
 interface HttpCapture {
-  method: 'GET' | 'POST' | null;
+  method: 'GET' | 'POST' | 'PUT' | null;
   path: string | null;
   body: unknown;
   signal?: AbortSignal;
@@ -1102,6 +1123,12 @@ function givenCapturingHttp(response: unknown, capture: HttpCapture): HttpClient
     },
     async post(path, body, decoder) {
       capture.method = 'POST';
+      capture.path = path;
+      capture.body = body;
+      return decoder.parse(response);
+    },
+    async put(path, body, decoder) {
+      capture.method = 'PUT';
       capture.path = path;
       capture.body = body;
       return decoder.parse(response);
@@ -1174,6 +1201,33 @@ function givenSnapshot(): GameSnapshot {
       pendingSettlements: [],
     },
     career: givenEmptyCareerSnapshot(),
+    life: {
+      rateStatus: 'rateUnavailable',
+      household: null,
+      residence: null,
+      tenantLeaseDepositKrw: 0,
+      activeLease: null,
+      activeLeaseArrears: [],
+      hasMoreActiveLeaseArrears: false,
+      totalLeaseArrearKrw: 0,
+      activePropertyHoldings: [],
+      hasMoreActivePropertyHoldings: false,
+      totalPropertyBookValueKrw: 0,
+      currentMonth: null,
+      activeArrears: [],
+      hasMoreActiveArrears: false,
+      totalEssentialArrearKrw: 0,
+      creditBand: null,
+      creditReasons: ['modelUnavailable'],
+      activeLoans: [],
+      nextLoanInstallment: null,
+      totalLoanBalanceKrw: 0,
+      activeWelfareApplications: [],
+      insuranceCapability: 'unavailable',
+      activeInsuranceContracts: [],
+      pendingInsuranceClaims: [],
+      pendingEvents: [],
+    },
   };
 }
 
@@ -1193,5 +1247,33 @@ function givenEmptyCareerSnapshot(): GameSnapshot['career'] {
     openApplications: [],
     openInvitations: [],
     employment: null,
+    latestPayroll: null,
+    currentEmploymentTaxYear: {
+      taxYear: 2026,
+      status: 'open',
+      source: 'employmentOnly',
+      grossEmploymentIncomeKrw: 0,
+      employeeInsuranceDeductionKrw: 0,
+      earnedIncomeDeductionKrw: null,
+      personalDeductionKrw: null,
+      taxableIncomeKrw: null,
+      calculatedIncomeTaxKrw: null,
+      earnedIncomeTaxCreditKrw: null,
+      pensionCreditEligibleContributionKrw: null,
+      actualPensionIncomeTaxCreditKrw: null,
+      actualPensionLocalIncomeTaxEffectKrw: null,
+      withheldIncomeTaxKrw: 0,
+      withheldLocalIncomeTaxKrw: 0,
+      assessedIncomeTaxKrw: null,
+      assessedLocalIncomeTaxKrw: null,
+      additionalTaxKrw: null,
+      refundKrw: null,
+      reconciliationGameDay: null,
+    },
+    latestEmploymentTaxAssessment: null,
+    militaryStatus: 'unserved',
+    activeMilitaryService: null,
+    activeMilitarySavings: [],
+    pendingCareerSchedule: [],
   };
 }

@@ -10,6 +10,10 @@ import type {
   CareerFocusDraft,
   CareerFocusRequest,
   GameSnapshot,
+  MilitarySavingsEnrollmentDraft,
+  MilitarySavingsEnrollmentRequest,
+  MilitaryServiceStartDraft,
+  MilitaryServiceStartRequest,
 } from '../../api/contracts.js';
 import type {
   CareerActivityCancelRetryPolicy,
@@ -25,6 +29,10 @@ import type {
   CareerPathCommand,
   CareerPathRetryPolicy,
   CareerRetryPolicyDeps,
+  MilitarySavingsCloseCommand,
+  MilitarySavingsCloseRetryPolicy,
+  MilitarySavingsEnrollmentRetryPolicy,
+  MilitaryServiceStartRetryPolicy,
 } from './types.js';
 
 export function createCareerFocusRetryPolicy(deps: CareerRetryPolicyDeps): CareerFocusRetryPolicy {
@@ -165,6 +173,60 @@ export function createCareerPathRetryPolicy(deps: CareerRetryPolicyDeps): Career
   };
 }
 
+export function createMilitaryServiceStartRetryPolicy(
+  deps: CareerRetryPolicyDeps,
+): MilitaryServiceStartRetryPolicy {
+  const pending = new Map<string, MilitaryServiceStartRequest>();
+  return {
+    select(snapshot, draft) {
+      const key = militaryServiceStartKey(snapshot.runRevision, draft);
+      return pending.get(key) ?? { ...cursorOf(snapshot, deps), ...draft };
+    },
+    complete(request) {
+      clearRequest(pending, militaryServiceStartRequestKey(request), request.commandId);
+    },
+    fail(request, error) {
+      retainTransportFailure(pending, militaryServiceStartRequestKey(request), request, error);
+    },
+  };
+}
+
+export function createMilitarySavingsEnrollmentRetryPolicy(
+  deps: CareerRetryPolicyDeps,
+): MilitarySavingsEnrollmentRetryPolicy {
+  const pending = new Map<string, MilitarySavingsEnrollmentRequest>();
+  return {
+    select(snapshot, draft) {
+      const key = militarySavingsEnrollmentKey(snapshot.runRevision, draft);
+      return pending.get(key) ?? { ...cursorOf(snapshot, deps), ...draft };
+    },
+    complete(request) {
+      clearRequest(pending, militarySavingsEnrollmentRequestKey(request), request.commandId);
+    },
+    fail(request, error) {
+      retainTransportFailure(pending, militarySavingsEnrollmentRequestKey(request), request, error);
+    },
+  };
+}
+
+export function createMilitarySavingsCloseRetryPolicy(
+  deps: CareerRetryPolicyDeps,
+): MilitarySavingsCloseRetryPolicy {
+  const pending = new Map<string, MilitarySavingsCloseCommand>();
+  return {
+    select(snapshot, contractId) {
+      const key = militarySavingsCloseKey(snapshot.runRevision, contractId);
+      return pending.get(key) ?? { contractId, request: cursorOf(snapshot, deps) };
+    },
+    complete(command) {
+      clearPathCommand(pending, militarySavingsCloseCommandKey(command), command.request.commandId);
+    },
+    fail(command, error) {
+      retainPathTransportFailure(pending, militarySavingsCloseCommandKey(command), command, error);
+    },
+  };
+}
+
 function cursorOf(snapshot: GameSnapshot, deps: CareerRetryPolicyDeps): CareerCursorRequest {
   return {
     commandId: deps.createCommandId(),
@@ -258,6 +320,38 @@ function pathKey(runRevision: number, action: CareerPathAction, resourceId: stri
 
 function pathCommandKey(command: CareerPathCommand): string {
   return pathKey(command.request.expectedRunRevision, command.action, command.resourceId);
+}
+
+function militaryServiceStartKey(runRevision: number, draft: MilitaryServiceStartDraft): string {
+  return JSON.stringify([runRevision, draft.militaryOptionVersionId]);
+}
+
+function militaryServiceStartRequestKey(request: MilitaryServiceStartRequest): string {
+  return militaryServiceStartKey(request.expectedRunRevision, request);
+}
+
+function militarySavingsEnrollmentKey(
+  runRevision: number,
+  draft: MilitarySavingsEnrollmentDraft,
+): string {
+  return JSON.stringify([
+    runRevision,
+    draft.productVersionId,
+    draft.monthlyContributionKrw,
+    draft.debitDayOfMonth,
+  ]);
+}
+
+function militarySavingsEnrollmentRequestKey(request: MilitarySavingsEnrollmentRequest): string {
+  return militarySavingsEnrollmentKey(request.expectedRunRevision, request);
+}
+
+function militarySavingsCloseKey(runRevision: number, contractId: string): string {
+  return JSON.stringify([runRevision, contractId]);
+}
+
+function militarySavingsCloseCommandKey(command: MilitarySavingsCloseCommand): string {
+  return militarySavingsCloseKey(command.request.expectedRunRevision, command.contractId);
 }
 
 function clearRequest<T extends { readonly commandId: string }>(

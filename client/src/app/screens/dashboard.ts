@@ -578,6 +578,44 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           const name = snapshot.get()?.characterName;
           return name !== undefined && name !== null;
         });
+        const militaryStatusText = h.useComputed(() => {
+          const status = snapshot.get()?.career.militaryStatus;
+          if (status === undefined) return '—';
+          return {
+            unserved: '미필',
+            serving: '복무 중',
+            completed: '복무 완료',
+            exempt: '면제',
+          }[status];
+        });
+        const militaryServiceText = h.useComputed(() => {
+          const service = snapshot.get()?.career.activeMilitaryService;
+          if (service === undefined) return '—';
+          if (service === null) return '진행 중인 복무 없음';
+          return `${service.displayName} · ${service.creditedServiceDays}/${service.totalServiceDays}일 · 종료 ${service.endGameDay}일차`;
+        });
+        const militarySavingsText = h.useComputed(() => {
+          const contracts = snapshot.get()?.career.activeMilitarySavings;
+          if (contracts === undefined) return '—';
+          if (contracts.length === 0) return '활성 계약 없음';
+          return contracts
+            .map(
+              (contract) =>
+                `#${contract.id} ${contract.institutionKey} ${formatWon(contract.principalKrw)}`,
+            )
+            .join(' / ');
+        });
+        const lifeSummaryText = h.useComputed(() => {
+          const life = snapshot.get()?.life;
+          if (life === undefined) return '—';
+          const insurance = insuranceSnapshotSummary(life);
+          if (life.rateStatus === 'rateUnavailable')
+            return `이 월드에서는 생활비 비율을 사용할 수 없음 · ${insurance}`;
+          const month = life.currentMonth;
+          if (month === null)
+            return `월 청구 준비 중 · 필수 미납 ${formatWon(life.totalEssentialArrearKrw)} · ${insurance}`;
+          return `${month.yearMonth.year}-${String(month.yearMonth.month).padStart(2, '0')} ${formatWon(month.totalGrossKrw)} · 필수 미납 ${formatWon(life.totalEssentialArrearKrw)} · ${insurance}`;
+        });
         const defaultFinanceAccountId = h.useComputed(() => {
           const accounts = snapshot.get()?.finance.accounts ?? [];
           return (
@@ -974,6 +1012,10 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         const treasury10yValue = el('span');
         const statusValue = el('span', { class: 'status' });
         const autoStatusValue = el('span', { class: 'auto-status' });
+        const militaryStatusValue = el('span');
+        const militaryServiceValue = el('span');
+        const militarySavingsValue = el('span');
+        const lifeSummaryValue = el('span');
         const accountValue = el('span', { class: 'account' });
         const logoutButton = el('button', { type: 'button', class: 'logout' }, '로그아웃');
         const policySetValue = el('span');
@@ -1183,6 +1225,15 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           el('p', { class: 'account-line' }, accountValue, ' ', logoutButton),
           el('p', { class: 'connection' }, '스트림: ', statusValue),
           el('p', {}, el('a', { href: '/career', dataset: { link: '' } }, '커리어 관리')),
+          el('p', {}, el('a', { href: '/life', dataset: { link: '' } }, '생활비 관리')),
+          el('p', {}, el('a', { href: '/loans', dataset: { link: '' } }, '신용과 대출')),
+          el('p', {}, el('a', { href: '/housing', dataset: { link: '' } }, '주거 시장')),
+          el('p', {}, el('a', { href: '/welfare', dataset: { link: '' } }, '복지 프로그램')),
+          el(
+            'p',
+            {},
+            el('a', { href: '/events-insurance', dataset: { link: '' } }, '생애 사건과 보험'),
+          ),
           el(
             'dl',
             { class: 'summary' },
@@ -1194,6 +1245,14 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
             el('dd', {}, netWorthValue),
             el('dt', {}, '포트폴리오 평가액'),
             el('dd', {}, portfolioValue),
+            el('dt', {}, '병역 상태'),
+            el('dd', {}, militaryStatusValue),
+            el('dt', {}, '복무 진행'),
+            el('dd', {}, militaryServiceValue),
+            el('dt', {}, '활성 장병적금'),
+            el('dd', {}, militarySavingsValue),
+            el('dt', {}, '생활비'),
+            el('dd', {}, lifeSummaryValue),
             el('dt', {}, 'LLX 보유수량'),
             el('dd', {}, positionQuantityValue),
             el('dt', {}, 'LLX 계좌별 평균단가'),
@@ -1557,6 +1616,10 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         h.bindText(treasury10yValue, () => treasury10yText.get());
         h.bindText(statusValue, () => statusText.get());
         h.bindText(autoStatusValue, () => autoStatusText.get());
+        h.bindText(militaryStatusValue, () => militaryStatusText.get());
+        h.bindText(militaryServiceValue, () => militaryServiceText.get());
+        h.bindText(militarySavingsValue, () => militarySavingsText.get());
+        h.bindText(lifeSummaryValue, () => lifeSummaryText.get());
         h.bindText(accountValue, () => accountText.get());
         h.bindText(policySetValue, () => policySetText.get());
         h.bindText(historyStatus, () => historyStatusText.get());
@@ -2248,6 +2311,18 @@ function pendingSettlementKindLabel(kind: PendingSettlementSummary['kind']): str
     bondMaturity: '국채 만기',
     llxDistribution: 'LLX 분배',
     financialIncomeFiling: '금융소득 신고',
+    employmentPayroll: '급여 지급',
+    employmentReconciliation: '연말정산 조정',
+    militaryPay: '군 급여 지급',
+    militarySavingsInstallment: '장병적금 납입',
+    militarySavingsMaturity: '장병적금 만기',
+    militarySavingsGovernmentMatch: '장병적금 정부지원금',
+    loanInstallment: '대출 정기 상환',
+    leaseRent: '월세 납부',
+    livingCostMonth: '월 생활비',
+    propertyTaxPayment: '부동산 세금 납부',
+    welfareBenefitPayment: '복지 급여 지급',
+    insurancePremium: '보험료 납부',
   };
   return labels[kind];
 }
@@ -3220,6 +3295,12 @@ function setRowHidden(row: HTMLTableRowElement, hidden: boolean): void {
   if (row.hidden !== hidden) row.hidden = hidden;
 }
 
+function insuranceSnapshotSummary(life: GameSnapshot['life']): string {
+  return life.insuranceCapability === 'unavailable'
+    ? '보험 미지원'
+    : `활성 보험 ${life.activeInsuranceContracts.length}건 · 청구 대기 ${life.pendingInsuranceClaims.length}건`;
+}
+
 function cashProductKindLabel(kind: CashProduct['kind']): string {
   const labels: Record<CashProduct['kind'], string> = {
     cmaRp: 'RP형 CMA',
@@ -3398,6 +3479,41 @@ function ledgerAccountLabel(
     realizedGainLoss: '실현손익',
     taxSettlement: '세금 정산',
     careerDevelopmentExpense: '커리어 개발비',
+    salaryIncome: '급여수익',
+    employeeNationalPensionExpense: '근로자 국민연금',
+    employeeHealthInsuranceExpense: '근로자 건강보험',
+    employeeLongTermCareExpense: '근로자 장기요양보험',
+    employeeEmploymentInsuranceExpense: '근로자 고용보험',
+    employmentIncomeTaxWithholding: '근로소득세 원천징수',
+    employmentLocalIncomeTaxWithholding: '근로 지방소득세 원천징수',
+    otherIncomeReward: '기타소득 채용보상',
+    otherIncomeTaxWithholding: '기타소득세 원천징수',
+    otherLocalIncomeTaxWithholding: '기타 지방소득세 원천징수',
+    pensionTaxExcludedContribution: '연금 세액공제 미확정 납입',
+    pensionCreditedContribution: '연금 세액공제 확정 납입',
+    militaryPayIncome: '군 급여수익',
+    militarySavingsPrincipal: '장병적금 원금',
+    militarySavingsBankInterest: '장병적금 은행이자',
+    militarySavingsGovernmentMatchIncome: '장병적금 정부지원수익',
+    livingCostExpense: '생활비',
+    essentialArrearLiability: '필수 생활비 미납',
+    loanPrincipalLiability: '대출 원금 의무',
+    loanInterestExpense: '대출 이자비용',
+    loanInterestLiability: '미납 대출 이자',
+    loanFeeExpense: '대출 비용',
+    taxObligationLiability: '미납 세금 의무',
+    leaseDepositAsset: '임대차 보증금 자산',
+    movingExpense: '이사 비용',
+    leaseRentExpense: '월세 비용',
+    leaseArrearLiability: '월세 연체 의무',
+    propertyAsset: '주택 자산',
+    acquisitionIncidentalExpense: '주택 취득 부대비용',
+    propertyDispositionExpense: '주택 처분 비용',
+    propertyTaxExpense: '부동산 세금 비용',
+    welfareBenefitIncome: '복지 급여수익',
+    lifeEventExpense: '생애 사건 비용',
+    insurancePremiumExpense: '보험료 비용',
+    insuranceClaimRecovery: '보험금 회수',
   };
   return labels[accountCode];
 }

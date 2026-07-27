@@ -8,7 +8,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
   async function send<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     path: string,
     decoder: ResponseDecoder<T>,
     body: unknown,
@@ -49,6 +49,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     get: (path, decoder, requestOptions) => send('GET', path, decoder, undefined, requestOptions),
     post: (path, body, decoder, requestOptions) =>
       send('POST', path, decoder, body, requestOptions),
+    put: (path, body, decoder, requestOptions) => send('PUT', path, decoder, body, requestOptions),
   };
 }
 

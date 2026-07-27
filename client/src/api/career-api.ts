@@ -40,12 +40,33 @@ import {
   CareerJobsResponseSchema,
   type CareerOfferResponse,
   CareerOfferResponseSchema,
+  type CareerPayrollResponse,
+  CareerPayrollResponseSchema,
   type CareerPlatform,
   CareerPlatformSchema,
   type CareerSpecsResponse,
   CareerSpecsResponseSchema,
+  type CareerTaxYearState,
+  CareerTaxYearStateSchema,
+  type MilitaryOptionsResponse,
+  MilitaryOptionsResponseSchema,
+  type MilitarySavingsCommandResponse,
+  MilitarySavingsCommandResponseSchema,
+  type MilitarySavingsEnrollmentRequest,
+  MilitarySavingsEnrollmentRequestSchema,
+  type MilitarySavingsHistoryResponse,
+  MilitarySavingsHistoryResponseSchema,
+  type MilitarySavingsProductsResponse,
+  MilitarySavingsProductsResponseSchema,
+  type MilitaryServiceCommandResponse,
+  MilitaryServiceCommandResponseSchema,
+  type MilitaryServiceResponse,
+  MilitaryServiceResponseSchema,
+  type MilitaryServiceStartRequest,
+  MilitaryServiceStartRequestSchema,
   PostingKeySchema,
   ResourceIdSchema,
+  TaxYearSchema,
 } from './contracts.js';
 import { asDecoder } from './zod-adapters.js';
 
@@ -76,6 +97,15 @@ export interface CareerApi {
     signal?: AbortSignal,
   ): Promise<CareerApplicationsResponse>;
   getEmployment(signal?: AbortSignal): Promise<CareerEmploymentResponse>;
+  getPayroll(query?: CareerPageQuery, signal?: AbortSignal): Promise<CareerPayrollResponse>;
+  getTaxYear(year: number, signal?: AbortSignal): Promise<CareerTaxYearState>;
+  getMilitaryOptions(signal?: AbortSignal): Promise<MilitaryOptionsResponse>;
+  getMilitaryService(signal?: AbortSignal): Promise<MilitaryServiceResponse>;
+  getMilitarySavingsProducts(signal?: AbortSignal): Promise<MilitarySavingsProductsResponse>;
+  getMilitarySavings(
+    query?: CareerPageQuery,
+    signal?: AbortSignal,
+  ): Promise<MilitarySavingsHistoryResponse>;
   focus(request: CareerFocusRequest): Promise<CareerFocusResponse>;
   startActivity(request: CareerActivityStartRequest): Promise<CareerActivityResponse>;
   cancelActivity(activityId: string, request: CareerCursorRequest): Promise<CareerActivityResponse>;
@@ -99,6 +129,16 @@ export interface CareerApi {
   ): Promise<CareerInvitationResponse>;
   acceptOffer(offerId: string, request: CareerCursorRequest): Promise<CareerOfferResponse>;
   declineOffer(offerId: string, request: CareerCursorRequest): Promise<CareerOfferResponse>;
+  startMilitaryService(
+    request: MilitaryServiceStartRequest,
+  ): Promise<MilitaryServiceCommandResponse>;
+  enrollMilitarySavings(
+    request: MilitarySavingsEnrollmentRequest,
+  ): Promise<MilitarySavingsCommandResponse>;
+  closeMilitarySavings(
+    contractId: string,
+    request: CareerCursorRequest,
+  ): Promise<MilitarySavingsCommandResponse>;
 }
 
 export interface CareerApiDeps {
@@ -123,6 +163,11 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
   const jobsDecoder = asDecoder(CareerJobsResponseSchema);
   const applicationsDecoder = asDecoder(CareerApplicationsResponseSchema);
   const employmentDecoder = asDecoder(CareerEmploymentResponseSchema);
+  const payrollDecoder = asDecoder(CareerPayrollResponseSchema);
+  const militaryOptionsDecoder = asDecoder(MilitaryOptionsResponseSchema);
+  const militaryServiceDecoder = asDecoder(MilitaryServiceResponseSchema);
+  const militarySavingsProductsDecoder = asDecoder(MilitarySavingsProductsResponseSchema);
+  const militarySavingsDecoder = asDecoder(MilitarySavingsHistoryResponseSchema);
 
   return {
     getSpecs(query, signal) {
@@ -174,6 +219,61 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
       return deps.http.get(
         '/api/career/employment',
         employmentDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getPayroll(query, signal) {
+      return deps.http.get(
+        careerPagePath('/api/career/payroll', query),
+        payrollDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getTaxYear(year, signal) {
+      const validYear = TaxYearSchema.parse(year);
+      const decoder = asDecoder(
+        CareerTaxYearStateSchema.refine((result) => result.taxYear === validYear, {
+          path: ['taxYear'],
+          message: 'tax-year result does not match the requested year',
+        }),
+      );
+      return deps.http.get(
+        `/api/career/tax-years/${validYear}`,
+        decoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getMilitaryOptions(signal) {
+      return deps.http.get(
+        '/api/military/options',
+        militaryOptionsDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getMilitaryService(signal) {
+      return deps.http.get(
+        '/api/military/service',
+        militaryServiceDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getMilitarySavingsProducts(signal) {
+      return deps.http.get(
+        '/api/military/savings-products',
+        militarySavingsProductsDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getMilitarySavings(query, signal) {
+      return deps.http.get(
+        careerPagePath('/api/military/savings', query),
+        militarySavingsDecoder,
         signal === undefined ? undefined : { signal },
       );
     },
@@ -262,11 +362,12 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
     async confirmInterview(applicationId, request) {
       const id = ResourceIdSchema.parse(applicationId);
       const body = CareerInterviewConfirmationRequestSchema.parse(request);
+      const expectedStatus = body.decision === 'confirm' ? 'interviewConfirmed' : 'withdrawn';
       return postCareer(
         deps.http,
         `/api/career/applications/${id}/interview-confirmation`,
         body,
-        careerApplicationActionDecoder(id),
+        careerApplicationActionDecoder(id, expectedStatus),
       );
     },
 
@@ -277,7 +378,7 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
         deps.http,
         `/api/career/applications/${id}/withdraw`,
         body,
-        careerApplicationActionDecoder(id),
+        careerApplicationActionDecoder(id, 'withdrawn'),
       );
     },
 
@@ -288,7 +389,7 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
         deps.http,
         `/api/career/invitations/${id}/accept`,
         body,
-        careerInvitationActionDecoder(id),
+        careerInvitationActionDecoder(id, 'accepted', true),
       );
     },
 
@@ -299,7 +400,7 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
         deps.http,
         `/api/career/invitations/${id}/decline`,
         body,
-        careerInvitationActionDecoder(id),
+        careerInvitationActionDecoder(id, 'declined', false),
       );
     },
 
@@ -310,7 +411,7 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
         deps.http,
         `/api/career/offers/${id}/accept`,
         body,
-        careerOfferActionDecoder(id),
+        careerOfferActionDecoder(id, 'accepted', true),
       );
     },
 
@@ -321,8 +422,60 @@ export function createCareerApi(deps: CareerApiDeps): CareerApi {
         deps.http,
         `/api/career/offers/${id}/decline`,
         body,
-        careerOfferActionDecoder(id),
+        careerOfferActionDecoder(id, 'declined', false),
       );
+    },
+
+    async startMilitaryService(request) {
+      const body = MilitaryServiceStartRequestSchema.parse(request);
+      const decoder = asDecoder(
+        MilitaryServiceCommandResponseSchema.superRefine((response, context) => {
+          if (response.result.status !== 'pendingStart') {
+            context.addIssue({
+              code: 'custom',
+              path: ['result', 'status'],
+              message: 'new military service must be pending start',
+            });
+          }
+        }),
+      );
+      return postCareer(deps.http, '/api/military/service', body, decoder);
+    },
+
+    async enrollMilitarySavings(request) {
+      const body = MilitarySavingsEnrollmentRequestSchema.parse(request);
+      const decoder = asDecoder(
+        MilitarySavingsCommandResponseSchema.superRefine((response, context) => {
+          if (response.result.status !== 'active') {
+            context.addIssue({
+              code: 'custom',
+              path: ['result', 'status'],
+              message: 'new military savings contract must be active',
+            });
+          }
+        }),
+      );
+      return postCareer(deps.http, '/api/military/savings', body, decoder);
+    },
+
+    async closeMilitarySavings(contractId, request) {
+      const id = ResourceIdSchema.parse(contractId);
+      const body = CareerCursorRequestSchema.parse(request);
+      const decoder = asDecoder(
+        MilitarySavingsCommandResponseSchema.superRefine((response, context) => {
+          if (
+            response.result.militarySavingsContractId !== id ||
+            response.result.status !== 'closed'
+          ) {
+            context.addIssue({
+              code: 'custom',
+              path: ['result'],
+              message: 'military savings close result does not match its command',
+            });
+          }
+        }),
+      );
+      return postCareer(deps.http, `/api/military/savings/${id}/close`, body, decoder);
     },
   };
 }
@@ -362,14 +515,18 @@ function careerJobsPageParams(query: CareerJobsPageQuery | undefined): URLSearch
 
 function careerApplicationActionDecoder(
   applicationId: string,
+  expectedStatus: 'interviewConfirmed' | 'withdrawn',
 ): ResponseDecoder<CareerApplicationResponse> {
   return asDecoder(
     CareerApplicationResponseSchema.superRefine((response, context) => {
-      if (response.result.applicationId !== applicationId) {
+      if (
+        response.result.applicationId !== applicationId ||
+        response.result.status !== expectedStatus
+      ) {
         context.addIssue({
           code: 'custom',
-          path: ['result', 'applicationId'],
-          message: 'application result does not match its path',
+          path: ['result'],
+          message: 'application result does not match its command',
         });
       }
     }),
@@ -378,28 +535,42 @@ function careerApplicationActionDecoder(
 
 function careerInvitationActionDecoder(
   invitationId: string,
+  expectedStatus: 'accepted' | 'declined',
+  expectsApplication: boolean,
 ): ResponseDecoder<CareerInvitationResponse> {
   return asDecoder(
     CareerInvitationResponseSchema.superRefine((response, context) => {
-      if (response.result.invitationId !== invitationId) {
+      if (
+        response.result.invitationId !== invitationId ||
+        response.result.status !== expectedStatus ||
+        (response.result.applicationId !== null) !== expectsApplication
+      ) {
         context.addIssue({
           code: 'custom',
-          path: ['result', 'invitationId'],
-          message: 'invitation result does not match its path',
+          path: ['result'],
+          message: 'invitation result does not match its command',
         });
       }
     }),
   );
 }
 
-function careerOfferActionDecoder(offerId: string): ResponseDecoder<CareerOfferResponse> {
+function careerOfferActionDecoder(
+  offerId: string,
+  expectedStatus: 'accepted' | 'declined',
+  expectsEmploymentContract: boolean,
+): ResponseDecoder<CareerOfferResponse> {
   return asDecoder(
     CareerOfferResponseSchema.superRefine((response, context) => {
-      if (response.result.offerId !== offerId) {
+      if (
+        response.result.offerId !== offerId ||
+        response.result.status !== expectedStatus ||
+        (response.result.employmentContractId !== null) !== expectsEmploymentContract
+      ) {
         context.addIssue({
           code: 'custom',
-          path: ['result', 'offerId'],
-          message: 'offer result does not match its path',
+          path: ['result'],
+          message: 'offer result does not match its command',
         });
       }
     }),

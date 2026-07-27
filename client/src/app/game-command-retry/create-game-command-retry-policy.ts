@@ -1,7 +1,7 @@
 import type {
   AdvanceRequest,
-  CharacterDraft,
-  CharacterStartRequest,
+  CharacterStartV2Draft,
+  CharacterStartV2Request,
   GameSnapshot,
 } from '../../api/contracts.js';
 import type {
@@ -13,7 +13,7 @@ import type {
 export function createCharacterStartRetryPolicy(
   deps: GameCommandRetryPolicyDeps,
 ): CharacterStartRetryPolicy {
-  const pending = new Map<string, CharacterStartRequest>();
+  const pending = new Map<string, CharacterStartV2Request>();
 
   return {
     select(snapshot, draft) {
@@ -21,10 +21,10 @@ export function createCharacterStartRetryPolicy(
       return pending.get(key) ?? characterRequestOf(snapshot, draft, deps.createCommandId());
     },
     retain(request) {
-      pending.set(characterKey(request.character), request);
+      pending.set(characterKey(request), request);
     },
     clear(request) {
-      const key = characterKey(request.character);
+      const key = characterKey(request);
       if (pending.get(key)?.commandId === request.commandId) pending.delete(key);
     },
   };
@@ -50,15 +50,15 @@ export function createAdvanceRetryPolicy(deps: GameCommandRetryPolicyDeps): Adva
 
 function characterRequestOf(
   snapshot: GameSnapshot,
-  character: CharacterDraft,
+  draft: CharacterStartV2Draft,
   commandId: string,
-): CharacterStartRequest {
+): CharacterStartV2Request {
   return {
     commandId,
     expectedRunRevision: snapshot.runRevision,
     expectedStateRevision: snapshot.stateRevision,
     expectedGameDay: snapshot.gameDay,
-    character,
+    ...draft,
   };
 }
 
@@ -72,22 +72,22 @@ function advanceRequestOf(snapshot: GameSnapshot, days: number, commandId: strin
   };
 }
 
-function characterKey(draft: CharacterDraft): string {
+function characterKey(draft: CharacterStartV2Draft): string {
+  const { character } = draft;
   return JSON.stringify([
-    draft.name,
-    draft.age,
-    draft.gender,
-    draft.military,
-    draft.region,
-    draft.background,
-    draft.education,
-    draft.careerYears,
-    draft.certifications,
-    draft.startingCashKrw,
-    draft.studentLoanKrw,
-    draft.creditLoanKrw,
-    draft.health,
-    draft.dependents,
+    character.name,
+    character.age,
+    character.gender,
+    character.military,
+    character.region,
+    character.background,
+    character.education,
+    character.careerYears,
+    character.certifications,
+    character.startingCashKrw,
+    character.health,
+    character.dependents,
+    draft.startingLoans.map((loan) => [loan.kind, loan.productVersionId, loan.principalKrw]),
   ]);
 }
 

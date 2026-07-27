@@ -1,12 +1,23 @@
 import { type AuthApi, createAuthApi } from './api/auth-api.js';
 import { createCareerApi } from './api/career-api.js';
 import { createGameApi } from './api/game-api.js';
+import { createHousingApi } from './api/housing-api.js';
+import { createInsuranceApi } from './api/insurance-api.js';
+import { createLifeApi } from './api/life-api.js';
+import { createLifeEventApi } from './api/life-event-api.js';
+import { createLoanApi } from './api/loan-api.js';
+import { createWelfareApi } from './api/welfare-api.js';
 import { createGameStateWriter, type GameStateWriter } from './app/game-state/index.js';
 import { createCareerView } from './app/screens/career.js';
 import { createCharacterCreateView } from './app/screens/character-create.js';
 import { createDashboardView } from './app/screens/dashboard.js';
+import { createEventsInsuranceView } from './app/screens/events-insurance.js';
+import { createHousingView } from './app/screens/housing.js';
+import { createLifeView } from './app/screens/life.js';
+import { createLoansView } from './app/screens/loans.js';
 import { createLoginView } from './app/screens/login.js';
 import { createNotFoundView } from './app/screens/not-found.js';
+import { createWelfareView } from './app/screens/welfare.js';
 import { type AppState, initialState, paths } from './app/state.js';
 import { createConsoleLogger, createDisposableBag, type Logger } from './lib/core/index.js';
 import { createHooks } from './lib/hooks/index.js';
@@ -41,6 +52,12 @@ function bootstrap(): void {
   const stream = createSseClient({ url: '/api/stream', logger, credentials: 'same-origin' });
   const auth = createAuthApi({ http });
   const careerApi = createCareerApi({ http });
+  const housingApi = createHousingApi({ http });
+  const insuranceApi = createInsuranceApi({ http });
+  const lifeEventApi = createLifeEventApi({ http });
+  const lifeApi = createLifeApi({ http });
+  const loanApi = createLoanApi({ http });
+  const welfareApi = createWelfareApi({ http });
   const api = createGameApi({
     http,
     stream,
@@ -100,11 +117,62 @@ function bootstrap(): void {
         }),
       },
       {
+        pattern: '/housing',
+        handler: createHousingView({
+          store,
+          snapshots,
+          api: housingApi,
+          loanApi,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/events-insurance',
+        handler: createEventsInsuranceView({
+          store,
+          snapshots,
+          eventApi: lifeEventApi,
+          insuranceApi,
+          toasts,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/life',
+        handler: createLifeView({
+          store,
+          snapshots,
+          api: lifeApi,
+          toasts,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/loans',
+        handler: createLoansView({
+          store,
+          snapshots,
+          api: loanApi,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/welfare',
+        handler: createWelfareView({
+          store,
+          snapshots,
+          api: welfareApi,
+          toasts,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
         pattern: '/new',
         handler: createCharacterCreateView({
           store,
           snapshots,
           api,
+          loanApi,
           toasts,
           createCommandId: () => globalThis.crypto.randomUUID(),
         }),

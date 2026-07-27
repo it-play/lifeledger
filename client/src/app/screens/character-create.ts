@@ -1,5 +1,11 @@
-import { type CharacterDraft, CharacterDraftSchema, type Preset } from '../../api/contracts.js';
+import {
+  type CharacterDraft,
+  CharacterDraftSchema,
+  type LoanProductCatalog,
+  type Preset,
+} from '../../api/contracts.js';
 import { CharacterRejectedError, type GameApi, GameCommandError } from '../../api/game-api.js';
+import type { LoanApi } from '../../api/loan-api.js';
 import { asFormValidator } from '../../api/zod-adapters.js';
 import { el } from '../../lib/dom/index.js';
 import { type FieldSpec, type FormHandle, renderForm } from '../../lib/form/index.js';
@@ -7,6 +13,10 @@ import { createHooks } from '../../lib/hooks/index.js';
 import type { Store } from '../../lib/store/index.js';
 import type { ToastQueue } from '../../lib/toast/index.js';
 import type { View, ViewFactory } from '../../lib/view/index.js';
+import {
+  type CharacterStartDraftBuilder,
+  createCharacterStartDraftBuilder,
+} from '../character-start/index.js';
 import {
   type CharacterStartRetryPolicy,
   createCharacterStartRetryPolicy,
@@ -18,6 +28,7 @@ export interface CharacterCreateDeps {
   readonly store: Store<AppState>;
   readonly snapshots: GameStateWriter;
   readonly api: GameApi;
+  readonly loanApi: LoanApi;
   readonly toasts: ToastQueue;
   readonly createCommandId: () => string;
 }
@@ -28,7 +39,9 @@ interface CharacterSubmitDeps {
   readonly api: GameApi;
   readonly toasts: ToastQueue;
   readonly retries: CharacterStartRetryPolicy;
+  readonly startDrafts: CharacterStartDraftBuilder;
   readonly currentForm: () => FormHandle | undefined;
+  readonly currentLoanCatalog: () => LoanProductCatalog | undefined;
   readonly navigate: (to: string) => void;
 }
 
@@ -120,9 +133,11 @@ const validator = asFormValidator(CharacterDraftSchema);
  */
 export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactory {
   const retries = createCharacterStartRetryPolicy({ createCommandId: deps.createCommandId });
+  const startDrafts = createCharacterStartDraftBuilder();
 
   return (): View => {
     let form: FormHandle | undefined;
+    let loanCatalog: LoanProductCatalog | undefined;
 
     return {
       async mount(host, ctx) {
@@ -130,12 +145,14 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
         const h = createHooks(ctx.bag);
 
         const presetBar = el('div', { class: 'presets' }, '프리셋 불러오는 중…');
+        const loanBar = el('p', {}, '시작 대출 상품 불러오는 중…');
         const container = el(
           'section',
           { class: 'character-create' },
           el('h1', {}, '캐릭터 생성'),
           el('p', {}, '시작 조건이 이 게임의 난이도다. 프리셋으로 시작해 원하는 값만 바꾸면 된다.'),
           presetBar,
+          loanBar,
         );
         host.replaceChildren(container);
 
@@ -166,7 +183,9 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
                   api,
                   toasts,
                   retries,
+                  startDrafts,
                   currentForm: () => form,
+                  currentLoanCatalog: () => loanCatalog,
                   navigate: ctx.navigate,
                 },
                 draft,
@@ -192,6 +211,25 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
           );
         });
         presets.run();
+
+        const products = h.useAsync((signal) => deps.loanApi.listProducts(signal));
+        h.useEffect(() => {
+          const state = products.state.get();
+          if (state.status === 'error') {
+            loanCatalog = undefined;
+            loanBar.replaceChildren(
+              '시작 대출 상품을 불러오지 못했습니다. 부채 0원으로는 시작할 수 있습니다.',
+            );
+            return;
+          }
+          if (state.status !== 'success') return;
+          loanCatalog = state.value;
+          const startingProductCount = state.value.products.filter(
+            (product) => product.startingEligible,
+          ).length;
+          loanBar.replaceChildren(`시작 대출 상품 ${startingProductCount}개 확인됨`);
+        });
+        products.run();
       },
 
       unmount() {
@@ -207,7 +245,13 @@ async function submitCharacter(deps: CharacterSubmitDeps, draft: CharacterDraft)
     deps.toasts.show('현재 게임 상태를 확인한 뒤 다시 시도해 주세요.', { tone: 'error' });
     return;
   }
-  const request = deps.retries.select(current, draft);
+  const built = deps.startDrafts.build(draft, deps.currentLoanCatalog());
+  if (!built.ok) {
+    deps.currentForm()?.setErrors(built.errors);
+    deps.toasts.show('시작 대출 상품과 부채 금액을 확인해 주세요.', { tone: 'error' });
+    return;
+  }
+  const request = deps.retries.select(current, built.value);
   try {
     const response = await deps.api.createCharacter(request);
     deps.retries.clear(request);

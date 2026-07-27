@@ -24,6 +24,12 @@ export interface HttpClient {
     decoder: ResponseDecoder<T>,
     options?: RequestOptions,
   ): Promise<T>;
+  put<T>(
+    path: string,
+    body: unknown,
+    decoder: ResponseDecoder<T>,
+    options?: RequestOptions,
+  ): Promise<T>;
 }
 
 export interface HttpClientOptions {

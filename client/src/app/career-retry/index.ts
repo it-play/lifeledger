@@ -6,6 +6,9 @@ export {
   createCareerFocusRetryPolicy,
   createCareerInterviewRetryPolicy,
   createCareerPathRetryPolicy,
+  createMilitarySavingsCloseRetryPolicy,
+  createMilitarySavingsEnrollmentRetryPolicy,
+  createMilitaryServiceStartRetryPolicy,
 } from './create-career-retry-policy.js';
 export type {
   CareerActivityCancelRetryPolicy,
@@ -21,4 +24,8 @@ export type {
   CareerPathCommand,
   CareerPathRetryPolicy,
   CareerRetryPolicyDeps,
+  MilitarySavingsCloseCommand,
+  MilitarySavingsCloseRetryPolicy,
+  MilitarySavingsEnrollmentRetryPolicy,
+  MilitaryServiceStartRetryPolicy,
 } from './types.js';

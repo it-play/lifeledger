@@ -1,22 +1,23 @@
 import { describe, expect, it } from '@jest/globals';
-import type { CharacterDraft, GameSnapshot } from '../../api/contracts.js';
+import type { CharacterStartV2Draft, GameSnapshot } from '../../api/contracts.js';
 import { createAdvanceRetryPolicy, createCharacterStartRetryPolicy } from './index.js';
 
-const CHARACTER: CharacterDraft = {
-  name: '테스터',
-  age: 25,
-  gender: 'other',
-  military: 'completed',
-  region: 'capitalArea',
-  background: 'independent',
-  education: 'bachelor',
-  careerYears: 1,
-  certifications: 1,
-  startingCashKrw: 10_000_000,
-  studentLoanKrw: 0,
-  creditLoanKrw: 0,
-  health: 'normal',
-  dependents: 0,
+const CHARACTER: CharacterStartV2Draft = {
+  character: {
+    name: '테스터',
+    age: 25,
+    gender: 'other',
+    military: 'completed',
+    region: 'capitalArea',
+    background: 'independent',
+    education: 'bachelor',
+    careerYears: 1,
+    certifications: 1,
+    startingCashKrw: 10_000_000,
+    health: 'normal',
+    dependents: 0,
+  },
+  startingLoans: [],
 };
 
 describe('캐릭터 시작 재시도 요청 선택', () => {
@@ -38,7 +39,29 @@ describe('캐릭터 시작 재시도 요청 선택', () => {
       const first = policy.select(givenSnapshot(3, 42, 17), CHARACTER);
       policy.retain(first);
 
-      const selected = policy.select(givenSnapshot(3, 42, 17), { ...CHARACTER, name: '새 이름' });
+      const selected = policy.select(givenSnapshot(3, 42, 17), {
+        ...CHARACTER,
+        character: { ...CHARACTER.character, name: '새 이름' },
+      });
+
+      expect(selected.commandId).not.toBe(first.commandId);
+    });
+  });
+
+  describe('맥락: 같은 인물의 시작 상품이 달라진 경우', () => {
+    it('given 보류 중인 상품 ID, when 다른 상품으로 제출하면, then 새 UUID를 사용한다', () => {
+      const policy = createCharacterStartRetryPolicy({ createCommandId: givenCommandIds() });
+      const firstDraft: CharacterStartV2Draft = {
+        ...CHARACTER,
+        startingLoans: [{ kind: 'studentLoan', productVersionId: '20', principalKrw: 10_000_000 }],
+      };
+      const first = policy.select(givenSnapshot(3, 42, 17), firstDraft);
+      policy.retain(first);
+
+      const selected = policy.select(givenSnapshot(3, 42, 17), {
+        ...firstDraft,
+        startingLoans: [{ kind: 'studentLoan', productVersionId: '21', principalKrw: 10_000_000 }],
+      });
 
       expect(selected.commandId).not.toBe(first.commandId);
     });
@@ -178,6 +201,61 @@ function givenSnapshot(runRevision: number, stateRevision: number, gameDay: numb
       openApplications: [],
       openInvitations: [],
       employment: null,
+      latestPayroll: null,
+      currentEmploymentTaxYear: {
+        taxYear: 2026,
+        status: 'open',
+        source: 'employmentOnly',
+        grossEmploymentIncomeKrw: 0,
+        employeeInsuranceDeductionKrw: 0,
+        earnedIncomeDeductionKrw: null,
+        personalDeductionKrw: null,
+        taxableIncomeKrw: null,
+        calculatedIncomeTaxKrw: null,
+        earnedIncomeTaxCreditKrw: null,
+        pensionCreditEligibleContributionKrw: null,
+        actualPensionIncomeTaxCreditKrw: null,
+        actualPensionLocalIncomeTaxEffectKrw: null,
+        withheldIncomeTaxKrw: 0,
+        withheldLocalIncomeTaxKrw: 0,
+        assessedIncomeTaxKrw: null,
+        assessedLocalIncomeTaxKrw: null,
+        additionalTaxKrw: null,
+        refundKrw: null,
+        reconciliationGameDay: null,
+      },
+      latestEmploymentTaxAssessment: null,
+      militaryStatus: 'unserved',
+      activeMilitaryService: null,
+      activeMilitarySavings: [],
+      pendingCareerSchedule: [],
+    },
+    life: {
+      rateStatus: 'rateUnavailable',
+      household: null,
+      residence: null,
+      tenantLeaseDepositKrw: 0,
+      activeLease: null,
+      activeLeaseArrears: [],
+      hasMoreActiveLeaseArrears: false,
+      totalLeaseArrearKrw: 0,
+      activePropertyHoldings: [],
+      hasMoreActivePropertyHoldings: false,
+      totalPropertyBookValueKrw: 0,
+      currentMonth: null,
+      activeArrears: [],
+      hasMoreActiveArrears: false,
+      totalEssentialArrearKrw: 0,
+      creditBand: null,
+      creditReasons: ['modelUnavailable'],
+      activeLoans: [],
+      nextLoanInstallment: null,
+      totalLoanBalanceKrw: 0,
+      activeWelfareApplications: [],
+      insuranceCapability: 'unavailable',
+      activeInsuranceContracts: [],
+      pendingInsuranceClaims: [],
+      pendingEvents: [],
     },
   };
 }

@@ -5,6 +5,9 @@ import {
   createCareerActivityCancelRetryPolicy,
   createCareerActivityStartRetryPolicy,
   createCareerArtifactRetryPolicy,
+  createMilitarySavingsCloseRetryPolicy,
+  createMilitarySavingsEnrollmentRetryPolicy,
+  createMilitaryServiceStartRetryPolicy,
 } from './index.js';
 
 describe('커리어 명령 재시도 보존', () => {
@@ -54,6 +57,55 @@ describe('커리어 명령 재시도 보존', () => {
 
       expect(retried).toBe(first);
       expect(retried.activityId).toBe('41');
+      expect(retried.request.expectedStateRevision).toBe(11);
+    });
+  });
+
+  describe('맥락: 복무 시작 응답을 알 수 없는 전송 실패인 경우', () => {
+    it('given option과 최초 cursor, when 다시 선택하면, then 같은 UUID와 cursor를 보존한다', () => {
+      const policy = createMilitaryServiceStartRetryPolicy({ createCommandId: givenCommandIds() });
+      const draft = { militaryOptionVersionId: '7' };
+      const first = policy.select(givenSnapshot(11), draft);
+      policy.fail(first, new TypeError('network'));
+
+      const retried = policy.select(givenSnapshot(20), draft);
+
+      expect(retried).toBe(first);
+      expect(retried.commandId).toBe(first.commandId);
+      expect(retried.expectedStateRevision).toBe(11);
+    });
+  });
+
+  describe('맥락: 장병적금 가입을 서버가 결정론적으로 거절한 경우', () => {
+    it('given 기관 한도 거절, when 다시 선택하면, then 새 UUID와 최신 cursor를 만든다', () => {
+      const policy = createMilitarySavingsEnrollmentRetryPolicy({
+        createCommandId: givenCommandIds(),
+      });
+      const draft = {
+        productVersionId: '9',
+        monthlyContributionKrw: 250_000,
+        debitDayOfMonth: 25,
+      };
+      const first = policy.select(givenSnapshot(11), draft);
+      policy.fail(first, new CareerCommandError('limitExceeded', '가입 한도를 넘었습니다.'));
+
+      const next = policy.select(givenSnapshot(12), draft);
+
+      expect(next.commandId).not.toBe(first.commandId);
+      expect(next.expectedStateRevision).toBe(12);
+    });
+  });
+
+  describe('맥락: 장병적금 중도해지 path를 보존해야 하는 경우', () => {
+    it('given 전송 실패, when 재시도하면, then contract ID와 body를 함께 보존한다', () => {
+      const policy = createMilitarySavingsCloseRetryPolicy({ createCommandId: givenCommandIds() });
+      const first = policy.select(givenSnapshot(11), '41');
+      policy.fail(first, new Error('connection reset'));
+
+      const retried = policy.select(givenSnapshot(20), '41');
+
+      expect(retried).toBe(first);
+      expect(retried.contractId).toBe('41');
       expect(retried.request.expectedStateRevision).toBe(11);
     });
   });
@@ -139,6 +191,61 @@ function givenSnapshot(stateRevision: number): GameSnapshot {
       openApplications: [],
       openInvitations: [],
       employment: null,
+      latestPayroll: null,
+      currentEmploymentTaxYear: {
+        taxYear: 2026,
+        status: 'open',
+        source: 'employmentOnly',
+        grossEmploymentIncomeKrw: 0,
+        employeeInsuranceDeductionKrw: 0,
+        earnedIncomeDeductionKrw: null,
+        personalDeductionKrw: null,
+        taxableIncomeKrw: null,
+        calculatedIncomeTaxKrw: null,
+        earnedIncomeTaxCreditKrw: null,
+        pensionCreditEligibleContributionKrw: null,
+        actualPensionIncomeTaxCreditKrw: null,
+        actualPensionLocalIncomeTaxEffectKrw: null,
+        withheldIncomeTaxKrw: 0,
+        withheldLocalIncomeTaxKrw: 0,
+        assessedIncomeTaxKrw: null,
+        assessedLocalIncomeTaxKrw: null,
+        additionalTaxKrw: null,
+        refundKrw: null,
+        reconciliationGameDay: null,
+      },
+      latestEmploymentTaxAssessment: null,
+      militaryStatus: 'unserved',
+      activeMilitaryService: null,
+      activeMilitarySavings: [],
+      pendingCareerSchedule: [],
+    },
+    life: {
+      rateStatus: 'rateUnavailable',
+      household: null,
+      residence: null,
+      tenantLeaseDepositKrw: 0,
+      activeLease: null,
+      activeLeaseArrears: [],
+      hasMoreActiveLeaseArrears: false,
+      totalLeaseArrearKrw: 0,
+      activePropertyHoldings: [],
+      hasMoreActivePropertyHoldings: false,
+      totalPropertyBookValueKrw: 0,
+      currentMonth: null,
+      activeArrears: [],
+      hasMoreActiveArrears: false,
+      totalEssentialArrearKrw: 0,
+      creditBand: null,
+      creditReasons: ['modelUnavailable'],
+      activeLoans: [],
+      nextLoanInstallment: null,
+      totalLoanBalanceKrw: 0,
+      activeWelfareApplications: [],
+      insuranceCapability: 'unavailable',
+      activeInsuranceContracts: [],
+      pendingInsuranceClaims: [],
+      pendingEvents: [],
     },
   };
 }
