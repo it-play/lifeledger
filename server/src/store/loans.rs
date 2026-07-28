@@ -455,6 +455,7 @@ struct LeaseDepositListingRow {
     id: u64,
     market_world_id: u64,
     real_estate_model_version_id: u64,
+    real_estate_model_version_key: String,
     year_month: Date,
     available_from_game_day: u32,
     available_to_game_day: u32,
@@ -2768,6 +2769,15 @@ const fn lease_deposit_quote_decision_db(
     }
 }
 
+fn lease_deposit_real_estate_model_supported(version_key: &str) -> bool {
+    matches!(
+        version_key,
+        "dev-unranked-m4-real-estate-lifecycle-2026-v4"
+            | "dev-unranked-m4-real-estate-purchase-2026-v5"
+            | "dev-unranked-m4-real-estate-sale-tax-2026-v6"
+    )
+}
+
 async fn assess_lease_deposit_loan_application_in_tx(
     tx: &mut Transaction<'_, MySql>,
     user_id: u64,
@@ -2921,17 +2931,15 @@ async fn assess_lease_deposit_loan_application_in_tx(
         .context("lease-deposit listing month is invalid")?;
     let listing: Option<LeaseDepositListingRow> = sqlx::query_as(
         "SELECT listing.id, listing.market_world_id,
-                listing.real_estate_model_version_id, listing.`year_month`,
+                listing.real_estate_model_version_id,
+                model.version_key AS real_estate_model_version_key,
+                listing.`year_month`,
                 listing.available_from_game_day, listing.available_to_game_day,
                 offer.offer_kind,
                 CAST(offer.deposit_krw AS SIGNED) AS deposit_krw
          FROM run_rule_bundle AS bundle
          INNER JOIN real_estate_model_version AS model
            ON model.id = bundle.real_estate_model_version_id
-          AND model.version_key IN (
-              'dev-unranked-m4-real-estate-lifecycle-2026-v4',
-              'dev-unranked-m4-real-estate-purchase-2026-v5'
-          )
           AND model.availability = 'active' AND model.sealed_at IS NOT NULL
          INNER JOIN real_estate_model_strict_manifest AS manifest
            ON manifest.real_estate_model_version_id = model.id
@@ -2965,6 +2973,7 @@ async fn assess_lease_deposit_loan_application_in_tx(
     if listing.id != listing_id.get()
         || listing.market_world_id != scope.market_world_id
         || listing.real_estate_model_version_id != scope.real_estate_model_version_id
+        || !lease_deposit_real_estate_model_supported(&listing.real_estate_model_version_key)
         || listing.year_month != current_month
         || listing.offer_kind != "jeonse"
         || !(listing.available_from_game_day..=listing.available_to_game_day)
@@ -8883,6 +8892,19 @@ fn to_db_str<T: Serialize>(value: &T) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod context_전세대출_견적의_부동산_모델을_판정하는_경우 {
+        use super::*;
+
+        #[test]
+        fn given_임대차를_forward_copy한_v6_when_판정하면_then_견적을지원한다() {
+            let version_key = "dev-unranked-m4-real-estate-sale-tax-2026-v6";
+
+            let result = lease_deposit_real_estate_model_supported(version_key);
+
+            assert!(result);
+        }
+    }
 
     fn given_credit_model_parameters(
         schema_version: u8,

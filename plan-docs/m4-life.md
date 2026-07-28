@@ -1159,6 +1159,11 @@ C2c capability는 **real-estate v4와 credit v3를 함께 pin한 새 run**에서
 world/model·현재 시장 월·공개 기간에 속한 exact jeonse offer여야 한다. client는 보증금, 한도, 소득,
 비율이나 심사 결과를 보내지 않는다.
 
+지원 real-estate model은 임대차 lifecycle v4와 그 임대차 child를 forward-copy한 매수 v5·매도/세금 v6다.
+quote는 pinned model ID, active sealed strict manifest와 이 명시적 version set을 함께 확인한다. future model에
+jeonse listing이 존재한다는 이유만으로 자동 허용하지 않으며, 임대차 계약을 그대로 보존하는 후속 model은
+설계에 지원 범위를 먼저 추가한 뒤 같은 판정 지점을 확장한다.
+
 quote는 `lifeledger.life.quoteLeaseDepositLoan.v1` fingerprint를 사용하고 state revision을 올리지 않는
 durable command다. 생성 game day에만 유효하며 `loan_quote`에는 `purpose=leaseDeposit`, listing·보증금,
 한도, 현재 lease에서 대체될 linked loan과 심사 근거를 immutable하게 저장한다. 같은 payload replay는 저장된
