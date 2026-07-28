@@ -575,7 +575,7 @@ pub(super) async fn settle_corporation_tax_year_in_tx(
         return Ok(());
     }
     let annual_pre_tax_profit_krw: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(pre_tax_profit_krw), 0)
+        "SELECT CAST(COALESCE(SUM(pre_tax_profit_krw), 0) AS SIGNED)
          FROM corporation_operating_month
          WHERE save_id = ? AND run_revision = ? AND corporation_id = ?
            AND operating_year = ? AND status = 'applied'",
