@@ -10,6 +10,8 @@ services:
     # 배포 시 통째로 갈아끼운다 (production 환경의 GitHub Secret SERVER_ENV)
     env_file:
       - app.env
+    environment:
+      DATABASE_TCP_NODELAY_PROXY: "true"
     # nginx 만 붙는다. 외부에 직접 노출하지 않는다
     ports:
       - "127.0.0.1:10105:8080"

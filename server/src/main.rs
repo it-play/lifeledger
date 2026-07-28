@@ -1,6 +1,7 @@
 mod auth;
 pub mod career;
 mod character;
+mod database_transport;
 pub mod day;
 mod error;
 pub mod finance;
@@ -119,6 +120,9 @@ fn init_tracing() {
 async fn connect_database() -> anyhow::Result<sqlx::MySqlPool> {
     let url = std::env::var("DATABASE_URL")
         .context("DATABASE_URL is not set - see server/deploy/app.env.example")?;
+    let connect_options =
+        database_transport::mysql_connect_options(&url, database_tcp_nodelay_proxy_enabled()?)
+            .await?;
 
     let pool = MySqlPoolOptions::new()
         .max_connections(MAX_DB_CONNECTIONS)
@@ -134,13 +138,28 @@ async fn connect_database() -> anyhow::Result<sqlx::MySqlPool> {
                 Ok(())
             })
         })
-        .connect(&url)
+        .connect_with(connect_options)
         .await
         .context("failed to connect to MySQL")?;
 
     tracing::info!("connected to MySQL");
 
     Ok(pool)
+}
+
+fn database_tcp_nodelay_proxy_enabled() -> anyhow::Result<bool> {
+    let Some(raw) = std::env::var_os("DATABASE_TCP_NODELAY_PROXY") else {
+        return Ok(false);
+    };
+    let raw = raw
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("DATABASE_TCP_NODELAY_PROXY is not valid UTF-8"))?;
+
+    match raw.as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => anyhow::bail!("DATABASE_TCP_NODELAY_PROXY must be true or false"),
+    }
 }
 
 /// Overridden by `PUBLIC_ORIGIN`. The trailing slash is trimmed so redirect URIs do not

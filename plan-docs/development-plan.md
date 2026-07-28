@@ -263,6 +263,14 @@ sqlx 가 동등하게 지원하므로 접근 계층 구현에는 차이가 없�
 
 금액은 `BIGINT` 원 단위 정수로 저장한다 (DECIMAL·부동소수점 모두 쓰지 않는다).
 
+서버와 MySQL 사이의 TCP 연결은 `TCP_NODELAY`를 켠다. 일일 정산은 한 transaction 안에서 권위 행을
+순서대로 잠그고 검증하므로 독립 쿼리를 임의 병렬화할 수 없고, Nagle 지연이 쿼리 수만큼 누적되면 게임일
+전진 자체가 막힌다. SQLx 0.9의 socket 회귀가 고쳐질 때까지 production은
+`DATABASE_TCP_NODELAY_PROXY=true`로 서버 프로세스 안의 loopback TCP proxy를 켠다. proxy는 기존
+`DATABASE_URL`의 MySQL만 향하고 양쪽 socket에 `TCP_NODELAY`를 설정하며, DB·schema·정산 순서와 원자성은
+바꾸지 않는다. URL 원문과 credential은 로그에 남기지 않고, 인증서 hostname 검증이나 Unix socket URL처럼
+투명하게 중계할 수 없는 설정은 시작 단계에서 거절한다.
+
 ### 4.4 스키마와 마이그레이션
 
 **마이그레이션은 sqlx 가 한다.** SQL 파일은 `server/migrations/` 에 버전 순으로 두고, 서버가
