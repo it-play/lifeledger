@@ -1242,6 +1242,11 @@ owner/run/listing, 만료·비적격·소비됨, 최신 재심사 실패면 stab
 `contractConflict|creditRestricted|incomeUnavailable|affordabilityLimit|collateralLimit|rateUnavailable`로
 거절한다.
 
+같은 game day의 저장 quote는 `eligible`뿐 아니라 알려진 비적격 decision도 현재 상태 재심사까지 진행한다.
+따라서 rebuilding 중 만든 `creditRestricted/insolvencyRebuilding` quote의 실행은 일반 충돌로 평탄화하지 않고
+현재 판정인 `creditRestricted`를 반환한다. 저장 decision이 비적격이었다가 현재 심사만 eligible이 된 경우에는
+저장된 reason·금액 근거가 eligible 근거와 일치하지 않으므로 `contractConflict`이며 대출을 실행하지 않는다.
+
 입주 result는 기존 필드에 다음 nullable 객체를 항상 명시한다.
 
 - `depositLoanExecution:{ loanId,quoteId,productVersionId,principalKrw,annualRateBp,

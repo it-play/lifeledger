@@ -2778,6 +2778,17 @@ fn lease_deposit_real_estate_model_supported(version_key: &str) -> bool {
     )
 }
 
+fn lease_deposit_quote_decision_can_be_reassessed(decision_code: &str) -> bool {
+    matches!(
+        decision_code,
+        "eligible"
+            | "creditRestricted"
+            | "collateralLimit"
+            | "incomeUnavailable"
+            | "affordabilityLimit"
+    )
+}
+
 async fn assess_lease_deposit_loan_application_in_tx(
     tx: &mut Transaction<'_, MySql>,
     user_id: u64,
@@ -4087,7 +4098,7 @@ pub(super) async fn prepare_lease_deposit_loan_execution_in_tx(
             LifeFailureCode::ContractConflict,
         ));
     };
-    if quote.decision_code != "eligible"
+    if !lease_deposit_quote_decision_can_be_reassessed(&quote.decision_code)
         || quote.created_game_day != scope.game_day
         || quote.expires_game_day != scope.game_day
         || quote.property_listing_id != Some(listing_id.get())
@@ -8901,6 +8912,19 @@ mod tests {
             let version_key = "dev-unranked-m4-real-estate-sale-tax-2026-v6";
 
             let result = lease_deposit_real_estate_model_supported(version_key);
+
+            assert!(result);
+        }
+    }
+
+    mod context_저장된_전세대출_견적을_실행시점에_재심사하는_경우 {
+        use super::*;
+
+        #[test]
+        fn given_같은날_credit_restricted견적_when_실행준비하면_then_현재상태를재심사한다() {
+            let decision_code = "creditRestricted";
+
+            let result = lease_deposit_quote_decision_can_be_reassessed(decision_code);
 
             assert!(result);
         }
