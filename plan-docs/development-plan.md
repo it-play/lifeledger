@@ -265,11 +265,10 @@ sqlx 가 동등하게 지원하므로 접근 계층 구현에는 차이가 없�
 
 서버와 MySQL 사이의 TCP 연결은 `TCP_NODELAY`를 켠다. 일일 정산은 한 transaction 안에서 권위 행을
 순서대로 잠그고 검증하므로 독립 쿼리를 임의 병렬화할 수 없고, Nagle 지연이 쿼리 수만큼 누적되면 게임일
-전진 자체가 막힌다. SQLx 0.9의 socket 회귀가 고쳐질 때까지 production은
-`DATABASE_TCP_NODELAY_PROXY=true`로 서버 프로세스 안의 loopback TCP proxy를 켠다. proxy는 기존
-`DATABASE_URL`의 MySQL만 향하고 양쪽 socket에 `TCP_NODELAY`를 설정하며, DB·schema·정산 순서와 원자성은
-바꾸지 않는다. URL 원문과 credential은 로그에 남기지 않고, 인증서 hostname 검증이나 Unix socket URL처럼
-투명하게 중계할 수 없는 설정은 시작 단계에서 거절한다.
+전진 자체가 막힌다. SQLx 0.9의 socket 회귀가 고쳐진 release가 나오기 전에는 crates.io의
+`sqlx-core 0.9.0` 원본을 `server/vendor/sqlx-core/`에 checksum·license와 함께 고정하고, upstream 0.8.6에
+있던 TCP·async-io `set_nodelay(true)`만 복원한 Cargo patch를 쓴다. DB·schema·정산 순서와 원자성은 바꾸지
+않으며, 새 SQLx release로 교체할 때 vendor patch를 제거하고 실제 1일·30일 성능을 다시 확인한다.
 
 ### 4.4 스키마와 마이그레이션
 

@@ -5,6 +5,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY vendor ./vendor
 RUN mkdir src \
  && echo 'fn main() {}' > src/main.rs \
  && cargo build --release --locked \

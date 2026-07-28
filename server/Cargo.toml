@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 axum = "0.8.9"
-tokio = { version = "1.53.1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 tower-http = { version = "0.7.0", features = ["trace"] }
 tracing = "0.1.44"
@@ -27,7 +27,9 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 base64 = "0.23.0"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json", "charset", "http2", "form"] }
 getrandom = "0.4.3"
-url = "2.5.8"
+
+[patch.crates-io]
+sqlx-core = { path = "vendor/sqlx-core" }
 
 [profile.release]
 codegen-units = 1
