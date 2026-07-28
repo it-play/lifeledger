@@ -28,10 +28,12 @@ use crate::finance::{IrpWithdrawalReason, PensionTaxLayers, PensionWithdrawalReq
 use crate::life::{
     CreditBand, HousingLeaseArrearRepaymentRule, HousingLeaseCapability, HousingLeaseOfferKind,
     HousingLeaseRenewalRule, HousingLeaseRole, HousingLeaseTerminationReviewRule,
-    HousingRentChargeRule, LifeRegionKey, LivingCostCategory, LoanContractStatus, LoanDayCountRule,
-    LoanLenderSector, LoanPaymentCalendar, LoanPrepaymentEffect, LoanProductKind,
-    LoanProductProvenance, LoanRateReference, LoanRateResetRule, LoanRateStatus, LoanRateType,
-    LoanRepaymentMethod, PropertyListingOffer, PropertyType, YearMonth,
+    HousingRentChargeRule, InsolvencyCaseStatus, InsolvencyEligibilityReason,
+    InsolvencyEligibilityStatus, InsolvencyProcedureKind, LifeRegionKey, LivingCostCategory,
+    LoanContractStatus, LoanDayCountRule, LoanLenderSector, LoanPaymentCalendar,
+    LoanPrepaymentEffect, LoanProductKind, LoanProductProvenance, LoanRateReference,
+    LoanRateResetRule, LoanRateStatus, LoanRateType, LoanRepaymentMethod, PropertyListingOffer,
+    PropertyType, YearMonth,
 };
 use crate::market::{MarketCalibration, MarketDay, MarketWorld};
 use crate::trading::{PositionState, TradeExecution, TradeFailure, TradeOrder};
@@ -1295,6 +1297,7 @@ pub enum LoanQuoteDecisionState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LoanQuoteReasonState {
+    InsolvencyRebuilding,
     ActiveDefault,
     ActiveDelinquency,
     ActiveRestructuring,
@@ -1669,6 +1672,157 @@ pub struct InsuranceSnapshotState {
     pub pending_claims: Vec<PendingInsuranceClaimState>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyAvailabilityState {
+    Unavailable,
+    CashOnlyLiquidation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyCaseSummaryState {
+    pub id: ResourceId,
+    pub procedure_kind: InsolvencyProcedureKind,
+    pub status: InsolvencyCaseStatus,
+    pub prepared_game_day: u32,
+    pub submitted_game_day: Option<u32>,
+    pub wallet_cash_krw: i64,
+    pub protected_cash_krw: i64,
+    pub distributed_krw: i64,
+    pub discharged_krw: i64,
+    pub credit_restriction_end_exclusive: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencySnapshotState {
+    pub availability: InsolvencyAvailabilityState,
+    pub eligibility: InsolvencyEligibilityStatus,
+    pub reasons: Vec<InsolvencyEligibilityReason>,
+    pub current_case: Option<InsolvencyCaseSummaryState>,
+}
+
+impl InsolvencySnapshotState {
+    pub fn unavailable() -> Self {
+        Self {
+            availability: InsolvencyAvailabilityState::Unavailable,
+            eligibility: InsolvencyEligibilityStatus::Unavailable,
+            reasons: vec![InsolvencyEligibilityReason::ComponentUnavailable],
+            current_case: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InsolvencyReadResult<T> {
+    Found(T),
+    Rejected(LifeFailureCode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyActionState {
+    Submit,
+    Withdraw,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrepareInsolvencyCaseCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub procedure_kind: InsolvencyProcedureKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActOnInsolvencyCaseCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub case_id: ResourceId,
+    pub action: InsolvencyActionState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyCaseReceipt {
+    pub command_id: CommandId,
+    pub case: InsolvencyCaseSummaryState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyTransitionState {
+    pub sequence: u8,
+    pub from_status: Option<InsolvencyCaseStatus>,
+    pub to_status: InsolvencyCaseStatus,
+    pub game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyCaseDetailState {
+    pub summary: InsolvencyCaseSummaryState,
+    pub policy_set_id: ResourceId,
+    pub life_catalog_set_id: ResourceId,
+    pub insolvency_component_version_id: ResourceId,
+    pub composition_sha256: String,
+    pub automatic_protected_krw: i64,
+    pub additional_protected_krw: i64,
+    pub liquidatable_krw: i64,
+    pub total_claim_krw: i64,
+    pub claim_count: u8,
+    pub transitions: Vec<InsolvencyTransitionState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyClaimState {
+    pub id: ResourceId,
+    pub loan_contract_id: ResourceId,
+    pub principal_krw: i64,
+    pub interest_krw: i64,
+    pub fee_krw: i64,
+    pub allowed_krw: i64,
+    pub distributed_krw: i64,
+    pub discharged_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyClaimPageState {
+    pub claims: Vec<InsolvencyClaimState>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyLiquidationState {
+    pub id: ResourceId,
+    pub claim_id: ResourceId,
+    pub amount_krw: i64,
+    pub loan_payment_id: ResourceId,
+    pub ledger_transaction_id: ResourceId,
+    pub applied_game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyLiquidationPageState {
+    pub wallet_asset: Option<InsolvencyWalletAssetState>,
+    pub distributions: Vec<InsolvencyLiquidationState>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyWalletAssetState {
+    pub original_amount_krw: i64,
+    pub protected_amount_krw: i64,
+    pub liquidatable_krw: i64,
+    pub distributed_krw: i64,
+}
+
 impl InsuranceSnapshotState {
     pub fn unavailable() -> Self {
         Self {
@@ -1862,6 +2016,7 @@ pub struct LifeSnapshotState {
     pub insurance_capability: InsuranceCapabilityState,
     pub active_insurance_contracts: Vec<InsuranceContractState>,
     pub pending_insurance_claims: Vec<PendingInsuranceClaimState>,
+    pub insolvency: InsolvencySnapshotState,
     pub pending_events: Vec<PendingLifeEventState>,
 }
 
@@ -1892,6 +2047,7 @@ impl LifeSnapshotState {
             insurance_capability: InsuranceCapabilityState::Unavailable,
             active_insurance_contracts: Vec::new(),
             pending_insurance_claims: Vec::new(),
+            insolvency: InsolvencySnapshotState::unavailable(),
             pending_events: Vec::new(),
         }
     }
@@ -2027,6 +2183,7 @@ pub enum LeaseDepositLoanQuoteDecisionState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LeaseDepositLoanQuoteReasonState {
+    InsolvencyRebuilding,
     ActiveDefault,
     ActiveDelinquency,
     ActiveRestructuring,
@@ -2090,6 +2247,7 @@ pub enum MortgageQuoteDecisionState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MortgageQuoteReasonState {
+    InsolvencyRebuilding,
     ActiveDefault,
     ActiveDelinquency,
     ActiveRestructuring,
@@ -2228,6 +2386,10 @@ pub enum LifeFailureCode {
     EventNotFound,
     EventExpired,
     InsuranceResourceNotFound,
+    InsolvencyResourceNotFound,
+    InsolvencyCompositionUnsupported,
+    InsolvencyCompositionChanged,
+    InsolvencyStateConflict,
     ClaimNotCovered,
     InsufficientWalletCash,
     RateUnavailable,
@@ -3524,6 +3686,61 @@ pub trait CareerStore: Send + Sync + 'static {
 /// M4 household costs, credit, loans, and cursor-protected commands.
 #[async_trait]
 pub trait LifeStore: Send + Sync + 'static {
+    async fn insolvency_overview(
+        &self,
+        user_id: u64,
+    ) -> Result<InsolvencyReadResult<InsolvencySnapshotState>> {
+        let _ = user_id;
+        Err(anyhow::anyhow!("M4-E1 insolvency is not wired"))
+    }
+
+    async fn prepare_insolvency_case(
+        &self,
+        user_id: u64,
+        command: &PrepareInsolvencyCaseCommand,
+    ) -> Result<LifeStoreResult<InsolvencyCaseReceipt>> {
+        let _ = (user_id, command);
+        Err(anyhow::anyhow!("M4-E1 insolvency is not wired"))
+    }
+
+    async fn act_on_insolvency_case(
+        &self,
+        user_id: u64,
+        command: &ActOnInsolvencyCaseCommand,
+    ) -> Result<LifeStoreResult<InsolvencyCaseReceipt>> {
+        let _ = (user_id, command);
+        Err(anyhow::anyhow!("M4-E1 insolvency is not wired"))
+    }
+
+    async fn insolvency_case_detail(
+        &self,
+        user_id: u64,
+        case_id: ResourceId,
+    ) -> Result<InsolvencyReadResult<InsolvencyCaseDetailState>> {
+        let _ = (user_id, case_id);
+        Err(anyhow::anyhow!("M4-E1 insolvency is not wired"))
+    }
+
+    async fn insolvency_claims(
+        &self,
+        user_id: u64,
+        case_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<InsolvencyReadResult<InsolvencyClaimPageState>> {
+        let _ = (user_id, case_id, cursor);
+        Err(anyhow::anyhow!("M4-E1 insolvency is not wired"))
+    }
+
+    async fn insolvency_liquidations(
+        &self,
+        user_id: u64,
+        case_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<InsolvencyReadResult<InsolvencyLiquidationPageState>> {
+        let _ = (user_id, case_id, cursor);
+        Err(anyhow::anyhow!("M4-E1 insolvency is not wired"))
+    }
+
     async fn life_events(
         &self,
         user_id: u64,

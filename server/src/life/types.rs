@@ -3605,3 +3605,251 @@ impl Display for InsuranceError {
 }
 
 impl Error for InsuranceError {}
+
+pub const INSOLVENCY_RATIO_SCALE_PPM: i64 = 1_000_000;
+pub const INSOLVENCY_AUTOMATIC_CASH_PROTECTION_KRW: i64 = 2_500_000;
+pub const INSOLVENCY_STANDARD_MEDIAN_INCOME_KRW: i64 = 6_494_738;
+pub const INSOLVENCY_LIVING_EXPENSE_RATIO_PPM: i64 = 400_000;
+pub const INSOLVENCY_LIVING_EXPENSE_MONTHS: u8 = 6;
+pub const INSOLVENCY_CREDIT_RESTRICTION_GAME_DAYS: u32 = 1_825;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyProcedureKind {
+    CashOnlyLiquidation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyCaseStatus {
+    Prepared,
+    Filed,
+    Liquidation,
+    Discharged,
+    Rebuilding,
+    Withdrawn,
+    Recovered,
+}
+
+impl InsolvencyCaseStatus {
+    pub const fn is_terminal(self) -> bool {
+        matches!(self, Self::Withdrawn | Self::Recovered)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyEligibilityReason {
+    PolicyUnavailable,
+    ComponentUnavailable,
+    InvalidWalletCash,
+    NoSupportedDefaultedDebt,
+    DebtNotGreaterThanCash,
+    UnsupportedLoanComposition,
+    UnsupportedAssetComposition,
+    UnsupportedNonLoanObligation,
+    ExistingNonTerminalCase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyEligibilityStatus {
+    Eligible,
+    Ineligible,
+    CompositionUnsupported,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyPolicyTerms {
+    pub automatic_cash_protection_krw: i64,
+    pub standard_median_income_krw: i64,
+    pub living_expense_ratio_ppm: i64,
+    pub living_expense_months: u8,
+    pub credit_restriction_game_days: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InsolvencyLoanPosition {
+    pub contract_id: ResourceId,
+    pub product_kind: LoanProductKind,
+    pub status: LoanContractStatus,
+    pub read_only: bool,
+    pub remaining_principal_krw: i64,
+    pub accrued_interest_krw: i64,
+    pub accrued_fee_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InsolvencyEligibilityInput<'a> {
+    pub policy_available: bool,
+    pub component_available: bool,
+    pub wallet_cash_krw: i64,
+    pub loans: &'a [InsolvencyLoanPosition],
+    pub unsupported_asset_position_count: u32,
+    pub unsupported_non_loan_obligation_count: u32,
+    pub has_secured_interest: bool,
+    pub has_non_terminal_case: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyEligibilityAssessment {
+    pub status: InsolvencyEligibilityStatus,
+    pub reasons: Vec<InsolvencyEligibilityReason>,
+    pub supported_claim_count: u32,
+    pub total_supported_claim_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InsolvencyCashProtectionInput {
+    pub wallet_cash_krw: i64,
+    pub policy: InsolvencyPolicyTerms,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyCashProtection {
+    pub wallet_cash_krw: i64,
+    pub automatic_protected_krw: i64,
+    pub additional_protection_cap_krw: i64,
+    pub additional_protected_krw: i64,
+    pub liquidatable_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InsolvencyDistributionClaimInput<'a> {
+    pub contract_id: ResourceId,
+    pub principal_krw: i64,
+    pub interest_krw: i64,
+    pub fee_krw: i64,
+    pub buckets: &'a [RepaymentBucketBalance],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyClaimDistribution {
+    pub contract_id: ResourceId,
+    pub original_claim_krw: i64,
+    pub distributed_krw: i64,
+    pub discharged_krw: i64,
+    pub repayment: RepaymentAllocation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyDistributionPlan {
+    pub liquidatable_krw: i64,
+    pub total_claim_krw: i64,
+    pub total_distributed_krw: i64,
+    pub total_discharged_krw: i64,
+    pub claims: Vec<InsolvencyClaimDistribution>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InsolvencyCompositionFact<'a> {
+    pub authority_key: &'a str,
+    pub canonical_value: &'a str,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InsolvencyCompositionInput<'a> {
+    pub wallet_cash_krw: i64,
+    pub claims: &'a [InsolvencyLoanPosition],
+    pub facts: &'a [InsolvencyCompositionFact<'a>],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencyCaseTransition {
+    pub sequence: u8,
+    pub from: InsolvencyCaseStatus,
+    pub to: InsolvencyCaseStatus,
+    pub game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InsolvencySubmitPlan {
+    pub transitions: Vec<InsolvencyCaseTransition>,
+    pub current_status: InsolvencyCaseStatus,
+    pub submitted_game_day: u32,
+    pub credit_restriction_end_exclusive: u32,
+}
+
+pub trait InsolvencyRules: Send + Sync + 'static {
+    fn policy_terms(&self) -> InsolvencyPolicyTerms;
+
+    fn assess_eligibility(
+        &self,
+        input: InsolvencyEligibilityInput<'_>,
+    ) -> Result<InsolvencyEligibilityAssessment, InsolvencyError>;
+
+    fn calculate_cash_protection(
+        &self,
+        input: InsolvencyCashProtectionInput,
+    ) -> Result<InsolvencyCashProtection, InsolvencyError>;
+
+    fn allocate_distribution(
+        &self,
+        liquidatable_krw: i64,
+        claims: &[InsolvencyDistributionClaimInput<'_>],
+    ) -> Result<InsolvencyDistributionPlan, InsolvencyError>;
+
+    fn composition_sha256(
+        &self,
+        input: InsolvencyCompositionInput<'_>,
+    ) -> Result<String, InsolvencyError>;
+
+    fn plan_submit(
+        &self,
+        current_status: InsolvencyCaseStatus,
+        submitted_game_day: u32,
+    ) -> Result<InsolvencySubmitPlan, InsolvencyError>;
+
+    fn plan_withdraw(
+        &self,
+        current_status: InsolvencyCaseStatus,
+        game_day: u32,
+    ) -> Result<InsolvencyCaseTransition, InsolvencyError>;
+
+    fn is_credit_restricted(
+        &self,
+        status: InsolvencyCaseStatus,
+        current_game_day: u32,
+        end_exclusive_game_day: Option<u32>,
+    ) -> Result<bool, InsolvencyError>;
+
+    fn recovery_status(
+        &self,
+        status: InsolvencyCaseStatus,
+        current_game_day: u32,
+        end_exclusive_game_day: Option<u32>,
+    ) -> Result<InsolvencyCaseStatus, InsolvencyError>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsolvencyError {
+    InvalidPolicy,
+    InvalidWalletCash,
+    InvalidLoan(ResourceId),
+    DuplicateLoan(ResourceId),
+    InvalidClaim(ResourceId),
+    DuplicateClaim(ResourceId),
+    InvalidLiquidatableCash,
+    InvalidCompositionFact,
+    DuplicateCompositionFact,
+    InvalidCaseTransition,
+    InvalidCreditRestriction,
+    ArithmeticOverflow,
+    LoanAllocationFailed,
+}
+
+impl Display for InsolvencyError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "insolvency error: {self:?}")
+    }
+}
+
+impl Error for InsolvencyError {}

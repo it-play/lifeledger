@@ -32,21 +32,24 @@ use crate::finance::{
 use crate::life::{
     CreditBand, HousingLeaseArrearRepaymentRule, HousingLeaseCapability, HousingLeaseOfferKind,
     HousingLeaseRenewalRule, HousingLeaseRole, HousingLeaseTerminationReviewRule,
-    HousingRentChargeRule, LifeRegionKey, LivingCostCategory, LoanContractStatus, LoanDayCountRule,
-    LoanLenderSector, LoanPaymentCalendar, LoanPrepaymentEffect, LoanProductKind,
-    LoanProductProvenance, LoanRateReference, LoanRateResetRule, LoanRateStatus, LoanRateType,
-    LoanRepaymentMethod, PropertyListingOffer, PropertyType, YearMonth,
+    HousingRentChargeRule, InsolvencyCaseStatus, InsolvencyEligibilityReason,
+    InsolvencyEligibilityStatus, InsolvencyProcedureKind, LifeRegionKey, LivingCostCategory,
+    LoanContractStatus, LoanDayCountRule, LoanLenderSector, LoanPaymentCalendar,
+    LoanPrepaymentEffect, LoanProductKind, LoanProductProvenance, LoanRateReference,
+    LoanRateResetRule, LoanRateStatus, LoanRateType, LoanRepaymentMethod, PropertyListingOffer,
+    PropertyType, YearMonth,
 };
 use crate::market::{InterestRateState, MarketRegime};
 use crate::store::{
-    AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser, ActiveHousingLeaseState,
-    ActiveLeaseTermState, ActiveMilitarySavingsState, ActiveMilitaryServiceState,
-    ActiveWelfareApplicationState, AdvanceCommandReceipt, AnnualTaxAssessmentState,
-    AnnualTaxCalculatedState, AnnualTaxYearState, ApplyCareerCommand, ApplyWelfareProgramCommand,
-    CancelCareerActivityCommand, CancelInsuranceContractCommand, CancelPropertySaleOrderCommand,
-    CareerActivitiesState, CareerActivityCatalogState, CareerActivityState,
-    CareerApplicationReceipt, CareerApplicationState, CareerApplicationsPageState,
-    CareerArtifactPageQuery, CareerArtifactPageState, CareerArtifactState, CareerEmploymentState,
+    AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
+    ActOnInsolvencyCaseCommand, ActiveHousingLeaseState, ActiveLeaseTermState,
+    ActiveMilitarySavingsState, ActiveMilitaryServiceState, ActiveWelfareApplicationState,
+    AdvanceCommandReceipt, AnnualTaxAssessmentState, AnnualTaxCalculatedState, AnnualTaxYearState,
+    ApplyCareerCommand, ApplyWelfareProgramCommand, CancelCareerActivityCommand,
+    CancelInsuranceContractCommand, CancelPropertySaleOrderCommand, CareerActivitiesState,
+    CareerActivityCatalogState, CareerActivityState, CareerApplicationReceipt,
+    CareerApplicationState, CareerApplicationsPageState, CareerArtifactPageQuery,
+    CareerArtifactPageState, CareerArtifactState, CareerEmploymentState,
     CareerEmploymentTaxYearSource, CareerEmploymentTaxYearState, CareerEmploymentTaxYearStatus,
     CareerEvidenceState, CareerInvitationReceipt, CareerInvitationState, CareerJobState,
     CareerJobsPageQuery, CareerJobsPageState, CareerOfferReceipt, CareerPageQuery,
@@ -63,42 +66,46 @@ use crate::store::{
     GameCommandCursor, GameCommandRejection, HousingLeaseCurrentState, HousingLeaseMoveReceipt,
     HousingListingState, HousingListingsQueryState, HousingListingsState, HousingMovingCostState,
     HousingPropertyHoldingsState, HousingPurchaseCapabilityState, HousingRateStatusState,
-    HousingRegionState, InsuranceCancellationReceipt, InsuranceCapabilityState,
-    InsuranceClaimAllocationState, InsuranceClaimHistoryState, InsuranceClaimReceipt,
-    InsuranceContractState, InsuranceContractStatusState, InsuranceEligibilityReasonState,
-    InsuranceEligibilityStatusState, InsuranceEnrollmentReceipt, InsuranceProductState,
-    InsuranceQueryState, InsuranceReadResult, InsuranceState, IsaAccountState,
-    LeaseArrearPaymentReceipt, LeaseArrearState, LeaseDepositLoanAffordabilityState,
-    LeaseDepositLoanQuoteDecisionState, LeaseDepositLoanQuoteReasonState,
-    LeaseDepositLoanQuoteReceipt, LeaseLifecycleTermsState, LeaseRenewalNoticeState,
-    LeaseTerminationReviewState, LeaseTerminationReviewStatusState, LifeBudgetBandState,
-    LifeBudgetSelectionState, LifeBudgetState, LifeEventCapabilityState, LifeEventChoiceReceipt,
-    LifeEventChoiceState, LifeEventDecisionKindState, LifeEventEffectSummaryState,
-    LifeEventHistoryItemState, LifeEventResolutionKindState, LifeEventsQueryState,
-    LifeEventsReadResult, LifeEventsState, LifeFailureCode, LifeHouseholdState, LifeRateStatus,
-    LifeResidenceState, LifeSnapshotState, LifeStore, LifeStoreResult, LivingCostMonthItemState,
-    LivingCostMonthState, LoanDetailState, LoanExecutionReceipt, LoanInstallmentPageQuery,
-    LoanInstallmentPageState, LoanInstallmentState, LoanInstallmentStatusState,
-    LoanPaymentAllocationKindState, LoanPaymentAllocationState, LoanPaymentKindState,
-    LoanPaymentState, LoanPrepaymentReceipt, LoanPrepaymentStatusState, LoanProductCatalogState,
-    LoanProductState, LoanQuoteDecisionState, LoanQuoteDsrState, LoanQuoteFirstInstallmentState,
-    LoanQuoteLtvState, LoanQuoteReasonState, LoanQuoteReceipt, LoanQuotedTermsState,
-    LoanSummaryState, M2dAssetStore, ManualAdvanceCommand, MarketStore, MilitaryCompensationKind,
-    MilitaryOptionIneligibilityReason, MilitaryOptionState, MilitaryOptionsState,
-    MilitarySavingsClosureReason, MilitarySavingsCommandReceipt, MilitarySavingsContractStatus,
-    MilitarySavingsDayCountConvention, MilitarySavingsHistoryItemState,
-    MilitarySavingsIneligibilityReason, MilitarySavingsInstallmentState,
-    MilitarySavingsInstallmentStatusState, MilitarySavingsInterestRounding,
-    MilitarySavingsInterestTierState, MilitarySavingsMaturityProjectionState,
-    MilitarySavingsPageState, MilitarySavingsProductState, MilitarySavingsProductsState,
-    MilitarySavingsProjectionAssumption, MilitaryServiceCommandReceipt,
-    MilitaryServiceHistoryState, MilitaryServiceSourceKind, MilitaryServiceState,
-    MonthlyRentTerminationReviewTermsState, MonthlyRentTermsState, MortgageExecutionReceipt,
-    MortgageLtvRegionClassState, MortgageQuoteDecisionState, MortgageQuoteReasonState,
-    MortgageQuoteReceipt, MortgageStressTreatmentState, NextLoanInstallmentState,
-    OpenMilitarySavingsCommand, OpenTaxAccountCommand, OpenTaxAccountReceipt,
-    PayEssentialArrearCommand, PayLeaseArrearCommand, PendingInsuranceClaimState,
-    PendingLifeEventState, PensionAccountState, PensionWithdrawalCommand, PensionWithdrawalReceipt,
+    HousingRegionState, InsolvencyAvailabilityState, InsolvencyCaseDetailState,
+    InsolvencyCaseReceipt, InsolvencyCaseSummaryState, InsolvencyClaimPageState,
+    InsolvencyClaimState, InsolvencyLiquidationPageState, InsolvencyLiquidationState,
+    InsolvencyReadResult, InsolvencySnapshotState, InsolvencyWalletAssetState,
+    InsuranceCancellationReceipt, InsuranceCapabilityState, InsuranceClaimAllocationState,
+    InsuranceClaimHistoryState, InsuranceClaimReceipt, InsuranceContractState,
+    InsuranceContractStatusState, InsuranceEligibilityReasonState, InsuranceEligibilityStatusState,
+    InsuranceEnrollmentReceipt, InsuranceProductState, InsuranceQueryState, InsuranceReadResult,
+    InsuranceState, IsaAccountState, LeaseArrearPaymentReceipt, LeaseArrearState,
+    LeaseDepositLoanAffordabilityState, LeaseDepositLoanQuoteDecisionState,
+    LeaseDepositLoanQuoteReasonState, LeaseDepositLoanQuoteReceipt, LeaseLifecycleTermsState,
+    LeaseRenewalNoticeState, LeaseTerminationReviewState, LeaseTerminationReviewStatusState,
+    LifeBudgetBandState, LifeBudgetSelectionState, LifeBudgetState, LifeEventCapabilityState,
+    LifeEventChoiceReceipt, LifeEventChoiceState, LifeEventDecisionKindState,
+    LifeEventEffectSummaryState, LifeEventHistoryItemState, LifeEventResolutionKindState,
+    LifeEventsQueryState, LifeEventsReadResult, LifeEventsState, LifeFailureCode,
+    LifeHouseholdState, LifeRateStatus, LifeResidenceState, LifeSnapshotState, LifeStore,
+    LifeStoreResult, LivingCostMonthItemState, LivingCostMonthState, LoanDetailState,
+    LoanExecutionReceipt, LoanInstallmentPageQuery, LoanInstallmentPageState, LoanInstallmentState,
+    LoanInstallmentStatusState, LoanPaymentAllocationKindState, LoanPaymentAllocationState,
+    LoanPaymentKindState, LoanPaymentState, LoanPrepaymentReceipt, LoanPrepaymentStatusState,
+    LoanProductCatalogState, LoanProductState, LoanQuoteDecisionState, LoanQuoteDsrState,
+    LoanQuoteFirstInstallmentState, LoanQuoteLtvState, LoanQuoteReasonState, LoanQuoteReceipt,
+    LoanQuotedTermsState, LoanSummaryState, M2dAssetStore, ManualAdvanceCommand, MarketStore,
+    MilitaryCompensationKind, MilitaryOptionIneligibilityReason, MilitaryOptionState,
+    MilitaryOptionsState, MilitarySavingsClosureReason, MilitarySavingsCommandReceipt,
+    MilitarySavingsContractStatus, MilitarySavingsDayCountConvention,
+    MilitarySavingsHistoryItemState, MilitarySavingsIneligibilityReason,
+    MilitarySavingsInstallmentState, MilitarySavingsInstallmentStatusState,
+    MilitarySavingsInterestRounding, MilitarySavingsInterestTierState,
+    MilitarySavingsMaturityProjectionState, MilitarySavingsPageState, MilitarySavingsProductState,
+    MilitarySavingsProductsState, MilitarySavingsProjectionAssumption,
+    MilitaryServiceCommandReceipt, MilitaryServiceHistoryState, MilitaryServiceSourceKind,
+    MilitaryServiceState, MonthlyRentTerminationReviewTermsState, MonthlyRentTermsState,
+    MortgageExecutionReceipt, MortgageLtvRegionClassState, MortgageQuoteDecisionState,
+    MortgageQuoteReasonState, MortgageQuoteReceipt, MortgageStressTreatmentState,
+    NextLoanInstallmentState, OpenMilitarySavingsCommand, OpenTaxAccountCommand,
+    OpenTaxAccountReceipt, PayEssentialArrearCommand, PayLeaseArrearCommand,
+    PendingInsuranceClaimState, PendingLifeEventState, PensionAccountState,
+    PensionWithdrawalCommand, PensionWithdrawalReceipt, PrepareInsolvencyCaseCommand,
     PrepayLoanCommand, PropertyHoldingPurposeState, PropertyHoldingState,
     PropertyHoldingStatusState, PropertyPurchaseReceipt, PropertySaleExecutionState,
     PropertySaleOrderCancellationReceipt, PropertySaleOrderListingReceipt,
@@ -754,6 +761,7 @@ pub enum LoanQuoteDecisionSnapshot {
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum LoanQuoteReasonSnapshot {
+    InsolvencyRebuilding,
     ActiveDefault,
     ActiveDelinquency,
     ActiveRestructuring,
@@ -859,6 +867,7 @@ pub enum LeaseDepositLoanQuoteDecisionSnapshot {
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum LeaseDepositLoanQuoteReasonSnapshot {
+    InsolvencyRebuilding,
     ActiveDefault,
     ActiveDelinquency,
     ActiveRestructuring,
@@ -1609,6 +1618,203 @@ pub struct InsuranceClaimResponse {
     pub snapshot: GameSnapshot,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyAvailabilitySnapshot {
+    Unavailable,
+    CashOnlyLiquidation,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyEligibilityStatusSnapshot {
+    Eligible,
+    Ineligible,
+    CompositionUnsupported,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyEligibilityReasonSnapshot {
+    PolicyUnavailable,
+    ComponentUnavailable,
+    InvalidWalletCash,
+    NoSupportedDefaultedDebt,
+    DebtNotGreaterThanCash,
+    UnsupportedLoanComposition,
+    UnsupportedAssetComposition,
+    UnsupportedNonLoanObligation,
+    ExistingNonTerminalCase,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyProcedureKindSnapshot {
+    CashOnlyLiquidation,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum InsolvencyCaseStatusSnapshot {
+    Prepared,
+    Filed,
+    Liquidation,
+    Discharged,
+    Rebuilding,
+    Withdrawn,
+    Recovered,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyCaseSummarySnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub procedure_kind: InsolvencyProcedureKindSnapshot,
+    pub status: InsolvencyCaseStatusSnapshot,
+    pub prepared_game_day: u32,
+    #[schema(required = true, nullable)]
+    pub submitted_game_day: Option<u32>,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub wallet_cash_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub protected_cash_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub distributed_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub discharged_krw: i64,
+    #[schema(required = true, nullable)]
+    pub credit_restriction_end_exclusive: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencySnapshot {
+    pub availability: InsolvencyAvailabilitySnapshot,
+    pub eligibility: InsolvencyEligibilityStatusSnapshot,
+    #[schema(max_items = 16)]
+    pub reasons: Vec<InsolvencyEligibilityReasonSnapshot>,
+    #[schema(required = true, nullable)]
+    pub current_case: Option<InsolvencyCaseSummarySnapshot>,
+}
+
+pub type InsolvencyOverviewResponse = InsolvencySnapshot;
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyCaseCommandResponse {
+    pub result: InsolvencyCaseSummarySnapshot,
+    pub replayed: bool,
+    pub snapshot: GameSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyTransitionSnapshot {
+    pub sequence: u8,
+    #[schema(required = true, nullable)]
+    pub from_status: Option<InsolvencyCaseStatusSnapshot>,
+    pub to_status: InsolvencyCaseStatusSnapshot,
+    pub game_day: u32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyCaseDetailResponse {
+    pub summary: InsolvencyCaseSummarySnapshot,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub policy_set_id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub life_catalog_set_id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub insolvency_component_version_id: ResourceId,
+    #[schema(min_length = 64, max_length = 64, pattern = "^[0-9a-f]{64}$")]
+    pub composition_sha256: String,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub automatic_protected_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub additional_protected_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub liquidatable_krw: i64,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    pub total_claim_krw: i64,
+    #[schema(minimum = 1, maximum = 8)]
+    pub claim_count: u8,
+    #[schema(min_items = 1, max_items = 16)]
+    pub transitions: Vec<InsolvencyTransitionSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyClaimSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub loan_contract_id: ResourceId,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub principal_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub interest_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub fee_krw: i64,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    pub allowed_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub distributed_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub discharged_krw: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyClaimPageResponse {
+    #[schema(max_items = 20)]
+    pub claims: Vec<InsolvencyClaimSnapshot>,
+    #[schema(required = true, nullable, max_length = 512)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyWalletAssetSnapshot {
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub original_amount_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub protected_amount_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub liquidatable_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub distributed_krw: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyLiquidationSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub claim_id: ResourceId,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    pub amount_krw: i64,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub loan_payment_id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub ledger_transaction_id: ResourceId,
+    pub applied_game_day: u32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InsolvencyLiquidationPageResponse {
+    #[schema(required = true, nullable)]
+    pub wallet_asset: Option<InsolvencyWalletAssetSnapshot>,
+    #[schema(max_items = 20)]
+    pub distributions: Vec<InsolvencyLiquidationSnapshot>,
+    #[schema(required = true, nullable, max_length = 512)]
+    pub next_cursor: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LifeSnapshot {
@@ -1657,6 +1863,7 @@ pub struct LifeSnapshot {
     pub pending_insurance_claims: Vec<PendingInsuranceClaimSnapshot>,
     #[schema(max_items = 8)]
     pub pending_events: Vec<PendingLifeEventSnapshot>,
+    pub insolvency: InsolvencySnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -2038,6 +2245,7 @@ pub enum MortgageQuoteDecisionSnapshot {
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum MortgageQuoteReasonSnapshot {
+    InsolvencyRebuilding,
     ActiveDefault,
     ActiveDelinquency,
     ActiveRestructuring,
@@ -5787,6 +5995,123 @@ impl AppState {
         )))
     }
 
+    pub async fn insolvency(
+        self: &Arc<Self>,
+        user_id: u64,
+    ) -> Result<LifeCommandResult<InsolvencyOverviewResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self.lives.insolvency_overview(user_id).await? {
+            InsolvencyReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_insolvency_snapshot(&state)?,
+            ))),
+            InsolvencyReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
+    pub async fn prepare_insolvency_case(
+        self: &Arc<Self>,
+        user_id: u64,
+        command: &PrepareInsolvencyCaseCommand,
+    ) -> Result<LifeCommandResult<InsolvencyCaseCommandResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        let (receipt, committed) =
+            match self.lives.prepare_insolvency_case(user_id, command).await? {
+                LifeStoreResult::Applied { receipt, save } => (receipt, save),
+                LifeStoreResult::Rejected(code) => return Ok(LifeCommandResult::Rejected(code)),
+            };
+        let snapshot = if receipt.replayed {
+            self.reload_life_without_broadcast(user_id, &runtime, &committed)
+                .await?
+        } else {
+            self.reload_and_broadcast_life(user_id, &runtime, &committed)
+                .await?
+        };
+        Ok(LifeCommandResult::Applied(Box::new(
+            to_insolvency_case_command_response(receipt, snapshot)?,
+        )))
+    }
+
+    pub async fn act_on_insolvency_case(
+        self: &Arc<Self>,
+        user_id: u64,
+        command: &ActOnInsolvencyCaseCommand,
+    ) -> Result<LifeCommandResult<InsolvencyCaseCommandResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        let (receipt, committed) = match self.lives.act_on_insolvency_case(user_id, command).await?
+        {
+            LifeStoreResult::Applied { receipt, save } => (receipt, save),
+            LifeStoreResult::Rejected(code) => return Ok(LifeCommandResult::Rejected(code)),
+        };
+        let snapshot = if receipt.replayed {
+            self.reload_life_without_broadcast(user_id, &runtime, &committed)
+                .await?
+        } else {
+            self.reload_and_broadcast_life(user_id, &runtime, &committed)
+                .await?
+        };
+        Ok(LifeCommandResult::Applied(Box::new(
+            to_insolvency_case_command_response(receipt, snapshot)?,
+        )))
+    }
+
+    pub async fn insolvency_case_detail(
+        self: &Arc<Self>,
+        user_id: u64,
+        case_id: ResourceId,
+    ) -> Result<LifeCommandResult<InsolvencyCaseDetailResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self.lives.insolvency_case_detail(user_id, case_id).await? {
+            InsolvencyReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_insolvency_case_detail_response(state)?,
+            ))),
+            InsolvencyReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
+    pub async fn insolvency_claims(
+        self: &Arc<Self>,
+        user_id: u64,
+        case_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<LifeCommandResult<InsolvencyClaimPageResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self
+            .lives
+            .insolvency_claims(user_id, case_id, cursor)
+            .await?
+        {
+            InsolvencyReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_insolvency_claim_page_response(state)?,
+            ))),
+            InsolvencyReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
+    pub async fn insolvency_liquidations(
+        self: &Arc<Self>,
+        user_id: u64,
+        case_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<LifeCommandResult<InsolvencyLiquidationPageResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self
+            .lives
+            .insolvency_liquidations(user_id, case_id, cursor)
+            .await?
+        {
+            InsolvencyReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_insolvency_liquidation_page_response(state)?,
+            ))),
+            InsolvencyReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
     pub async fn insurance(
         self: &Arc<Self>,
         user_id: u64,
@@ -8499,6 +8824,9 @@ const fn to_mortgage_quote_reason_snapshot(
     reason: MortgageQuoteReasonState,
 ) -> MortgageQuoteReasonSnapshot {
     match reason {
+        MortgageQuoteReasonState::InsolvencyRebuilding => {
+            MortgageQuoteReasonSnapshot::InsolvencyRebuilding
+        }
         MortgageQuoteReasonState::ActiveDefault => MortgageQuoteReasonSnapshot::ActiveDefault,
         MortgageQuoteReasonState::ActiveDelinquency => {
             MortgageQuoteReasonSnapshot::ActiveDelinquency
@@ -9708,6 +10036,7 @@ const fn to_loan_quote_decision_snapshot(
 
 const fn to_loan_quote_reason_snapshot(reason: LoanQuoteReasonState) -> LoanQuoteReasonSnapshot {
     match reason {
+        LoanQuoteReasonState::InsolvencyRebuilding => LoanQuoteReasonSnapshot::InsolvencyRebuilding,
         LoanQuoteReasonState::ActiveDefault => LoanQuoteReasonSnapshot::ActiveDefault,
         LoanQuoteReasonState::ActiveDelinquency => LoanQuoteReasonSnapshot::ActiveDelinquency,
         LoanQuoteReasonState::ActiveRestructuring => LoanQuoteReasonSnapshot::ActiveRestructuring,
@@ -9815,6 +10144,9 @@ const fn to_lease_deposit_loan_quote_reason_snapshot(
     reason: LeaseDepositLoanQuoteReasonState,
 ) -> LeaseDepositLoanQuoteReasonSnapshot {
     match reason {
+        LeaseDepositLoanQuoteReasonState::InsolvencyRebuilding => {
+            LeaseDepositLoanQuoteReasonSnapshot::InsolvencyRebuilding
+        }
         LeaseDepositLoanQuoteReasonState::ActiveDefault => {
             LeaseDepositLoanQuoteReasonSnapshot::ActiveDefault
         }
@@ -11221,6 +11553,319 @@ fn is_canonical_life_event_identifier(value: &str) -> bool {
     is_canonical_welfare_identifier(value)
 }
 
+const fn to_insolvency_availability_snapshot(
+    value: InsolvencyAvailabilityState,
+) -> InsolvencyAvailabilitySnapshot {
+    match value {
+        InsolvencyAvailabilityState::Unavailable => InsolvencyAvailabilitySnapshot::Unavailable,
+        InsolvencyAvailabilityState::CashOnlyLiquidation => {
+            InsolvencyAvailabilitySnapshot::CashOnlyLiquidation
+        }
+    }
+}
+
+const fn to_insolvency_eligibility_status_snapshot(
+    value: InsolvencyEligibilityStatus,
+) -> InsolvencyEligibilityStatusSnapshot {
+    match value {
+        InsolvencyEligibilityStatus::Eligible => InsolvencyEligibilityStatusSnapshot::Eligible,
+        InsolvencyEligibilityStatus::Ineligible => InsolvencyEligibilityStatusSnapshot::Ineligible,
+        InsolvencyEligibilityStatus::CompositionUnsupported => {
+            InsolvencyEligibilityStatusSnapshot::CompositionUnsupported
+        }
+        InsolvencyEligibilityStatus::Unavailable => {
+            InsolvencyEligibilityStatusSnapshot::Unavailable
+        }
+    }
+}
+
+const fn to_insolvency_eligibility_reason_snapshot(
+    value: InsolvencyEligibilityReason,
+) -> InsolvencyEligibilityReasonSnapshot {
+    match value {
+        InsolvencyEligibilityReason::PolicyUnavailable => {
+            InsolvencyEligibilityReasonSnapshot::PolicyUnavailable
+        }
+        InsolvencyEligibilityReason::ComponentUnavailable => {
+            InsolvencyEligibilityReasonSnapshot::ComponentUnavailable
+        }
+        InsolvencyEligibilityReason::InvalidWalletCash => {
+            InsolvencyEligibilityReasonSnapshot::InvalidWalletCash
+        }
+        InsolvencyEligibilityReason::NoSupportedDefaultedDebt => {
+            InsolvencyEligibilityReasonSnapshot::NoSupportedDefaultedDebt
+        }
+        InsolvencyEligibilityReason::DebtNotGreaterThanCash => {
+            InsolvencyEligibilityReasonSnapshot::DebtNotGreaterThanCash
+        }
+        InsolvencyEligibilityReason::UnsupportedLoanComposition => {
+            InsolvencyEligibilityReasonSnapshot::UnsupportedLoanComposition
+        }
+        InsolvencyEligibilityReason::UnsupportedAssetComposition => {
+            InsolvencyEligibilityReasonSnapshot::UnsupportedAssetComposition
+        }
+        InsolvencyEligibilityReason::UnsupportedNonLoanObligation => {
+            InsolvencyEligibilityReasonSnapshot::UnsupportedNonLoanObligation
+        }
+        InsolvencyEligibilityReason::ExistingNonTerminalCase => {
+            InsolvencyEligibilityReasonSnapshot::ExistingNonTerminalCase
+        }
+    }
+}
+
+const fn to_insolvency_procedure_snapshot(
+    value: InsolvencyProcedureKind,
+) -> InsolvencyProcedureKindSnapshot {
+    match value {
+        InsolvencyProcedureKind::CashOnlyLiquidation => {
+            InsolvencyProcedureKindSnapshot::CashOnlyLiquidation
+        }
+    }
+}
+
+const fn to_insolvency_case_status_snapshot(
+    value: InsolvencyCaseStatus,
+) -> InsolvencyCaseStatusSnapshot {
+    match value {
+        InsolvencyCaseStatus::Prepared => InsolvencyCaseStatusSnapshot::Prepared,
+        InsolvencyCaseStatus::Filed => InsolvencyCaseStatusSnapshot::Filed,
+        InsolvencyCaseStatus::Liquidation => InsolvencyCaseStatusSnapshot::Liquidation,
+        InsolvencyCaseStatus::Discharged => InsolvencyCaseStatusSnapshot::Discharged,
+        InsolvencyCaseStatus::Rebuilding => InsolvencyCaseStatusSnapshot::Rebuilding,
+        InsolvencyCaseStatus::Withdrawn => InsolvencyCaseStatusSnapshot::Withdrawn,
+        InsolvencyCaseStatus::Recovered => InsolvencyCaseStatusSnapshot::Recovered,
+    }
+}
+
+fn to_insolvency_case_summary_snapshot(
+    state: &InsolvencyCaseSummaryState,
+) -> Result<InsolvencyCaseSummarySnapshot> {
+    ensure!(
+        state.protected_cash_krw >= 0
+            && state.protected_cash_krw <= state.wallet_cash_krw
+            && state.distributed_krw >= 0
+            && state.discharged_krw >= 0,
+        "insolvency case summary has invalid money"
+    );
+    Ok(InsolvencyCaseSummarySnapshot {
+        id: state.id,
+        procedure_kind: to_insolvency_procedure_snapshot(state.procedure_kind),
+        status: to_insolvency_case_status_snapshot(state.status),
+        prepared_game_day: state.prepared_game_day,
+        submitted_game_day: state.submitted_game_day,
+        wallet_cash_krw: state.wallet_cash_krw,
+        protected_cash_krw: state.protected_cash_krw,
+        distributed_krw: state.distributed_krw,
+        discharged_krw: state.discharged_krw,
+        credit_restriction_end_exclusive: state.credit_restriction_end_exclusive,
+    })
+}
+
+fn to_insolvency_snapshot(state: &InsolvencySnapshotState) -> Result<InsolvencySnapshot> {
+    ensure!(
+        state.reasons.len() <= 16,
+        "insolvency eligibility reasons exceed the public bound"
+    );
+    Ok(InsolvencySnapshot {
+        availability: to_insolvency_availability_snapshot(state.availability),
+        eligibility: to_insolvency_eligibility_status_snapshot(state.eligibility),
+        reasons: state
+            .reasons
+            .iter()
+            .copied()
+            .map(to_insolvency_eligibility_reason_snapshot)
+            .collect(),
+        current_case: state
+            .current_case
+            .as_ref()
+            .map(to_insolvency_case_summary_snapshot)
+            .transpose()?,
+    })
+}
+
+fn to_insolvency_case_command_response(
+    receipt: InsolvencyCaseReceipt,
+    snapshot: GameSnapshot,
+) -> Result<InsolvencyCaseCommandResponse> {
+    Ok(InsolvencyCaseCommandResponse {
+        result: to_insolvency_case_summary_snapshot(&receipt.case)?,
+        replayed: receipt.replayed,
+        snapshot,
+    })
+}
+
+fn to_insolvency_case_detail_response(
+    state: InsolvencyCaseDetailState,
+) -> Result<InsolvencyCaseDetailResponse> {
+    ensure!(
+        (1..=16).contains(&state.transitions.len())
+            && state.composition_sha256.len() == 64
+            && state
+                .composition_sha256
+                .bytes()
+                .all(|byte| { byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) }),
+        "insolvency case detail is outside the public bounds"
+    );
+    let mut previous_sequence = 0_u8;
+    let transitions = state
+        .transitions
+        .into_iter()
+        .map(|transition| {
+            ensure!(
+                transition.sequence == previous_sequence.saturating_add(1),
+                "insolvency transitions are not canonically ordered"
+            );
+            previous_sequence = transition.sequence;
+            Ok(InsolvencyTransitionSnapshot {
+                sequence: transition.sequence,
+                from_status: transition
+                    .from_status
+                    .map(to_insolvency_case_status_snapshot),
+                to_status: to_insolvency_case_status_snapshot(transition.to_status),
+                game_day: transition.game_day,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(InsolvencyCaseDetailResponse {
+        summary: to_insolvency_case_summary_snapshot(&state.summary)?,
+        policy_set_id: state.policy_set_id,
+        life_catalog_set_id: state.life_catalog_set_id,
+        insolvency_component_version_id: state.insolvency_component_version_id,
+        composition_sha256: state.composition_sha256,
+        automatic_protected_krw: state.automatic_protected_krw,
+        additional_protected_krw: state.additional_protected_krw,
+        liquidatable_krw: state.liquidatable_krw,
+        total_claim_krw: state.total_claim_krw,
+        claim_count: state.claim_count,
+        transitions,
+    })
+}
+
+fn to_insolvency_claim_snapshot(state: InsolvencyClaimState) -> Result<InsolvencyClaimSnapshot> {
+    let allowed = state
+        .principal_krw
+        .checked_add(state.interest_krw)
+        .and_then(|amount| amount.checked_add(state.fee_krw))
+        .context("insolvency claim total overflowed")?;
+    let reconciled = state
+        .distributed_krw
+        .checked_add(state.discharged_krw)
+        .context("insolvency claim reconciliation overflowed")?;
+    ensure!(
+        state.principal_krw >= 0
+            && state.interest_krw >= 0
+            && state.fee_krw >= 0
+            && allowed == state.allowed_krw
+            && state.distributed_krw >= 0
+            && state.discharged_krw >= 0
+            && reconciled <= state.allowed_krw,
+        "insolvency claim totals are inconsistent"
+    );
+    Ok(InsolvencyClaimSnapshot {
+        id: state.id,
+        loan_contract_id: state.loan_contract_id,
+        principal_krw: state.principal_krw,
+        interest_krw: state.interest_krw,
+        fee_krw: state.fee_krw,
+        allowed_krw: state.allowed_krw,
+        distributed_krw: state.distributed_krw,
+        discharged_krw: state.discharged_krw,
+    })
+}
+
+fn to_insolvency_claim_page_response(
+    state: InsolvencyClaimPageState,
+) -> Result<InsolvencyClaimPageResponse> {
+    ensure!(
+        state.claims.len() <= 20
+            && state.next_cursor.as_ref().is_none_or(|cursor| {
+                !cursor.is_empty() && cursor.len() <= 512 && cursor.is_ascii()
+            }),
+        "insolvency claim page is outside the public bounds"
+    );
+    let mut previous_id = None;
+    let claims = state
+        .claims
+        .into_iter()
+        .map(|claim| {
+            ensure!(
+                previous_id.is_none_or(|previous| previous < claim.id),
+                "insolvency claims are not ordered by ID"
+            );
+            previous_id = Some(claim.id);
+            to_insolvency_claim_snapshot(claim)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(InsolvencyClaimPageResponse {
+        claims,
+        next_cursor: state.next_cursor,
+    })
+}
+
+fn to_insolvency_wallet_asset_snapshot(
+    state: InsolvencyWalletAssetState,
+) -> Result<InsolvencyWalletAssetSnapshot> {
+    let protected_and_liquidatable = state
+        .protected_amount_krw
+        .checked_add(state.liquidatable_krw)
+        .context("insolvency wallet total overflowed")?;
+    ensure!(
+        state.protected_amount_krw >= 0
+            && state.liquidatable_krw >= 0
+            && state.distributed_krw >= 0
+            && protected_and_liquidatable == state.original_amount_krw
+            && state.distributed_krw <= state.liquidatable_krw,
+        "insolvency wallet liquidation totals are inconsistent"
+    );
+    Ok(InsolvencyWalletAssetSnapshot {
+        original_amount_krw: state.original_amount_krw,
+        protected_amount_krw: state.protected_amount_krw,
+        liquidatable_krw: state.liquidatable_krw,
+        distributed_krw: state.distributed_krw,
+    })
+}
+
+fn to_insolvency_liquidation_page_response(
+    state: InsolvencyLiquidationPageState,
+) -> Result<InsolvencyLiquidationPageResponse> {
+    ensure!(
+        state.distributions.len() <= 20
+            && state.next_cursor.as_ref().is_none_or(|cursor| {
+                !cursor.is_empty() && cursor.len() <= 512 && cursor.is_ascii()
+            }),
+        "insolvency liquidation page is outside the public bounds"
+    );
+    let mut previous_id = None;
+    let distributions = state
+        .distributions
+        .into_iter()
+        .map(|distribution: InsolvencyLiquidationState| {
+            ensure!(
+                distribution.amount_krw > 0
+                    && previous_id.is_none_or(|previous| previous < distribution.id),
+                "insolvency distributions are not canonically ordered"
+            );
+            previous_id = Some(distribution.id);
+            Ok(InsolvencyLiquidationSnapshot {
+                id: distribution.id,
+                claim_id: distribution.claim_id,
+                amount_krw: distribution.amount_krw,
+                loan_payment_id: distribution.loan_payment_id,
+                ledger_transaction_id: distribution.ledger_transaction_id,
+                applied_game_day: distribution.applied_game_day,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(InsolvencyLiquidationPageResponse {
+        wallet_asset: state
+            .wallet_asset
+            .map(to_insolvency_wallet_asset_snapshot)
+            .transpose()?,
+        distributions,
+        next_cursor: state.next_cursor,
+    })
+}
+
 fn to_life_snapshot(state: &LifeSnapshotState, game_day: u32) -> Result<LifeSnapshot> {
     ensure!(
         state.active_welfare_applications.len() <= 8,
@@ -11447,6 +12092,7 @@ fn to_life_snapshot(state: &LifeSnapshotState, game_day: u32) -> Result<LifeSnap
         active_insurance_contracts,
         pending_insurance_claims,
         pending_events,
+        insolvency: to_insolvency_snapshot(&state.insolvency)?,
     })
 }
 

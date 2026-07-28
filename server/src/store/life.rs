@@ -16,6 +16,10 @@ use super::housing::{
     is_retryable_database_error, prepare_current_housing_catalogs,
     prepare_property_daily_for_target, read_housing_listings,
 };
+use super::insolvency::{
+    act_on_insolvency_case, prepare_insolvency_case, read_case_detail, read_claim_page,
+    read_insolvency_overview, read_insolvency_snapshot_in_tx, read_liquidation_page,
+};
 use super::insurance::{
     cancel_insurance_contract, enroll_insurance_contract, file_insurance_claim, read_insurance,
     read_insurance_snapshot_in_tx,
@@ -44,27 +48,29 @@ use super::properties::{
     validate_property_projection_in_tx,
 };
 use super::types::{
-    ApplyWelfareProgramCommand, CancelInsuranceContractCommand, CancelPropertySaleOrderCommand,
-    CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
-    CreatePropertySaleOrderCommand, CreditOverviewState, CreditReasonState,
-    EnrollInsuranceContractCommand, EssentialArrearPaymentReceipt, EssentialArrearState,
-    ExecuteLoanCommand, FileInsuranceClaimCommand, GameCommandCursor, HousingLeaseCurrentState,
-    HousingLeaseMoveReceipt, HousingListingsQueryState, HousingListingsState,
-    HousingPropertyHoldingsState, InsuranceCancellationReceipt, InsuranceClaimReceipt,
-    InsuranceEnrollmentReceipt, InsuranceQueryState, InsuranceReadResult,
+    ActOnInsolvencyCaseCommand, ApplyWelfareProgramCommand, CancelInsuranceContractCommand,
+    CancelPropertySaleOrderCommand, CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand,
+    CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand, CreditOverviewState,
+    CreditReasonState, EnrollInsuranceContractCommand, EssentialArrearPaymentReceipt,
+    EssentialArrearState, ExecuteLoanCommand, FileInsuranceClaimCommand, GameCommandCursor,
+    HousingLeaseCurrentState, HousingLeaseMoveReceipt, HousingListingsQueryState,
+    HousingListingsState, HousingPropertyHoldingsState, InsolvencyCaseDetailState,
+    InsolvencyCaseReceipt, InsolvencyClaimPageState, InsolvencyLiquidationPageState,
+    InsolvencyReadResult, InsolvencySnapshotState, InsuranceCancellationReceipt,
+    InsuranceClaimReceipt, InsuranceEnrollmentReceipt, InsuranceQueryState, InsuranceReadResult,
     LeaseArrearPaymentReceipt, LeaseDepositLoanQuoteReceipt, LifeBudgetBandState,
     LifeBudgetSelectionState, LifeBudgetState, LifeEventChoiceReceipt, LifeEventsQueryState,
     LifeEventsReadResult, LifeFailureCode, LifeHouseholdState, LifeRateStatus, LifeResidenceState,
     LifeSnapshotState, LifeStore, LifeStoreResult, LivingCostMonthItemState, LivingCostMonthState,
     LoanDetailState, LoanExecutionReceipt, LoanInstallmentPageQuery, LoanInstallmentPageState,
     LoanPrepaymentReceipt, LoanProductCatalogState, LoanQuoteReceipt, MortgageQuoteReceipt,
-    PayEssentialArrearCommand, PayLeaseArrearCommand, PrepayLoanCommand, PropertyPurchaseReceipt,
-    PropertySaleOrderCancellationReceipt, PropertySaleOrderListingReceipt,
-    PropertySaleOrderPageQuery, PropertySaleOrderPageState, PropertyTaxEventPageQuery,
-    PropertyTaxEventPageState, PurchasePropertyCommand, RealEstateDailyPreparationStore,
-    RepricePropertySaleOrderCommand, ResidenceTenureKind, ResolveLifeEventCommand,
-    StartHousingLeaseCommand, UpdateLifeBudgetCommand, UpdateLifeBudgetReceipt,
-    WelfareApplicationReceipt, WelfareProgramsState,
+    PayEssentialArrearCommand, PayLeaseArrearCommand, PrepareInsolvencyCaseCommand,
+    PrepayLoanCommand, PropertyPurchaseReceipt, PropertySaleOrderCancellationReceipt,
+    PropertySaleOrderListingReceipt, PropertySaleOrderPageQuery, PropertySaleOrderPageState,
+    PropertyTaxEventPageQuery, PropertyTaxEventPageState, PurchasePropertyCommand,
+    RealEstateDailyPreparationStore, RepricePropertySaleOrderCommand, ResidenceTenureKind,
+    ResolveLifeEventCommand, StartHousingLeaseCommand, UpdateLifeBudgetCommand,
+    UpdateLifeBudgetReceipt, WelfareApplicationReceipt, WelfareProgramsState,
 };
 use super::welfare::{
     apply_welfare_program, read_active_welfare_applications_in_tx, read_welfare_programs,
@@ -75,12 +81,13 @@ use crate::finance::{
     ScheduledSettlement, SettlementKind, SettlementSourceKind,
 };
 use crate::life::{
-    CurrentLivingCostCharge, EssentialArrearBalance, InsuranceRules, LifeEventRules,
-    LivingCostAllocationInput, LivingCostCategory, LivingCostCategoryCalculationInput,
-    LivingCostMonthCalculationInput, LivingCostProration, LivingCostRules, PropertyRules,
-    PropertyTaxRules, RealEstateRules, WelfareRules, YearMonth, create_insurance_rules,
-    create_life_event_rules, create_living_cost_rules, create_property_rules,
-    create_property_tax_rules, create_real_estate_rules, create_welfare_rules,
+    CurrentLivingCostCharge, EssentialArrearBalance, InsolvencyRules, InsuranceRules,
+    LifeEventRules, LivingCostAllocationInput, LivingCostCategory,
+    LivingCostCategoryCalculationInput, LivingCostMonthCalculationInput, LivingCostProration,
+    LivingCostRules, PropertyRules, PropertyTaxRules, RealEstateRules, WelfareRules, YearMonth,
+    create_insolvency_rules, create_insurance_rules, create_life_event_rules,
+    create_living_cost_rules, create_property_rules, create_property_tax_rules,
+    create_real_estate_rules, create_welfare_rules,
 };
 
 const COMMAND_KIND_UPDATE_BUDGET: &str = "updateLifeBudget";
@@ -102,6 +109,7 @@ pub struct MySqlLifeStore {
     property_tax_rules: Arc<dyn PropertyTaxRules>,
     life_event_rules: Arc<dyn LifeEventRules>,
     insurance_rules: Arc<dyn InsuranceRules>,
+    insolvency_rules: Arc<dyn InsolvencyRules>,
     welfare_rules: Arc<dyn WelfareRules>,
 }
 
@@ -117,6 +125,7 @@ pub fn create_mysql_life_store(
         property_tax_rules: create_property_tax_rules(),
         life_event_rules: create_life_event_rules(),
         insurance_rules: create_insurance_rules(),
+        insolvency_rules: create_insolvency_rules(),
         welfare_rules: create_welfare_rules(),
     }
 }
@@ -349,6 +358,62 @@ struct ArrearPaymentApplication {
 
 #[async_trait]
 impl LifeStore for MySqlLifeStore {
+    async fn insolvency_overview(
+        &self,
+        user_id: u64,
+    ) -> Result<InsolvencyReadResult<InsolvencySnapshotState>> {
+        read_insolvency_overview(&self.pool, self.insolvency_rules.as_ref(), user_id).await
+    }
+
+    async fn prepare_insolvency_case(
+        &self,
+        user_id: u64,
+        command: &PrepareInsolvencyCaseCommand,
+    ) -> Result<LifeStoreResult<InsolvencyCaseReceipt>> {
+        prepare_insolvency_case(&self.pool, self.insolvency_rules.as_ref(), user_id, command).await
+    }
+
+    async fn act_on_insolvency_case(
+        &self,
+        user_id: u64,
+        command: &ActOnInsolvencyCaseCommand,
+    ) -> Result<LifeStoreResult<InsolvencyCaseReceipt>> {
+        act_on_insolvency_case(
+            &self.pool,
+            self.finance_rules.as_ref(),
+            self.insolvency_rules.as_ref(),
+            user_id,
+            command,
+        )
+        .await
+    }
+
+    async fn insolvency_case_detail(
+        &self,
+        user_id: u64,
+        case_id: ResourceId,
+    ) -> Result<InsolvencyReadResult<InsolvencyCaseDetailState>> {
+        read_case_detail(&self.pool, user_id, case_id).await
+    }
+
+    async fn insolvency_claims(
+        &self,
+        user_id: u64,
+        case_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<InsolvencyReadResult<InsolvencyClaimPageState>> {
+        read_claim_page(&self.pool, user_id, case_id, cursor).await
+    }
+
+    async fn insolvency_liquidations(
+        &self,
+        user_id: u64,
+        case_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<InsolvencyReadResult<InsolvencyLiquidationPageState>> {
+        read_liquidation_page(&self.pool, user_id, case_id, cursor).await
+    }
+
     async fn life_events(
         &self,
         user_id: u64,
@@ -2618,6 +2683,8 @@ pub(super) async fn read_life_snapshot_in_tx(
     let pending_events = read_pending_life_events_in_tx(tx, save_id).await?;
     let insurance =
         read_insurance_snapshot_in_tx(tx, create_insurance_rules().as_ref(), save_id).await?;
+    let insolvency =
+        read_insolvency_snapshot_in_tx(tx, create_insolvency_rules().as_ref(), save_id).await?;
     Ok(LifeSnapshotState {
         rate_status: rate_status(&scope),
         household: Some(household),
@@ -2644,6 +2711,7 @@ pub(super) async fn read_life_snapshot_in_tx(
         insurance_capability: insurance.capability,
         active_insurance_contracts: insurance.active_contracts,
         pending_insurance_claims: insurance.pending_claims,
+        insolvency,
     })
 }
 

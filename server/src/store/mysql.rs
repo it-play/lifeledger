@@ -31,6 +31,7 @@ use super::employment_tax::{
     lock_annual_employment_contract_in_tx, prepare_employment_annual_tax_boundary,
     settle_employment_reconciliation_by_id_in_tx,
 };
+use super::insolvency::recover_due_cases_in_tx;
 use super::insurance::{
     close_insurance_for_new_run_in_tx, expire_insurance_claims_in_tx,
     expire_insurance_contracts_in_tx, settle_insurance_premium_by_id_in_tx,
@@ -1097,6 +1098,7 @@ async fn settle_daily_finance_state(
         .await?;
     apply_credit_end_of_day_in_tx(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
+    recover_due_cases_in_tx(tx, current.save_id, current.run_revision, target_game_day).await?;
     expire_insurance_contracts_in_tx(
         tx,
         rules.insurance.as_ref(),

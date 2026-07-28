@@ -929,7 +929,7 @@ struct NextInstallmentRow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LoanPostingReference {
+pub(super) enum LoanPostingReference {
     None,
     Contract(u64),
 }
@@ -2517,6 +2517,16 @@ pub(super) async fn create_loan_quote_in_tx(
         },
     };
     let mut restricted_reasons = Vec::new();
+    if super::insolvency::credit_restricted_in_tx(
+        tx,
+        scope.save_id,
+        scope.run_revision,
+        scope.game_day,
+    )
+    .await?
+    {
+        restricted_reasons.push(LoanQuoteReasonState::InsolvencyRebuilding);
+    }
     if loans.iter().any(|loan| loan.status == "defaulted") {
         restricted_reasons.push(LoanQuoteReasonState::ActiveDefault);
     }
@@ -3061,6 +3071,16 @@ async fn assess_lease_deposit_loan_application_in_tx(
     };
 
     let mut restricted_reasons = Vec::new();
+    if super::insolvency::credit_restricted_in_tx(
+        tx,
+        scope.save_id,
+        scope.run_revision,
+        scope.game_day,
+    )
+    .await?
+    {
+        restricted_reasons.push(LeaseDepositLoanQuoteReasonState::InsolvencyRebuilding);
+    }
     if loans.iter().any(|loan| loan.status == "defaulted") {
         restricted_reasons.push(LeaseDepositLoanQuoteReasonState::ActiveDefault);
     }
@@ -3603,6 +3623,16 @@ async fn assess_loan_application_in_tx(
         },
     };
     let mut restricted_reasons = Vec::new();
+    if super::insolvency::credit_restricted_in_tx(
+        tx,
+        scope.save_id,
+        scope.run_revision,
+        scope.game_day,
+    )
+    .await?
+    {
+        restricted_reasons.push(LoanQuoteReasonState::InsolvencyRebuilding);
+    }
     if loans.iter().any(|loan| loan.status == "defaulted") {
         restricted_reasons.push(LoanQuoteReasonState::ActiveDefault);
     }
@@ -5839,6 +5869,16 @@ pub(super) async fn assess_mortgage_loan_in_tx(
         },
     };
     let mut credit_reasons = Vec::new();
+    if super::insolvency::credit_restricted_in_tx(
+        tx,
+        scope.save_id,
+        scope.run_revision,
+        scope.game_day,
+    )
+    .await?
+    {
+        credit_reasons.push(MortgageQuoteReasonState::InsolvencyRebuilding);
+    }
     if loans.iter().any(|loan| loan.status == "defaulted") {
         credit_reasons.push(MortgageQuoteReasonState::ActiveDefault);
     }
@@ -8767,7 +8807,7 @@ fn contract_status_db(status: LoanContractStatus) -> &'static str {
     }
 }
 
-async fn write_loan_ledger_transaction(
+pub(super) async fn write_loan_ledger_transaction(
     tx: &mut Transaction<'_, MySql>,
     ledger: &LedgerTransaction,
     references: &[LoanPostingReference],

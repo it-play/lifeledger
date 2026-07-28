@@ -35,7 +35,10 @@ use crate::finance::{
     OpenCashProductCommand, OpenCmaAccountCommand, OpenGoldAccountCommand,
     PensionWithdrawalRequestKind, ResourceId, TransferCommand, TransferDirection,
 };
-use crate::life::{HousingLeaseOfferKind, LifeRegionKey, LivingCostCategory, LoanProductKind};
+use crate::life::{
+    HousingLeaseOfferKind, InsolvencyProcedureKind, LifeRegionKey, LivingCostCategory,
+    LoanProductKind,
+};
 use crate::state::{
     ActiveHousingLeaseSnapshot, ActiveLeaseTermSnapshot, ActiveMilitarySavingsStatusSnapshot,
     ActiveMilitarySavingsSummarySnapshot, ActiveMilitaryServiceStatusSnapshot,
@@ -74,7 +77,13 @@ use crate::state::{
     HousingListingsResponse, HousingMovingCostSnapshot, HousingOfferSnapshot,
     HousingPropertyHoldingsResponse, HousingPropertyTypeSnapshot,
     HousingPurchaseCapabilitySnapshot, HousingRateStatusSnapshot, HousingRegionKeySnapshot,
-    HousingRegionSnapshot, HousingRentChargeRuleSnapshot, InsuranceCancellationResponse,
+    HousingRegionSnapshot, HousingRentChargeRuleSnapshot, InsolvencyAvailabilitySnapshot,
+    InsolvencyCaseCommandResponse, InsolvencyCaseDetailResponse, InsolvencyCaseStatusSnapshot,
+    InsolvencyCaseSummarySnapshot, InsolvencyClaimPageResponse, InsolvencyClaimSnapshot,
+    InsolvencyEligibilityReasonSnapshot, InsolvencyEligibilityStatusSnapshot,
+    InsolvencyLiquidationPageResponse, InsolvencyLiquidationSnapshot, InsolvencyOverviewResponse,
+    InsolvencyProcedureKindSnapshot, InsolvencySnapshot, InsolvencyTransitionSnapshot,
+    InsolvencyWalletAssetSnapshot, InsuranceCancellationResponse,
     InsuranceCancellationResultSnapshot, InsuranceCapabilitySnapshot,
     InsuranceClaimAllocationSnapshot, InsuranceClaimHistoryItemSnapshot, InsuranceClaimResponse,
     InsuranceClaimResultSnapshot, InsuranceContractSnapshot, InsuranceContractStatusSnapshot,
@@ -144,18 +153,19 @@ use crate::state::{
     WelfareProgramSnapshot, WelfareProgramsResponse, YearMonthSnapshot,
 };
 use crate::store::{
-    AcceptCareerInvitationCommand, AcceptCareerOfferCommand, ApplyCareerCommand,
-    ApplyWelfareProgramCommand, CancelCareerActivityCommand, CancelInsuranceContractCommand,
-    CancelPropertySaleOrderCommand, CareerArtifactPageQuery, CareerJobsPageQuery, CareerPageQuery,
-    CareerPlatform, CloseIsaAccountCommand, CloseMilitarySavingsCommand,
-    ConfirmCareerInterviewCommand, CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand,
-    CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand, DeclineCareerInvitationCommand,
-    DeclineCareerOfferCommand, EnrollInsuranceContractCommand, ExecuteLoanCommand,
-    FileInsuranceClaimCommand, FocusCareerCommand, HousingListingsQueryState, InsuranceQueryState,
-    InterviewDecision, LifeBudgetSelectionState, LifeEventsQueryState, LifeFailureCode,
-    LoanInstallmentPageCursor, LoanInstallmentPageQuery, ManualAdvanceCommand,
-    OpenMilitarySavingsCommand, OpenTaxAccountCommand, PayEssentialArrearCommand,
-    PayLeaseArrearCommand, PensionWithdrawalCommand, PrepayLoanCommand, PropertySaleOrderPageQuery,
+    AcceptCareerInvitationCommand, AcceptCareerOfferCommand, ActOnInsolvencyCaseCommand,
+    ApplyCareerCommand, ApplyWelfareProgramCommand, CancelCareerActivityCommand,
+    CancelInsuranceContractCommand, CancelPropertySaleOrderCommand, CareerArtifactPageQuery,
+    CareerJobsPageQuery, CareerPageQuery, CareerPlatform, CloseIsaAccountCommand,
+    CloseMilitarySavingsCommand, ConfirmCareerInterviewCommand, CreateLeaseDepositLoanQuoteCommand,
+    CreateLoanQuoteCommand, CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand,
+    DeclineCareerInvitationCommand, DeclineCareerOfferCommand, EnrollInsuranceContractCommand,
+    ExecuteLoanCommand, FileInsuranceClaimCommand, FocusCareerCommand, HousingListingsQueryState,
+    InsolvencyActionState, InsuranceQueryState, InterviewDecision, LifeBudgetSelectionState,
+    LifeEventsQueryState, LifeFailureCode, LoanInstallmentPageCursor, LoanInstallmentPageQuery,
+    ManualAdvanceCommand, OpenMilitarySavingsCommand, OpenTaxAccountCommand,
+    PayEssentialArrearCommand, PayLeaseArrearCommand, PensionWithdrawalCommand,
+    PrepareInsolvencyCaseCommand, PrepayLoanCommand, PropertySaleOrderPageQuery,
     PropertyTaxEventPageQuery, PublishCareerArtifactCommand, PurchasePropertyCommand,
     RepricePropertySaleOrderCommand, ResolveLifeEventCommand, StartCareerActivityCommand,
     StartGameCommand, StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
@@ -221,6 +231,12 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         enroll_insurance_contract,
         cancel_insurance_contract,
         file_insurance_claim,
+        insolvency_overview,
+        prepare_insolvency_case,
+        act_on_insolvency_case,
+        insolvency_case_detail,
+        insolvency_claims,
+        insolvency_liquidations,
         housing_listings,
         housing_lease_current,
         housing_property_holdings,
@@ -506,6 +522,25 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         InsuranceClaimRequest,
         InsuranceClaimResultSnapshot,
         InsuranceClaimResponse,
+        InsolvencyAvailabilitySnapshot,
+        InsolvencyEligibilityStatusSnapshot,
+        InsolvencyEligibilityReasonSnapshot,
+        InsolvencyProcedureKindSnapshot,
+        InsolvencyCaseStatusSnapshot,
+        InsolvencyCaseSummarySnapshot,
+        InsolvencySnapshot,
+        InsolvencyCaseCommandResponse,
+        InsolvencyTransitionSnapshot,
+        InsolvencyCaseDetailResponse,
+        InsolvencyClaimSnapshot,
+        InsolvencyClaimPageResponse,
+        InsolvencyWalletAssetSnapshot,
+        InsolvencyLiquidationSnapshot,
+        InsolvencyLiquidationPageResponse,
+        InsolvencyCasePrepareRequest,
+        InsolvencyCaseActionRequest,
+        InsolvencyActionRequestKind,
+        InsolvencyProcedureRequestKind,
         WelfareApplicationRequest,
         WelfareApplicationResultSnapshot,
         WelfareApplicationResponse,
@@ -736,6 +771,18 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(cancel_insurance_contract),
         )
         .route("/api/insurance/claims", post(file_insurance_claim))
+        .route("/api/insolvency", get(insolvency_overview))
+        .route("/api/insolvency/cases", post(prepare_insolvency_case))
+        .route(
+            "/api/insolvency/{caseId}/actions",
+            post(act_on_insolvency_case),
+        )
+        .route("/api/insolvency/{caseId}", get(insolvency_case_detail))
+        .route("/api/insolvency/{caseId}/claims", get(insolvency_claims))
+        .route(
+            "/api/insolvency/{caseId}/liquidations",
+            get(insolvency_liquidations),
+        )
         .route("/api/housing/listings", get(housing_listings))
         .route("/api/housing/leases/current", get(housing_lease_current))
         .route("/api/housing/leases", post(start_housing_lease))
@@ -2840,6 +2887,10 @@ enum LifeFailureCodeSnapshot {
     EventNotFound,
     EventExpired,
     InsuranceResourceNotFound,
+    InsolvencyResourceNotFound,
+    InsolvencyCompositionUnsupported,
+    InsolvencyCompositionChanged,
+    InsolvencyStateConflict,
     ClaimNotCovered,
     Ineligible,
     ValuationUnavailable,
@@ -2867,6 +2918,12 @@ impl From<LifeFailureCode> for LifeFailureCodeSnapshot {
             LifeFailureCode::EventNotFound => Self::EventNotFound,
             LifeFailureCode::EventExpired => Self::EventExpired,
             LifeFailureCode::InsuranceResourceNotFound => Self::InsuranceResourceNotFound,
+            LifeFailureCode::InsolvencyResourceNotFound => Self::InsolvencyResourceNotFound,
+            LifeFailureCode::InsolvencyCompositionUnsupported => {
+                Self::InsolvencyCompositionUnsupported
+            }
+            LifeFailureCode::InsolvencyCompositionChanged => Self::InsolvencyCompositionChanged,
+            LifeFailureCode::InsolvencyStateConflict => Self::InsolvencyStateConflict,
             LifeFailureCode::ClaimNotCovered => Self::ClaimNotCovered,
             LifeFailureCode::Ineligible => Self::Ineligible,
             LifeFailureCode::ValuationUnavailable => Self::ValuationUnavailable,
@@ -2904,7 +2961,9 @@ impl axum::response::IntoResponse for LifeRouteError {
             LifeFailureCode::HousingResourceNotFound
             | LifeFailureCode::WelfareResourceNotFound
             | LifeFailureCode::EventNotFound
-            | LifeFailureCode::InsuranceResourceNotFound => StatusCode::NOT_FOUND,
+            | LifeFailureCode::InsuranceResourceNotFound
+            | LifeFailureCode::InsolvencyResourceNotFound => StatusCode::NOT_FOUND,
+            LifeFailureCode::InsolvencyCompositionUnsupported => StatusCode::UNPROCESSABLE_ENTITY,
             _ => StatusCode::CONFLICT,
         };
         (
@@ -2942,6 +3001,16 @@ const fn life_failure_message(code: LifeFailureCode) -> &'static str {
         LifeFailureCode::EventExpired => "생애 사건의 선택 기한이 지났거나 이미 해결되었습니다",
         LifeFailureCode::InsuranceResourceNotFound => {
             "현재 run의 보험 상품, 계약 또는 청구를 찾을 수 없습니다"
+        }
+        LifeFailureCode::InsolvencyResourceNotFound => "현재 run의 도산 사건을 찾을 수 없습니다",
+        LifeFailureCode::InsolvencyCompositionUnsupported => {
+            "현재 자산과 채무 구성은 현금 전용 청산 절차가 지원하지 않습니다"
+        }
+        LifeFailureCode::InsolvencyCompositionChanged => {
+            "준비 후 자산 또는 채무 구성이 변경되었습니다. 사건을 다시 준비하세요"
+        }
+        LifeFailureCode::InsolvencyStateConflict => {
+            "현재 cursor 또는 도산 사건 상태에서 이 요청을 처리할 수 없습니다"
         }
         LifeFailureCode::ClaimNotCovered => {
             "이 청구는 보장되지 않거나 지급 기한 또는 상태가 유효하지 않습니다"
@@ -3304,6 +3373,270 @@ async fn file_insurance_claim(
         claim_id,
     };
     match state.file_insurance_claim(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum InsolvencyProcedureRequestKind {
+    CashOnlyLiquidation,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InsolvencyCasePrepareRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    procedure_kind: InsolvencyProcedureRequestKind,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum InsolvencyActionRequestKind {
+    Submit,
+    Withdraw,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InsolvencyCaseActionRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    action: InsolvencyActionRequestKind,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+struct InsolvencyPageQuery {
+    #[param(required = false, max_length = 512)]
+    cursor: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/insolvency",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run의 도산 기능, 자격과 사건 요약", body = InsolvencyOverviewResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터 또는 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "도산 상태 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn insolvency_overview(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<InsolvencyOverviewResponse>, LifeRouteError> {
+    match state.insolvency(user.id).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/insolvency/cases",
+    request_body = InsolvencyCasePrepareRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "cash-only 청산 사건 준비 또는 멱등 재조회", body = InsolvencyCaseCommandResponse),
+        (status = 400, description = "사건 준비 body 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "자격, cursor 또는 기존 사건이 충돌함", body = LifeFailure),
+        (status = 422, description = "현재 자산·채무 구성을 안전하게 판정할 수 없음", body = LifeFailure),
+        (status = 500, description = "사건 준비 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn prepare_insolvency_case(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<InsolvencyCasePrepareRequest>, JsonRejection>,
+) -> Result<Json<InsolvencyCaseCommandResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let command = PrepareInsolvencyCaseCommand {
+        command_id,
+        cursor,
+        procedure_kind: match request.procedure_kind {
+            InsolvencyProcedureRequestKind::CashOnlyLiquidation => {
+                InsolvencyProcedureKind::CashOnlyLiquidation
+            }
+        },
+    };
+    match state.prepare_insolvency_case(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/insolvency/{caseId}/actions",
+    params(("caseId" = String, Path, description = "현재 run 도산 사건 ID", pattern = "^[1-9][0-9]*$")),
+    request_body = InsolvencyCaseActionRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "사건 제출·철회 또는 멱등 재조회", body = InsolvencyCaseCommandResponse),
+        (status = 400, description = "사건 ID 또는 action body 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 사건을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "사건 구성, 상태 또는 cursor가 충돌함", body = LifeFailure),
+        (status = 422, description = "현재 자산·채무 구성을 안전하게 판정할 수 없음", body = LifeFailure),
+        (status = 500, description = "사건 action transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn act_on_insolvency_case(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(case_id): Path<String>,
+    request: Result<Json<InsolvencyCaseActionRequest>, JsonRejection>,
+) -> Result<Json<InsolvencyCaseCommandResponse>, LifeRouteError> {
+    let case_id = ResourceId::parse(&case_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let action = match request.action {
+        InsolvencyActionRequestKind::Submit => InsolvencyActionState::Submit,
+        InsolvencyActionRequestKind::Withdraw => InsolvencyActionState::Withdraw,
+    };
+    let command = ActOnInsolvencyCaseCommand {
+        command_id,
+        cursor,
+        case_id,
+        action,
+    };
+    match state.act_on_insolvency_case(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/insolvency/{caseId}",
+    params(("caseId" = String, Path, description = "현재 run 도산 사건 ID", pattern = "^[1-9][0-9]*$")),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "사건 총계, 정책 provenance와 전이 이력", body = InsolvencyCaseDetailResponse),
+        (status = 400, description = "사건 ID 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 사건을 찾을 수 없음", body = LifeFailure),
+        (status = 500, description = "사건 상세 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn insolvency_case_detail(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(case_id): Path<String>,
+) -> Result<Json<InsolvencyCaseDetailResponse>, LifeRouteError> {
+    let case_id = ResourceId::parse(&case_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    match state.insolvency_case_detail(user.id, case_id).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+fn insolvency_page_cursor(query: InsolvencyPageQuery) -> Result<Option<String>, LifeFailureCode> {
+    if query
+        .cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 512 || !cursor.is_ascii())
+    {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    Ok(query.cursor)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/insolvency/{caseId}/claims",
+    params(
+        ("caseId" = String, Path, description = "현재 run 도산 사건 ID", pattern = "^[1-9][0-9]*$"),
+        InsolvencyPageQuery
+    ),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "ID 오름차순 채권 page", body = InsolvencyClaimPageResponse),
+        (status = 400, description = "사건 ID 또는 cursor 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 사건을 찾을 수 없음", body = LifeFailure),
+        (status = 500, description = "채권 page 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn insolvency_claims(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(case_id): Path<String>,
+    query: Result<Query<InsolvencyPageQuery>, QueryRejection>,
+) -> Result<Json<InsolvencyClaimPageResponse>, LifeRouteError> {
+    let case_id = ResourceId::parse(&case_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let cursor = insolvency_page_cursor(query)?;
+    match state.insolvency_claims(user.id, case_id, cursor).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/insolvency/{caseId}/liquidations",
+    params(
+        ("caseId" = String, Path, description = "현재 run 도산 사건 ID", pattern = "^[1-9][0-9]*$"),
+        InsolvencyPageQuery
+    ),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "지갑 자산과 청산 배분 page", body = InsolvencyLiquidationPageResponse),
+        (status = 400, description = "사건 ID 또는 cursor 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 사건을 찾을 수 없음", body = LifeFailure),
+        (status = 500, description = "청산 page 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn insolvency_liquidations(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(case_id): Path<String>,
+    query: Result<Query<InsolvencyPageQuery>, QueryRejection>,
+) -> Result<Json<InsolvencyLiquidationPageResponse>, LifeRouteError> {
+    let case_id = ResourceId::parse(&case_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let cursor = insolvency_page_cursor(query)?;
+    match state
+        .insolvency_liquidations(user.id, case_id, cursor)
+        .await?
+    {
         LifeCommandResult::Applied(response) => Ok(Json(*response)),
         LifeCommandResult::Rejected(code) => Err(code.into()),
     }
@@ -6582,6 +6915,8 @@ mod tests {
                     "lifeEventChoice",
                     "insurancePremiumPayment",
                     "insuranceClaimPayment",
+                    "insolvencyDistribution",
+                    "insolvencyDischarge",
                     "correction"
                 ]))
             );
@@ -6634,7 +6969,9 @@ mod tests {
                     "welfareBenefitIncome",
                     "lifeEventExpense",
                     "insurancePremiumExpense",
-                    "insuranceClaimRecovery"
+                    "insuranceClaimRecovery",
+                    "insolvencyDischargedDebt",
+                    "insolvencyDischargeGain"
                 ]))
             );
         }
@@ -7655,6 +7992,12 @@ mod tests {
                 "/paths/~1api~1insurance~1contracts/post",
                 "/paths/~1api~1insurance~1contracts~1{contractId}~1cancellations/post",
                 "/paths/~1api~1insurance~1claims/post",
+                "/paths/~1api~1insolvency/get",
+                "/paths/~1api~1insolvency~1cases/post",
+                "/paths/~1api~1insolvency~1{caseId}~1actions/post",
+                "/paths/~1api~1insolvency~1{caseId}/get",
+                "/paths/~1api~1insolvency~1{caseId}~1claims/get",
+                "/paths/~1api~1insolvency~1{caseId}~1liquidations/get",
             ] {
                 assert_eq!(
                     document.pointer(&format!("{operation}/security")),
@@ -7693,6 +8036,10 @@ mod tests {
                     "eventNotFound",
                     "eventExpired",
                     "insuranceResourceNotFound",
+                    "insolvencyResourceNotFound",
+                    "insolvencyCompositionUnsupported",
+                    "insolvencyCompositionChanged",
+                    "insolvencyStateConflict",
                     "claimNotCovered",
                     "ineligible",
                     "valuationUnavailable",
