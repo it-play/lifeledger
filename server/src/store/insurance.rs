@@ -8,7 +8,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
-use sqlx::{MySql, MySqlPool, Transaction};
+use sqlx::{AssertSqlSafe, MySql, MySqlPool, Transaction};
 
 use super::mysql::{
     CommandIdentitySpec, CommandIdentityState, GameCommandReceiptWrite, inspect_command_identity,
@@ -3297,7 +3297,7 @@ async fn read_claim_history_page(
              ORDER BY allocation.claim_id, allocation.allocation_order LIMIT 161"
         );
         // Every interpolated value is an unsigned identifier read from the locked page.
-        sqlx::query_as::<_, AllocationPublicRow>(sql.as_str())
+        sqlx::query_as::<_, AllocationPublicRow>(AssertSqlSafe(sql))
             .bind(scope.save_id)
             .bind(scope.run_revision)
             .fetch_all(&mut **tx)
