@@ -1140,15 +1140,58 @@ BEFORE DELETE ON insolvency_command_receipt
 FOR EACH ROW
 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'insolvency command receipts are immutable';
 
--- The only external publication mutation: future runs receive the new policy and life graph.
-UPDATE run_rule_bundle_assignment AS assignment
+-- The employment graph remains compatible because v4 clones every payroll-facing finance rule
+-- from v3 and only adds insolvency rules. The insert guard accepts unpublished employment graphs,
+-- so publication migrations temporarily remove it when extending a live compatibility graph.
+DROP TRIGGER tr_employment_finance_compatibility_valid_insert;
+
+INSERT INTO employment_finance_compatibility
+    (employment_policy_set_id, policy_set_id)
+SELECT employment_assignment.employment_policy_set_id, policy.id
+FROM employment_policy_assignment AS employment_assignment
 INNER JOIN policy_set AS policy
     ON policy.policy_key = 'dev-unranked-kr-individual-insolvency-2026-v4'
+   AND policy.sealed_at IS NOT NULL
+WHERE employment_assignment.assignment_key = 'newRun';
+
+CREATE TRIGGER tr_employment_finance_compatibility_valid_insert
+BEFORE INSERT ON employment_finance_compatibility
+FOR EACH ROW
+SET NEW.employment_policy_set_id = IF(
+    EXISTS (
+        SELECT 1
+        FROM employment_policy_set AS employment_policy
+        INNER JOIN policy_set AS finance_policy
+            ON finance_policy.id = NEW.policy_set_id
+        WHERE employment_policy.id = NEW.employment_policy_set_id
+          AND employment_policy.published_at IS NULL
+          AND finance_policy.sealed_at IS NOT NULL
+    ),
+    NEW.employment_policy_set_id,
+    NULL
+);
+
+-- Finance moves first because the bundle trigger requires its exact current revision and a
+-- compatibility edge. Both revision columns are bumped by their owning triggers.
+UPDATE policy_set_assignment AS assignment
+INNER JOIN policy_set AS policy
+    ON policy.policy_key = 'dev-unranked-kr-individual-insolvency-2026-v4'
+   AND policy.sealed_at IS NOT NULL
+SET assignment.policy_set_id = policy.id
+WHERE assignment.assignment_key = 'newRun';
+
+UPDATE run_rule_bundle_assignment AS assignment
+INNER JOIN policy_set_assignment AS finance_assignment
+    ON finance_assignment.assignment_key = 'newRun'
+INNER JOIN policy_set AS policy
+    ON policy.id = finance_assignment.policy_set_id
+   AND policy.policy_key = 'dev-unranked-kr-individual-insolvency-2026-v4'
    AND policy.sealed_at IS NOT NULL
 INNER JOIN life_catalog_set AS catalog
     ON catalog.catalog_key = 'dev-unranked-m4-life-insolvency-2026-v5'
    AND catalog.sealed_at IS NOT NULL
 SET assignment.policy_set_id = policy.id,
     assignment.life_catalog_set_id = catalog.id,
-    assignment.assignment_revision = assignment.assignment_revision + 1
+    assignment.finance_assignment_revision
+        = finance_assignment.assignment_revision
 WHERE assignment.assignment_key = 'newRun';
