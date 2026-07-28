@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-E1 production 주 경로 인수 완료, 전세 overlay·D+1,825 경계 인수 대기, 시각 스타일링 보류
+- 상태: M4-E1 production 전체 인수 완료, 다음 기능 단계 M4-E2 단순 법인, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,44 +22,33 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-현재 권위 checkpoint는 `main`의 `0de740f`이며 development production DB는 migration `45/45`, 실패 0이다.
-M4-E1의 구현·배포·주 경로 인수 결과는 §13.16~§13.17에 기록했다. 별도 MySQL, 격리 schema, recovery dump는
+현재 구현 checkpoint는 `main`의 `2f96023`이며 development production DB는 migration `45/45`, 실패 0이다.
+M4-E1의 구현·배포·전체 운영 인수 결과는 §13.16~§13.18에 기록했다. 별도 MySQL, 격리 schema, recovery dump는
 만들지 않았고 `main`의 `server/**` push → 원격 image build → 새 server의 `sqlx::migrate!()` → health
 순서로 production DB를 전진시켰다. 접속은 `ssh snowykte0426@59.28.34.117`, service host port는 `10105`,
 public base는 `https://kimtaeeun.site/lifeledger`다. 비밀번호·session token은 문서나 repository에 남기지 않는다.
 
-production 인수 fixture는 user 4, save 118, run revision 1이다. case 2는 day 31/state revision 35의
-`rebuilding`이며 현금 18,087,371원, 채무 0원, 배분 5,225,344원, 면책 47,315,384원,
-`creditRestrictionEndExclusive=1856`이다. loan 3·4는 `discharged/0`이고 인수 session은 삭제했다. 이 fixture는
-D+1,825 재개 전까지 append-only provenance로 보존한다.
-
-M4-E1을 아직 전체 완료로 올리지 않는 이유는 두 가지뿐이다.
-
-1. 무담보와 주담대 quote는 `creditRestricted/insolvencyRebuilding`을 반환했지만, 현재 jeonse listing 두 건의
-   전세대출 quote는 overlay 판정 전에 `contractConflict`로 거절됐다. listing·현재 월·product 13의 exact
-   join을 진단하고 전세 quote와 저장 quote 실행 재평가까지 확인해야 한다.
-2. 순수 core의 D+1,825 exclusive 경계 테스트는 통과했지만 production 1일 pipeline 경계는 아직 재생하지
-   않았다. 30일 advance가 reverse proxy 504를 냈어도 같은 command 재개로 정확히 day 30까지 한 번만
-   전진했으므로 멱등성은 확인했다. 1,825일을 그대로 기다리는 대신 large-step 병목을 먼저 계측·개선하거나
-   재현 가능한 bounded 운영 fixture를 설계한 뒤 day 1855 제한·day 1856 회복을 검증한다. published case의
-   종료일을 임시 SQL로 바꿔 성공으로 기록하지 않는다.
+production 인수 fixture는 user 4, save 118, run revision 1이다. case 2는 day 31에 `rebuilding`이 시작됐고
+`creditRestrictionEndExclusive=1856`을 바꾸지 않은 채 실제 일일 pipeline으로 진행했다. day 1,855까지 제한을
+유지하고 day 1,856/state revision 1,860에서 정확히 한 번 `recovered`로 전이했다. terminal game day도
+1,856이고 현재 overview에는 active case가 없다. loan 3·4의 `discharged/0` 이력과 case provenance는
+append-only로 보존했으며, 인수 session은 최종 검증 뒤 삭제했다. 열린 외부 InnoDB transaction은 0건이다.
 
 다음 재개 순서는 고정한다.
 
-1. 이 문서 §8.5, §8.8, §13.17과 [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다.
-2. save 118의 새 인수 session을 임시로 만들되 token을 출력·문서화하지 않고, 전세 listing
-   `contractConflict` 원인부터 고친다. 관련 코드는 `server/src/store/loans.rs`의 전세 quote와
-   `credit_restricted_in_tx` 호출부다.
-3. 변경 범위의 표적 test/check만 통과시킨 뒤 `git-commit` 규칙으로 commit·push하고 production CD에서
-   전세 quote·실행 overlay를 확인한다.
-4. large-step 성능을 계측해 D+1,825 production recovery와 재시작 hash를 끝낸 뒤 M4-E1을 완료로 바꾼다.
-   그 다음 기능 단계는 §9의 M4-E2 단순 법인이며, 시각 스타일링은 M4-F 기능·30년 검증 뒤로 계속 미룬다.
+1. 이 문서 §9, §10, §11, §13.18과 [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다.
+2. §9의 M4-E2 단순 법인을 설계 권위로 삼아 versioned 법인 catalog·policy·schema와 migration 순서를 먼저
+   확정한다. 구현 중 설계가 달라지면 이 문서를 코드보다 먼저 고친다.
+3. 첫 기능 수직 슬라이스는 **법인 설립 command 한 transaction에서 template·대표·자본금·등록비 검증 →
+   `draft` 생성 → 개인 지갑 출자와 법인 원장 기록 → `active` 전이**다. interfaces/factory, strict API,
+   command replay와 양쪽 원장 균형까지 연결하고 스타일링은 하지 않는다.
+4. 다음으로 월 매출·비용·손익, 대표 급여와 배당을 붙인다. pure core/service 규칙에만 표적 BDD를 추가하고
+   단계마다 전체 회귀를 반복하지 않는다. M4-E2 기능이 닫힌 뒤 M4-F의 기능 화면·30년 검증으로 이동한다.
 
-재개 전에 이 문서의 §2, §8.1~§8.9, §10~§13.17과 상위
-[`development-plan.md` §12](./development-plan.md)를 읽는다. 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와
-migration은 [database-schema](../.agents/skills/database-schema/SKILL.md)·
+재개 전에 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와 migration은
+[database-schema](../.agents/skills/database-schema/SKILL.md)·
 [migration-guide](../.agents/skills/migration-guide/SKILL.md), API는
-[api-design](../.agents/skills/api-design/SKILL.md), 화면은
+[api-design](../.agents/skills/api-design/SKILL.md), 기능 화면에 들어갈 때만
 [client-foundation](../.agents/skills/client-foundation/SKILL.md), 검증은
 [test](../.agents/skills/test/SKILL.md)·[security-checklist](../.agents/skills/security-checklist/SKILL.md)를
 따른다. 운영 배포는 [deploy workflow](../.github/workflows/deploy-server.yml),
@@ -3219,8 +3208,53 @@ D+1,825 경계 재개를 위해 보존한다.
   client contract 204 tests와 typecheck, `git diff --check`만 실행했다. 이미 배포 전 전체 gate를 통과했으므로
   결함마다 전체 1,180/551 회귀를 반복해 병목을 만들지 않았다.
 
-M4-E1의 production 주 경로와 재시작 불변식은 통과했지만, §1.1의 전세 overlay와 D+1,825 일일 recovery가
-남아 있으므로 이 절은 M4-E1 전체 완료 선언이 아니다.
+이 절 당시에는 전세 overlay와 D+1,825 일일 recovery가 남아 있었다. 두 경계의 후속 결과와 M4-E1 전체
+완료 선언은 §13.18에 기록한다.
+
+### 13.18 M4-E1 production 경계·성능 인수 완료 (2026-07-29)
+
+§13.17에 남긴 전세대출 overlay와 실제 D+1,825 recovery 경계를 production DB에서 모두 닫았다. 별도 DB,
+격리 schema, recovery dump를 만들거나 published case의 종료일을 SQL로 조작하지 않았다. 최종 production은
+migration `45/45`, 실패 0이고 public health가 HTTP 200이다.
+
+- 전세 quote는 model별 listing 지원 범위를 잘못 판정해 recovery overlay 전에 `contractConflict`가 났다.
+  `728dc9e`가 real-estate v6 quote 호환성을 복구했고 CD `30382180126`이 성공했다. 저장된 비적격 quote 실행은
+  기존 lease 충돌을 먼저 평가해 최신 recovery 제한을 가리고 있었다. `f281826`이 실행 재심사 순서를 고쳐
+  CD `30382888519` 뒤 quote와 실행 모두 `creditRestricted/insolvencyRebuilding`을 반환했다. 실패 응답 뒤
+  자기 transaction을 제외한 열린 InnoDB transaction은 0건이었다.
+- 일일 채용공고 planner는 매일 과거 14일치를 다시 materialize하며 동일 행 insert를 반복했다. `d75ed3b`는
+  권위 있는 현재일과 다음 날만 exact materialization하도록 바꾸고 pure service BDD 2건을 통과시켰다.
+  CD `30384401650` 뒤 공고 결과와 일일 commit 의미는 그대로였다.
+- 남은 지연은 SQL phase 계측으로 단일 쿼리마다 약 41~43ms가 더해지는 TCP 왕복임을 좁혔다. 이는
+  [SQLx issue #4335](https://github.com/transact-rs/sqlx/issues/4335)에 보고된 0.9.0의 `TCP_NODELAY` 제거 회귀와
+  production 증상이 같았다. 0.8.6 downgrade `d67c48c`는 binary collation 문자열 decode 호환성 때문에
+  `/api/state`가 500이 되어 `12e1d71`로 0.9.0을 복구했다. in-process loopback proxy `bbe0ffc`도 1일
+  12.765초로 개선하지 못해 제거했다. 이 두 접근은 최종 해법이 아니다.
+- 최종 해법 `13057d8`은 crates.io의 `sqlx-core 0.9.0` 원본을 SHA-256
+  `05b44e85bf579a8eeb4ceaa77a3a523baf2bf0e9bac7e40f405d537b5d2d5ccb`로 검증해 vendoring하고,
+  Tokio·async-io TCP 연결 직후 `set_nodelay(true)`만 추가했다. 원본 license와 provenance를 보존했고
+  Docker dependency build 전 vendor를 복사한다. `2f96023`은 vendored regular file 권한을 0644로
+  고정했다. CD `30389692521`과 `30389707911`이 모두 성공했다. upstream의 연결 시 Nagle 비활성화 근거는
+  [SQLx PR #3055](https://github.com/transact-rs/sqlx/pull/3055)와 동일하다.
+- 패치 전 production 30일 진행은 366.319867초였고, 패치 뒤 1일은 0.327825초, 30일은 2.191241초였다.
+  같은 30일 command는 step 30건, 서로 다른 before day 30건, 각 day/state delta가 모두 1이었다. 대표
+  30일 처리량은 약 167배 개선됐으며 한 command 안에서 하루씩 commit하는 복구 계약은 바꾸지 않았다.
+- case 2는 day 128부터 57×30일+17일, 총 1,727일을 58 command와 약 130초에 진행해 day 1,855에 도달했다.
+  이때 status는 `rebuilding`, `creditRestrictionEndExclusive=1856`, terminal day null, recovered transition
+  0건이었다. 마지막 1일은 0.193421초에 day 1,856/state revision 1,860으로 전진했고 status `recovered`,
+  terminal day 1,856, recovered transition 정확히 1건, overview current case null이 됐다. day 128→1,856의
+  `advance_command_step` 1,728건은 before day가 모두 다르고 day delta 최솟값·최댓값이 모두 1이었다.
+- 최종 container를 다시 시작한 전후 state·case detail·claims·liquidations·credit API가 모두 HTTP 200이고
+  canonical hash prefix는 각각 `1f8462a91e5426d9`, `d4c11108e0ca221d`, `65664bf8da2f60de`,
+  `184e9528d34afcc6`, `87ef92ee00831589`로 같았다. 재시작 뒤 migration 실패, 다른 열린 transaction,
+  최신 배포 이후 warning/error는 모두 0건이었고 내부·public health가 HTTP 200이었다. 임시 인수 session은
+  최종 검증 뒤 삭제했고 별도 dump나 임시 DB artifact는 남기지 않았다.
+- 사용자 요청의 구현 우선 원칙에 따라 전체 회귀를 다시 반복하지 않았다. 최종 변경에는 `cargo check`,
+  server clippy·fmt, 채용공고 표적 BDD 2건과 `git diff --check`만 실행했다. 연결 패치는 vendored upstream
+  source와 socket 변경만 비교하고 checksum·license·파일 권한을 별도로 검증했다.
+
+따라서 M4-E1은 전세 quote·실행 제한, 장기 일일 진행 성능, exclusive recovery 경계, 재시작 불변식까지
+production에서 완료했다. 다음 구현은 §1.1의 순서대로 §9 M4-E2 단순 법인에서 재개한다.
 
 ## 14. M4 완료 조건
 
