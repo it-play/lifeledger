@@ -4,8 +4,8 @@
 > 플레이어의 자산만 가상이다. 비상업적 개인 프로젝트.
 
 - 최초 작성: 2026-07-25
-- 최근 갱신: 2026-07-28
-- 상태: M4-D3까지 완료, M4-E1 서버·client 기능 구현과 로컬 gate 완료, production 인수 대기
+- 최근 갱신: 2026-07-29
+- 상태: M4-D3 완료, M4-E1 production 주 경로 인수 완료, 전세 overlay·D+1,825 경계 인수 대기
 
 ---
 
@@ -529,7 +529,8 @@ SSE만 그 채널을 구독한다. 전역 채널에서 `save_id`로 사후 필�
 
 ## 12. 로드맵
 
-현재 구현 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3 완료, M4-E1 기능 구현·운영 인수 대기**다. 기존 월드 v1·v2·v3와 그 월드에 고정된 런은
+현재 구현 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3 완료,
+M4-E1 production 주 경로 인수 완료·두 경계 인수 대기**다. 기존 월드 v1·v2·v3와 그 월드에 고정된 런은
 보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를 사용한다. M3는 style 없는 기능 화면,
 fresh MySQL 8 전진 마이그레이션과 실제 HTTP 스모크까지 완료했다. M3-C는 지급일 귀속 월 급여,
 4대보험·원천징수·원장, 1월 1일 annual coordinator, 2월 정산, 연금 세액공제 allocation과 M2 금융소득
@@ -581,14 +582,15 @@ paid/reserved, allocation, cardinality, orphan, settlement, ledger balance와 wa
 sealed update/delete도 SQLSTATE 45000으로 거절됐다. 운영 CD는 `aea745d`의 build heartbeat, `0b2c20b`의
 직접 MySQL network, `eac0b92`의 populated `0023` backfill 수정을 거쳐 실행 `30314779686`에서 성공했고,
 최종 수동 재시작 뒤에도 container healthy와 내부·외부 health HTTP 200을 확인했다. D3는 완료다.
-M4-E1은 순수 `cashOnlyLiquidation` core, SQLx `0041`, store/state와 여섯 strict API까지 구현했다. 보호 현금,
-claim 배분·면책, composition 재검증, D+1,825 recovery, 세 대출의 rebuilding overlay와 bounded snapshot/cursor가
-서버에 연결됐다. client strict contract·retry와 스타일 없는 `/recovery`, dashboard 진입점도 연결했고 서버
-1,180건·클라이언트 551건, clippy·fmt·typecheck·lint·production build·diff gate를 통과했다. 아직 실제 MySQL에
-`0041`을 적용하거나 public HTTP와 재시작 invariant를 확인하지 않았으므로 완료로 올리지 않는다.
-정확한 다음 재개 경계는 [M4 생애](./m4-life.md) §1.1, §8.7~§8.9, §10.1~§10.2, §13.16이다. 다음은 스타일
-없는 기능 구현 커밋·push → 별도 DB·dump 없이 development production CD의 migration `41/41`과 public HTTP,
-재시작 invariant 인수 순서이며, M4-E2·법인·시각 스타일링은 계속 보류한다.
+M4-E1은 순수 `cashOnlyLiquidation` core, store/state와 여섯 strict API, client retry와 스타일 없는
+`/recovery`를 구현했다. 별도 DB·dump 없이 development production CD를 수행해 migration `45/45`, 실패 0,
+prepare/replay·composition 변경·withdraw·submit·배분·면책, strict API, 원장·채무·orphan 불변식과 container
+재시작 전후 API hash 일치를 확인했다. 최종 fixture는 case 2가 day 31/state 35의 `rebuilding`, 현금
+18,087,371원·채무 0원이며 submit replay도 동일하다. 무담보와 주담대 overlay는
+`creditRestricted/insolvencyRebuilding`을 반환했다. 다만 전세 quote가 overlay 전에 `contractConflict`로
+거절되는 원인과 production D+1,825 일일 recovery 경계가 남아 있어 M4-E1 전체 완료로 올리지는 않는다.
+정확한 다음 재개 경계는 [M4 생애](./m4-life.md) §1.1, §8.5, §8.8, §13.17이다. 두 경계를 끝낸 다음 기능
+단계는 §9의 M4-E2 단순 법인이며, 시각 스타일링은 M4-F 기능·30년 검증 뒤로 계속 보류한다.
 
 | 마일스톤 | 범위 | 완료 기준 |
 |---------|------|-----------|
