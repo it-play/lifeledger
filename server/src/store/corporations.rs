@@ -2598,7 +2598,7 @@ async fn read_scope(
     let query = format!(
         "SELECT save.id AS save_id, save.run_revision, save.state_revision,
                 save.game_day,
-                DATE_ADD(world.start_date, INTERVAL save.game_day DAY) AS current_date,
+                DATE_ADD(world.start_date, INTERVAL save.game_day DAY) AS `current_date`,
                 save.cash_krw,
                 `character`.name AS representative_name,
                 bundle.life_catalog_set_id, bundle.policy_set_id,
