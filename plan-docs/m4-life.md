@@ -25,8 +25,10 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 production server checkpoint는 `c79db45` binary이고 DB는 migration `51/51`, 실패 0이다. 운영 설정·대표
 급여, 연 결산·법인세, 배당·M2 금융소득, bounded 월 history까지 development production DB와 public API에서
 인수했다. 전체 결과는 §13.21, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
-스타일 없는 `/corporation`은 client production build까지 통과했지만 repository의 CD는 server만 배포하므로
-production 정적 파일에 전달됐다고 기록하지 않는다.
+스타일 없는 `/corporation`은 Vercel Git integration으로 `https://lifeledger-ruby.vercel.app` production에
+전달된다. project root는 `client/`, build는 `npm run build`, output은 `dist/`이며 latest production bundle에
+법인 route·API·한국어 조작 문자열이 포함된 것을 확인했다. `https://kimtaeeun.site/lifeledger/`는 다른 정적
+사이트가 점유하고 API reverse proxy만 제공하므로 client origin으로 쓰지 않는다.
 
 별도 MySQL, 격리 schema, recovery dump는 만들지 않는다. server 변경은 `main`의 `server/**` push → 원격
 image build → 새 server 시작 시 `sqlx::migrate!()` → health 순서로 development production DB를 직접
@@ -48,14 +50,12 @@ operating payable은 0원, corporate tax payable은 706,164원, distributable pr
    [`0050_m4e2_corporation_tax_dividend.sql`](../server/migrations/0050_m4e2_corporation_tax_dividend.sql),
    [`0051_m4e2_corporation_payroll_source_width.sql`](../server/migrations/0051_m4e2_corporation_payroll_source_width.sql)을
    함께 읽는다.
-2. M4-F의 **첫 작업은 client production 전달 경로 확인**이다. 현재 유일한 workflow인
-   [`deploy-server.yml`](../.github/workflows/deploy-server.yml)과
-   [`server/deploy/deployspec.yml`](../server/deploy/deployspec.yml)은 server 묶음만 전달한다.
-   [`webpack.config.prod.js`](../client/webpack.config.prod.js),
-   [`corporation-api.ts`](../client/src/api/corporation-api.ts),
-   [`corporation.ts`](../client/src/app/screens/corporation.ts)를 기준으로 기존 정적 호스팅 위치·nginx delivery를
-   먼저 확인한다. 경로가 없으면 delivery 설계를 이 문서에 먼저 추가한 뒤 최소 build/deploy 연결을 구현한다.
-3. client가 실제로 전달된 뒤 public `/corporation`에서 설립·설정·월 history·배당을 한 번 조작한다. client가
+2. M4-F의 첫 수정은 production HTML이 `js/app.js`를 두 번 포함해 bootstrap을 중복 실행하는 문제를
+   [`webpack.config.prod.js`](../client/webpack.config.prod.js)에서 제거하는 것이다. 기존 template script는
+   유지하고 `HtmlWebpackPlugin` 자동 주입만 끈다. typecheck·production build 뒤 생성 HTML의 app script가
+   정확히 한 개인지 확인하고 Vercel production deployment까지 추적한다.
+3. 수정된 client가 전달된 뒤 public `https://lifeledger-ruby.vercel.app/corporation`에서 설립·설정·월
+   history·배당을 한 번 조작한다. client가
    세금·급여·시간을 재계산하지 않고 server snapshot만 표시하는지 확인하며, DOM·routing·network test를
    새로 만들지 않는다. 기능 실패가 드러날 때만 해당 pure core/service 또는 protocol 범위를 고친다.
 4. 이어 §13.2의 고정 30년 시나리오를 development production DB에서 실행한다. 정상·연체·도산·재기와 법인

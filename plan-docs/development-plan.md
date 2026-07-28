@@ -167,6 +167,13 @@ MySQL  ── 세이브 상태 · 시세 시계열 · 제도 룰 데이터 · �
 | 인증 | **OAuth 2종(DataGSM · Google) + 세션 쿠키** | 확정 (§4.5). 비밀번호를 직접 보관하지 않는다 |
 | 배포 | **홈서버 도커 + Vercel** | 서버는 홈서버 단일 컨테이너(nginx 뒤), 클라이언트는 Vercel. 구성은 `server/deploy/` |
 
+production client canonical origin은 `https://lifeledger-ruby.vercel.app`이다. Vercel Git integration은
+repository의 `client/`를 root로 `npm run build`한 `dist/`를 `main` push마다 production에 전달한다.
+`client/vercel.json`은 same-origin `/api/*`를 `https://kimtaeeun.site/lifeledger/api/*`로 rewrite하고 나머지
+경로를 SPA `index.html`로 보낸다. `https://kimtaeeun.site/lifeledger/`는 다른 정적 사이트가 점유하므로
+LifeLedger client origin으로 쓰지 않는다. server `PUBLIC_ORIGIN`과 OAuth provider callback도 canonical
+Vercel origin을 사용한다. production HTML은 app bundle을 정확히 한 번만 로드해야 한다.
+
 ### 4.1 클라이언트 구조 (프레임워크 없음)
 
 프레임워크를 쓰지 않기로 했으므로, 프레임워크가 대신 해주던 일을 **얇은 자체 레이어로 명시적으로** 만든다.
