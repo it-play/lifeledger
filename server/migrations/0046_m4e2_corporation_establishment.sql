@@ -904,7 +904,7 @@ ALTER TABLE ledger_transaction
     );
 
 ALTER TABLE ledger_posting
-    ADD COLUMN corporation_id BIGINT UNSIGNED NULL AFTER insurance_contract_id,
+    ADD COLUMN corporation_id BIGINT UNSIGNED NULL AFTER property_tax_event_id,
     ADD KEY ix_ledger_posting_corporation (save_id, run_revision, corporation_id),
     ADD CONSTRAINT fk_ledger_posting_corporation
         FOREIGN KEY (save_id, run_revision, corporation_id)
