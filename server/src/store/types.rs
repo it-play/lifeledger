@@ -1181,6 +1181,7 @@ pub enum LoanInstallmentStatusState {
     PartiallyPaid,
     Paid,
     Cancelled,
+    Discharged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1209,6 +1210,7 @@ pub enum LoanPaymentKindState {
     ManualPrepayment,
     LeaseMovePayoff,
     PropertySalePayoff,
+    InsolvencyDistribution,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

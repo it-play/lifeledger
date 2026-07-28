@@ -613,6 +613,7 @@ pub enum LoanInstallmentStatusSnapshot {
     PartiallyPaid,
     Paid,
     Cancelled,
+    Discharged,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -656,6 +657,7 @@ pub enum LoanPaymentKindSnapshot {
     ManualPrepayment,
     LeaseMovePayoff,
     PropertySalePayoff,
+    InsolvencyDistribution,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
@@ -9864,6 +9866,7 @@ fn to_loan_installment_snapshot(state: LoanInstallmentState) -> LoanInstallmentS
             }
             LoanInstallmentStatusState::Paid => LoanInstallmentStatusSnapshot::Paid,
             LoanInstallmentStatusState::Cancelled => LoanInstallmentStatusSnapshot::Cancelled,
+            LoanInstallmentStatusState::Discharged => LoanInstallmentStatusSnapshot::Discharged,
         },
         schedule_revision: state.schedule_revision,
     }
@@ -9916,6 +9919,9 @@ fn to_loan_payment_snapshot(state: LoanPaymentState) -> LoanPaymentSnapshot {
             LoanPaymentKindState::ManualPrepayment => LoanPaymentKindSnapshot::ManualPrepayment,
             LoanPaymentKindState::LeaseMovePayoff => LoanPaymentKindSnapshot::LeaseMovePayoff,
             LoanPaymentKindState::PropertySalePayoff => LoanPaymentKindSnapshot::PropertySalePayoff,
+            LoanPaymentKindState::InsolvencyDistribution => {
+                LoanPaymentKindSnapshot::InsolvencyDistribution
+            }
         },
         game_day: state.game_day,
         amount_krw: state.amount_krw,

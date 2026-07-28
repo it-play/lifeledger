@@ -4597,6 +4597,7 @@ export const LoanInstallmentStatusSchema = z.enum([
   'partiallyPaid',
   'paid',
   'cancelled',
+  'discharged',
 ]);
 
 const LoanInstallmentHistoryItemBaseSchema = z
@@ -4653,8 +4654,8 @@ export const LoanInstallmentHistoryItemSchema = LoanInstallmentHistoryItemBaseSc
       });
     }
 
-    const cancelled = installment.status === 'cancelled';
-    const expectedRemaining = cancelled ? 0n : scheduled - paid;
+    const terminalWithoutBalance = ['cancelled', 'discharged'].includes(installment.status);
+    const expectedRemaining = terminalWithoutBalance ? 0n : scheduled - paid;
     if (expectedRemaining !== BigInt(installment.remainingDueKrw)) {
       context.addIssue({
         code: 'custom',
@@ -4666,7 +4667,8 @@ export const LoanInstallmentHistoryItemSchema = LoanInstallmentHistoryItemBaseSc
       (installment.status === 'paid' && paid !== scheduled) ||
       (installment.status === 'partiallyPaid' && (paid === 0n || paid >= scheduled)) ||
       (['pending', 'due'].includes(installment.status) && paid !== 0n) ||
-      (cancelled && paid !== 0n)
+      (installment.status === 'cancelled' && paid !== 0n) ||
+      (installment.status === 'discharged' && paid >= scheduled)
     ) {
       context.addIssue({
         code: 'custom',
@@ -4682,6 +4684,7 @@ export const LoanPaymentKindSchema = z.enum([
   'manualPrepayment',
   'leaseMovePayoff',
   'propertySalePayoff',
+  'insolvencyDistribution',
 ]);
 export const LoanPaymentAllocationKindSchema = z.enum([
   'overdueFee',

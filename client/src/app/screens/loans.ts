@@ -136,6 +136,7 @@ const INSTALLMENT_STATUS_LABEL: Record<LoanInstallmentStatus, string> = {
   partiallyPaid: '일부 납부',
   paid: '납부 완료',
   cancelled: '취소',
+  discharged: '면책',
 };
 
 const PAYMENT_KIND_LABEL: Record<LoanPaymentKind, string> = {
@@ -143,6 +144,7 @@ const PAYMENT_KIND_LABEL: Record<LoanPaymentKind, string> = {
   manualPrepayment: '수동 조기상환',
   leaseMovePayoff: '임대차 이사 상환',
   propertySalePayoff: '주택 매도 상환',
+  insolvencyDistribution: '도산 청산 배분',
 };
 
 const ALLOCATION_KIND_LABEL: Record<LoanPaymentAllocationKind, string> = {

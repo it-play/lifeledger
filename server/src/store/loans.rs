@@ -6756,10 +6756,14 @@ fn loan_installment_from_row(row: LoanInstallmentHistoryRow) -> Result<LoanInsta
                 }
                 LoanInstallmentStatusState::Paid => paid_total_krw == scheduled_total_krw,
                 LoanInstallmentStatusState::Cancelled => paid_total_krw == 0,
+                LoanInstallmentStatusState::Discharged => paid_total_krw < scheduled_total_krw,
             },
         "loan installment status disagrees with its paid amount"
     );
-    let remaining_due_krw = if status == LoanInstallmentStatusState::Cancelled {
+    let remaining_due_krw = if matches!(
+        status,
+        LoanInstallmentStatusState::Cancelled | LoanInstallmentStatusState::Discharged
+    ) {
         0
     } else {
         scheduled_total_krw
@@ -6794,6 +6798,7 @@ fn parse_installment_status(value: &str) -> Result<LoanInstallmentStatusState> {
         "partiallyPaid" => Ok(LoanInstallmentStatusState::PartiallyPaid),
         "paid" => Ok(LoanInstallmentStatusState::Paid),
         "cancelled" => Ok(LoanInstallmentStatusState::Cancelled),
+        "discharged" => Ok(LoanInstallmentStatusState::Discharged),
         _ => bail!("unknown loan installment status"),
     }
 }
@@ -6973,6 +6978,7 @@ fn parse_payment_kind(value: &str) -> Result<LoanPaymentKindState> {
         "manualPrepayment" => Ok(LoanPaymentKindState::ManualPrepayment),
         "leaseMovePayoff" => Ok(LoanPaymentKindState::LeaseMovePayoff),
         "propertySalePayoff" => Ok(LoanPaymentKindState::PropertySalePayoff),
+        "insolvencyDistribution" => Ok(LoanPaymentKindState::InsolvencyDistribution),
         _ => bail!("unknown loan payment kind"),
     }
 }

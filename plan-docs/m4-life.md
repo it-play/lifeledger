@@ -641,7 +641,8 @@ window가 끝났다는 sentinel이다. token의 loan ID는 path와 같아야 한
 installment는 `id · installmentNo · dueGameDay · interestPeriodStartGameDay · elapsedDays · annualRateBp ·
 openingPrincipalKrw · scheduledFeeKrw · scheduledInterestKrw · scheduledPrincipalKrw · paidFeeKrw ·
 paidInterestKrw · paidPrincipalKrw · remainingDueKrw · status · scheduleRevision`을 가진다. payment는 `applied`
-이력만 공개하고 `id · paymentNo · kind(scheduledInstallment|manualPrepayment) · gameDay · amountKrw ·
+이력만 공개하고 `id · paymentNo · kind(scheduledInstallment|manualPrepayment|leaseMovePayoff|
+propertySalePayoff|insolvencyDistribution) · gameDay · amountKrw ·
 allocations(max 8)`을 가진다. allocation은 같은 kind를 합친 `kind · amountKrw`만 공개하며 순서는
 `overdueFee → overdueInterest → overduePrincipal → currentFee → currentInterest → currentPrincipal →
 prepaymentFee → prepaymentPrincipal`이다. payment amount와 allocation 합은 같아야 한다. bucket/allocation,
@@ -2410,6 +2411,8 @@ claim별 배분액은 §4.2의 기존 대출 상환 allocator에 넣어 비용 �
 
 1. 지갑에서 총 distribution을 차감하고 claim별 `insolvencyDistribution` payment·allocation을 기록한다.
    0원 distribution은 payment나 원장을 만들지 않는다.
+   default 전에 물질화되지 않은 미래 원금·이자·비용은 obligation bucket ID가 없는 `current*`
+   allocation으로 기록하되, DB trigger가 이 형태를 `insolvencyDistribution` payment에만 허용한다.
 2. distribution 원장은 `wallet`과 기존 loan principal/interest/fee 계정을 사용하고 각 claim allocation을
    reference한다.
 3. 남은 지원 채무는 계약·installment·obligation bucket을 삭제하지 않고 각각 `discharged`로 끝낸다.
