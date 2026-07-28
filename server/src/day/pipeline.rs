@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -17,6 +18,7 @@ use crate::store::{
 const MAX_CURSOR_RETRIES: usize = 3;
 const MAX_START_GAME_RETRIES: usize = 3;
 const MARKET_SETTLEMENT_LOOKAHEAD_DAYS: u32 = 14;
+const SLOW_DAILY_PHASE_THRESHOLD: Duration = Duration::from_secs(1);
 
 struct DefaultDailyPipeline {
     saves: Arc<dyn SaveStore>,
@@ -150,28 +152,64 @@ impl DailyPipeline for DefaultDailyPipeline {
         command: &ManualAdvanceCommand,
     ) -> Result<DailyCommandAdvanceResult> {
         for _ in 0..MAX_CURSOR_RETRIES {
+            let mut phase_started = Instant::now();
             let current = self.saves.load(user_id).await?;
             let target_day = current
                 .game_day
                 .checked_add(1)
                 .context("game day overflowed")?;
+            warn_if_daily_phase_is_slow(user_id, target_day, "saveLoad", phase_started.elapsed());
+
+            phase_started = Instant::now();
             let world = self.markets.load_world(current.market_world_id).await?;
+            warn_if_daily_phase_is_slow(user_id, target_day, "worldLoad", phase_started.elapsed());
+
+            phase_started = Instant::now();
             let market = self
                 .market_for_settlement(current.market_world_id, &world.world, target_day)
                 .await?;
+            warn_if_daily_phase_is_slow(
+                user_id,
+                target_day,
+                "marketPreparation",
+                phase_started.elapsed(),
+            );
+
+            phase_started = Instant::now();
             self.recruitment_postings
                 .ensure_postings_for_user(user_id, target_day)
                 .await?;
+            warn_if_daily_phase_is_slow(
+                user_id,
+                target_day,
+                "recruitmentPreparation",
+                phase_started.elapsed(),
+            );
+
+            phase_started = Instant::now();
             self.real_estate_daily
                 .ensure_property_market_for_user(user_id, target_day)
                 .await?;
+            warn_if_daily_phase_is_slow(
+                user_id,
+                target_day,
+                "propertyPreparation",
+                phase_started.elapsed(),
+            );
 
+            phase_started = Instant::now();
             match self
                 .saves
                 .advance_command_step(user_id, command, &market)
                 .await?
             {
                 AdvanceCommandStepResult::Advanced { save, receipt } => {
+                    warn_if_daily_phase_is_slow(
+                        user_id,
+                        target_day,
+                        "saveCommit",
+                        phase_started.elapsed(),
+                    );
                     if save.market_world_id != world.id || save.game_day != market.game_day {
                         bail!("committed save does not match the selected market day");
                     }
@@ -239,6 +277,23 @@ impl DefaultDailyPipeline {
 
 fn settlement_lookahead_day(target_day: u32) -> u32 {
     target_day.saturating_add(MARKET_SETTLEMENT_LOOKAHEAD_DAYS)
+}
+
+fn warn_if_daily_phase_is_slow(
+    user_id: u64,
+    target_game_day: u32,
+    phase: &'static str,
+    elapsed: Duration,
+) {
+    if elapsed >= SLOW_DAILY_PHASE_THRESHOLD {
+        tracing::warn!(
+            user_id,
+            target_game_day,
+            phase,
+            elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+            "daily advance phase exceeded the slow threshold"
+        );
+    }
 }
 
 #[cfg(test)]
