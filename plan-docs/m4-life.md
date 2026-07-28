@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3 완료, 다음 구현 M4-E1, 시각 스타일링 보류
+- 상태: M4-E1 서버·client 기능 구현과 로컬 gate 완료, production 인수 대기, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,74 +22,48 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-28)
 
-권위 checkpoint는 `main`의 M4-D3 구현 커밋 `4b2b3db`와 운영 복구 커밋 `aea745d`, `0b2c20b`,
-`eac0b92`다. D3 기능·운영 배포와 §7.13의 마지막 재시작 후 global invariant까지 모두 끝났으므로
-**M4-D3는 완료**다. 다음 기능 구현은 §8.1~§8.9의 M4-E1 `cashOnlyLiquidation`이며, §9 법인과 시각
-스타일링은 시작하지 않는다.
+M4-D3와 production migration `40/40`까지의 권위 checkpoint는 `main`의 구현 커밋 `4b2b3db`, 운영 복구
+커밋 `aea745d`·`0b2c20b`·`eac0b92`, 성공한 CD 실행
+[`30314779686`](https://github.com/it-play/lifeledger/actions/runs/30314779686)이다. 그 위에 §8.1~§8.8의
+M4-E1 서버·client 수직 슬라이스를 다음 네 단계까지 구현했다.
 
-완료 근거는 다음과 같다.
+1. `server/src/life/insolvency.rs`와 `life/types.rs`의 순수 core는 eligibility, 보호 현금, 비례 배분과
+   contract ID 기준 잔여 1원, 기존 `LoanRules::allocate_repayment` 재사용, canonical composition SHA-256,
+   준비·제출·철회와 D+1,825 exclusive restriction/recovery를 구현했다. BDD/DCI 표적 테스트 10건이
+   통과했다.
+2. `server/migrations/0041_m4e_insolvency.sql`은 immutable insolvency component, 2026 policy source/rule,
+   schema v2 life aggregate, case·transition·asset·claim·distribution·receipt runtime, installment discharge,
+   insolvency payment·ledger source/account를 추가한다. 기존 loan payment/installment/ledger trigger를
+   복제·확장해 새 배분도 authority와 immutable 전이를 통과하도록 묶었다. 이 SQL은 아직 실제 MySQL에
+   적용하지 않았으므로 migration success로 기록하지 않는다.
+3. `store/insolvency.rs`와 store/life/mysql 연결은 prepare·submit·withdraw·replay, claim/asset 고정,
+   배분·면책 원장, 대출 authority discharge, snapshot, signed cursor page, D+1,825 일일 recovery를 구현했다.
+   rebuilding overlay는 무담보·전세보증금·주택담보대출의 견적과 실행 재평가를 모두 막는다.
+   `state.rs`와 `routes/mod.rs`에는 `/api/insolvency` 아래 여섯 strict API와
+   `GameSnapshot.life.insolvency` bounded 상태를 공개했다. `cargo check`, `cargo fmt --check`,
+   `git diff --check`를 최소 gate로 사용했다.
+4. client는 strict zod contract와 `insolvency-api.ts`, transport 결과가 불명확할 때 같은 command ID·cursor를
+   재사용하는 `app/insolvency-retry/`, 스타일 없는 `/recovery` 화면과 dashboard 진입점을 연결했다. 서버가
+   계산한 eligibility·보호액·청산액·채권·배분·전이·회복 잔여일만 표시하고 claim/distribution page를 최대
+   20건씩 조회한다. 기존 대출·전세대출·주담대 화면도 `insolvencyRebuilding` 사유를 표시한다.
 
-- 서버 `cargo test` 1,170건, `cargo check`, clippy, fmt와 클라이언트 30 suite·551 tests,
-  typecheck·lint·build, Docker build check, `git diff --check`가 통과했다.
-- fresh MySQL 8.4에서 `0001→0040`, migration 40 success, draft guard 복구, 239 base tables·11 views,
-  전체 719 triggers와 보험 12 tables·36 triggers를 확인했다. manifest projection/rehash와 보험 원장 balance도
-  일치했다.
-- public HTTP에서 인증·pre-start·strict protocol, 기존 unavailable run과 새 aggregate v4 pin, D0 가입 전
-  empty contract pin과 notCovered, 가입·replay의 단일 10,000원 차감, stale cursor 충돌을 확인했다.
-- D30 보험료와 D31 insured 사건의 contract pin·ready 100,000원 claim·지급·replay를 확인했다. 장기 정상
-  term 경로는 D300 charge 11, D330 charge 12, D360 exclusive expiry까지 진행했고 charge 13이나 tail
-  coverage가 없었다.
-- D360 뒤 같은 바이너리와 DB로 서버를 재시작했다. 재시작 전후 보험 DB aggregate hash와 `/api/state`
-  canonical hash가 각각 같았고, 재시작 뒤 계약 API도 HTTP 200이었다.
-- 운영 CD 실행 [`30314779686`](https://github.com/it-play/lifeledger/actions/runs/30314779686)은 성공했다.
-  production MySQL 8.0.46은 migration `40/40`, 실패 0건이고
-  `0023`·`0040` 모두 success다. 서버는 `readygsm-net`의 직접 MySQL 연결을 쓰며 내부·외부
-  `/api/health`가 모두 HTTP 200이다.
-- 사용자의 지시에 따라 마지막 누락 검증은 별도 DB나 dump 없이 production DB에서 수행했다. 기존 DataGSM
-  계정과 save는 변경하지 않았고, `provider_user_id=codex-m4d3-prod-20260728-v1`인 명시적 인수 계정 하나만
-  추가했다. 보험 이력은 append-only라 이 계정과 save 29는 검증 provenance로 남겼으며 session은 삭제했다.
-- production에서 D0 empty pin 0건과 가입 뒤 `notCovered`, D30 두 번째 10,000원 보험료, D31 pin 1건의
-  gross 120,000원·ready/paid 100,000원 claim과 정확한 replay를 다시 확인했다. 인수 도구의 첫 cursor 전달
-  오류로 생긴 run 1은 다음 run 시작에서 `expired/newRun`으로 정상 닫혔고, 주 경로 run 2와 취소 run 3을
-  포함한 모든 남은 행은 아래 global invariant를 만족한다.
-- 서버를 다시 시작한 뒤 `/api/state`, `/api/insurance/contracts`, save, run bundle, command identity,
-  event instance, contract·eligibility·transition·charge·claim·pin·allocation·receipt, settlement와 ledger
-  두 표를 포함한 **18개 canonical hash**가 전후 byte-identical이었다.
-- 재시작 후 migration `40/40`, 239 base tables·11 views·719 triggers, 보험 12 tables·36 triggers,
-  integration trigger 6개와 event draft guard 3개를 다시 확인했다. insurance v1과 event v1/v2의 stored
-  manifest·projection rehash는 모두 일치했고 newRun과 인수 run은 aggregate v4·event v2·insurance v1을
-  고정했다.
-- claim contract-pin digest, eligibility fingerprint, paid/reserved aggregate, claim allocation, contract·pin
-  cardinality, event/claim·allocation orphan, charge/settlement, ledger source ownership, 보험 원장 balance와
-  wallet tie-out의 위반 수가 전부 0이었다. sealed product no-op update와 coverage delete는 SQLSTATE 45000으로
-  거절됐고 coverage 1건과 열린 transaction 0건이 그대로였다. 인수 세션 0건, container healthy,
-  내부·외부 health HTTP 200으로 종료했으며 복구 dump는 만들지 않았다. 세부 출력은 §13.15에 남긴다.
+따라서 **M4-E1 전체 완료가 아니라 기능 구현 완료·운영 인수 대기** 상태다. migration 0041의 실제 적용,
+public HTTP와 재시작 invariant는 아직 완료로 단정하지 않는다. 다음 재개 순서는 다음과 같다.
 
-다음 재개 순서는 다음과 같다.
-
-1. 이 문서 §8.1~§8.5와 §10.1~§10.2를 다시 읽고, §8.1의 2026 정책 source·게임 해석 경계를 변경 없이
-   사용한다.
-2. 현재 insolvency 전용 server/client 코드와 migration은 없다. 첫 구현은
-   `server/src/life/insolvency.rs`를 만들고 `server/src/life/types.rs`·`server/src/life/mod.rs`에 contract와
-   factory를 연결하는 순수 core다. `cashOnlyLiquidation` eligibility, 보호 현금, claim 비례 배분·잔여 1원,
-   composition hash와 1,825일 restriction 경계를 BDD/DCI로 고정하며 기존 `LoanRules::allocate_repayment`의
-   비용→이자→원금 배분을 재사용한다.
-3. core가 통과한 뒤 §8.6의 `server/migrations/0041_m4e_insolvency.sql`을 작성한다. `0024`, `0038`, `0039`,
-   특히 `0040_m4d_insurance.sql`의 immutable graph·barrier·assignment-only update 패턴을 참조하고,
-   installment/payment/ledger enum과 DB check도 `discharged · insolvencyDistribution · insolvencyDischarge`에
-   맞춰 함께 확장한다.
-4. runtime은 `server/src/store/insolvency.rs`를 추가하고 `store/mod.rs`, `store/types.rs`, `store/life.rs`,
-   `store/loans.rs`, `store/properties.rs`, `store/mysql.rs` 순서로 composition, submit/withdraw, 신용 overlay와
-   D+1,825 recovery를 연결한다. 그 뒤 `server/src/state.rs`와 `server/src/routes/mod.rs`에 §8.7의 여섯 strict
-   API와 bounded snapshot을 공개한다.
-5. client는 [client-foundation](../.agents/skills/client-foundation/SKILL.md)을 먼저 읽고
-   `client/src/api/contracts.ts`, 새 `insolvency-api.ts`, 새 `app/insolvency-retry/`, 새
-   `app/screens/recovery.ts`, `main.ts`, `dashboard.ts`만 기능 중심으로 연결한다. 별도 global store branch나
-   CSS·DOM 테스트는 만들지 않는다.
-6. §8.8의 server/client gate와 fresh/populated MySQL·public HTTP 인수까지 끝내기 전 M4-E2, §9 법인,
+1. 로컬 배포 gate는 서버 `cargo test` 1,180건, clippy `-D warnings`, fmt와 클라이언트 Jest 551건,
+   typecheck, lint, production build, `git diff --check`를 통과했다. webpack 638 KiB 경고는 기존 비차단
+   성능 경고이며 오류는 없다. 같은 전체 gate를 배포 전에 다시 반복하지 않는다.
+2. 별도 Docker MySQL, 격리 schema와 recovery dump는 만들지 않는다. 사용자가 지정한 development production
+   DB를 사용하며, `main`의 `server/**` push로 시작되는 CD가 새 binary 기동 전에 SQLx `0041`을 자동 적용한다.
+   접속은 `ssh snowykte0426@59.28.34.117`이고 기존 `readygsm-net`의 `mysql:3306` 직접 경로를 유지한다.
+3. CD에서 migration `41/41`, container health와 내부·외부 `/api/health`를 확인한 뒤, 식별 가능한 새 인수
+   계정으로 unavailable/eligible/unsupported, prepare/replay, changed composition, withdraw, submit, 배분·면책,
+   세 대출 overlay, D+1,825 recovery와 여섯 strict API를 확인한다. 기존 사용자·save는 수정하지 않는다.
+4. 같은 container를 재시작해 case/claim/distribution/receipt/loan/payment/ledger/snapshot canonical hash와
+   orphan·balance·projection 위반 0을 재확인한 뒤에만 M4-E1 완료로 바꾼다. 그 전에는 M4-E2, §9 법인,
    시각 스타일링으로 넘어가지 않는다.
 
-재개 전에 이 문서의 §2, §8.1~§8.9, §10~§13.15와 상위
+재개 전에 이 문서의 §2, §8.1~§8.9, §10~§13.16과 상위
 [`development-plan.md` §12](./development-plan.md)를 읽는다. 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와
 migration은 [database-schema](../.agents/skills/database-schema/SKILL.md)·
 [migration-guide](../.agents/skills/migration-guide/SKILL.md), API는
@@ -3156,6 +3130,35 @@ validation을 수행하며, 새 binary 시작 시 `sqlx::migrate!()`가 외부 �
   container restart 0·healthy이며 `172.19.0.6`에서 MySQL container network로 직접 연결됐다. 내부
   `http://127.0.0.1:10105/api/health`와 외부 `https://kimtaeeun.site/lifeledger/api/health`가 모두 HTTP
   200을 반환했다. 두 probe container·DB, 전송한 임시 SQL과 복구용 dump는 삭제했다.
+
+### 13.16 M4-E1 기능 구현 진행 기록 (2026-07-28)
+
+§8.1~§8.8의 순수 core, SQLx `0041`, server store/state/strict API와 client `/recovery`를 연결했다. 이 절은
+구현 provenance이며 production 인수 결과가 아니다.
+
+- core는 `cashOnlyLiquidation` eligibility와 fail-closed composition, 자동 2,500,000원과 추가 보호액,
+  liquidatable cash, claim 비례 배분·ID 기준 1원, 비용→이자→원금 배분, canonical SHA-256, 같은 날
+  prepared→filed→liquidation→discharged→rebuilding, 철회와 D+1,825 exclusive recovery를 구현했다.
+- `0041_m4e_insolvency.sql`은 기존 sealed graph를 수정하지 않고 insolvency component v1, policy v4,
+  life aggregate v5를 게시하며 newRun assignment만 이동한다. runtime은 case, transition, wallet asset,
+  claim, distribution, command receipt로 분리했다. loan installment/payment와 ledger enum/check/authority trigger는
+  discharge와 insolvency source를 명시적으로 허용한다.
+- store는 준비 시 wallet·claim·policy/component identity와 composition hash를 고정한다. 제출 시 현재 구성을
+  다시 hash해 달라지면 거절하고, 청산 배분·payment/allocation·원장·면책·save projection을 한 transaction에
+  적용한다. submit에서 현재 prepared 사건 자체를 기존 사건으로 오판하지 않도록 eligibility 조회 경계를
+  분리했고, 할부 일부 배분은 상태와 지급액을 함께 전이한다.
+- recovery overlay는 raw credit history를 덮어쓰지 않고 rebuilding 사건을 먼저 확인한다. 무담보·전세보증금·
+  주택담보 견적뿐 아니라 저장된 eligible quote의 실행 시점 재평가에도 같은 제한을 적용한다. 일일 pipeline은
+  credit end-of-day 다음에 restriction 종료 사건을 recovered로 전이한다.
+- API는 overview, prepare, submit/withdraw action, detail, claims, liquidations 여섯 경로다. body/query는 unknown
+  field를 거절하고 command cursor와 current-run 소유권을 요구한다. claim/distribution page는 signed cursor와
+  최대 20건, transition은 최대 16건이며 snapshot에는 availability·eligibility·reasons·current case만 둔다.
+- client는 모든 응답을 zod 경계에서 검증하고 command response가 제출 cursor에서 정확히 한 번 전진했는지
+  확인한다. `/recovery`는 overview/detail/claim/liquidation을 읽고 준비·제출·철회를 수행하며, 불명확한
+  transport 결과는 동일 명령으로 재시도한다. DOM은 mount에서 한 번 만들고 fixed slot만 갱신한다.
+- 구현 우선 원칙에 따라 전체 회귀를 매 단계 반복하지 않았고 배포 직전에 한 번 수행했다. 서버 1,180건,
+  클라이언트 551건과 clippy·fmt·typecheck·lint·production build·diff gate가 통과했다. 실제 MySQL migration,
+  공개 HTTP와 재시작 invariant는 §1.1의 다음 재개 순서에 남아 있다.
 
 ## 14. M4 완료 조건
 
