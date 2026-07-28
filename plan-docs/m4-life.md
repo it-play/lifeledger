@@ -2544,6 +2544,122 @@ M4의 법인은 개인과 분리된 최소 원장으로 자본 배분과 급여/
 ledger transaction은 같은 MySQL transaction의 correlation ID를 가진다. M4는 고객·직원·재고·법인대출을
 만들지 않는다.
 
+### 9.1 E2 구현 순서와 버전 경계
+
+E2는 기능을 세 수직 슬라이스로 닫는다.
+
+1. **E2a 설립·분리 원장** — immutable corporation component/catalog, 설립 policy, 설립 command,
+   개인 지갑·개인 원장·법인 현금·법인 원장을 한 transaction에서 만든다.
+2. **E2b 월 손익·대표 급여** — 결정론적 월 매출과 비용, 다음 달부터 적용되는 운영규모·대표 급여 설정,
+   법인 원장과 M3 근로소득/원천징수 연결을 하루 pipeline에 넣는다.
+3. **E2c 배당·법인세·조회** — 결산 이익·결손·법인세, 배당가능이익과 원천징수, bounded 월 history를
+   연결하고 E2 전체 production 인수를 끝낸다.
+
+첫 active component key는 `dev-unranked-m4-corporation-2026-v1`, 이를 포함한 life aggregate는 v6다.
+기존 run의 `disabled-m4a-v1` pin과 sealed aggregate bytes는 바꾸지 않고 migration 뒤 시작한 새 run만 v1을
+고정한다. v1 component는 `standardRegisteredOffice`만 지원한다. M4의 coarse residence region을 실제
+과밀억제권역으로 가장하지 않으며 대도시 3배 중과, 감면 업종, 실제 주소와 지점은 후속 typed model 전까지
+지원하지 않는다. 지원하지 않는 등록 형태를 일반 세율로 조용히 계산하지 않고 `policyUnsupported`로 막는다.
+
+실제 제도 policy와 게임 밸런스 catalog를 분리한다.
+
+- 설립 등록면허세는 출자금의 4,000ppm과 112,500원 중 큰 금액, 지방교육세는 등록면허세의 200,000ppm이다.
+  근거는 2026-07-01 시행 [지방세법 제28조](https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1031543199)와
+  [같은 법 제151조](https://www.law.go.kr/LSW/lsSideInfoP.do?docCls=jo&joNo=0151&lsiSeq=282559&urlMode=lsScJoRltInfoR)다.
+- 2026-01-01 이후 개시 사업연도의 영리법인세는 과세표준 2억원 이하 10%, 2억 초과 200억원 이하 20%,
+  200억 초과 3,000억원 이하 22%, 3,000억원 초과 25%와 해당 누진공제를 policy bracket으로 저장한다.
+  근거는 [국세청 법인세 세율](https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7746&mi=2449)이다.
+- 일반 배당소득 원천징수 소득세는 14%, 지방소득세는 그 소득세의 10%로 저장한다. 법인 배당은 M2의
+  `corporationDividend` 금융소득 event를 만들고 연간 금융소득 합산 권위가 다시 소비한다. 근거는
+  [국세청 원천징수 세율](https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7703&mi=2292)이다.
+- 업종 매출·변동폭·원가·고정비, 운영규모 계수와 행정 처리비는 모두 `GAME_BALANCE` catalog 값이다.
+  실제 세율 source와 같은 rule이나 이름으로 저장하지 않는다.
+
+### 9.2 E2a 설립 command와 원자적 회계
+
+v1은 한 run에 corporation을 최대 한 개 허용한다. `POST /api/corporations`는 공통 command/cursor에
+`industryTemplateId · name · capitalKrw`만 받는다. 대표자는 현재 character로 서버가 고정하며 client가
+user/save/run/대표자 ID, 세율, 수수료나 계산 결과를 보내지 않는다. 이름은 앞뒤 공백 없는 한글·영문·숫자와
+공백 2~40자이며 현재 run에서만 식별자다. 자본금은 catalog의 1,000,000~1,000,000,000원 범위다.
+
+설립 transaction은 `save → corporation` 잠금 순서를 지키며 다음을 한 번에 수행한다.
+
+1. current run의 sealed life catalog가 active corporation v1을 pin했고 policy rule 세 개가 simulation date에
+   유효한지 확인한다.
+2. 같은 run에 법인이 없고 현재 insolvency case가 없으며 지갑이 `capital + registrationLicenseTax +
+   localEducationTax + gameAdministrativeFee` 이상인지 확인한다.
+3. command identity를 고정하고 `corporation`을 `draft`로 만든 뒤 template·대표·policy/component와 모든
+   설립 금액을 복제한다.
+4. 개인 원장은 `corporationInvestmentAsset +capital · corporationRegistrationExpense +totalFee ·
+   wallet -(capital+totalFee)`를 기록한다.
+5. 별도 법인 원장은 `corporationCash +capital · contributedCapital -capital`을 기록한다. 두 원장은 같은
+   `correlationId=commandId`와 corporation ID를 가지며 각각 posting 합이 0이다.
+6. 지갑을 정확히 한 번 차감하고 `draft→active` transition, receipt와 state revision +1을 기록한다.
+   하나라도 실패하면 corporation·원장·지갑·identity를 모두 rollback한다.
+
+`lifeledger.life.createCorporation.v1` fingerprint는 command cursor, template ID, canonical name과 capital을
+포함한다. 같은 body replay는 같은 corporation/원장 ID와 최신 snapshot을 반환하고 revision을 올리지 않는다.
+같은 command ID의 다른 payload는 `idempotencyConflict`, stale cursor·이미 존재하는 법인·도산 중 설립은
+`corporationStateConflict`, 부족한 지갑은 `insufficientWalletCash`, 다른 run·없는 template은 존재 여부를
+숨긴 `corporationResourceNotFound`다. DB는 current corporation unique slot, command FK, bundle/component/policy
+FK와 immutable receipt·transition으로 이를 다시 강제한다.
+
+첫 업종 template은 `softwareService`, `onlineRetail`, `contentStudio` 세 개다. 각 template은 display name,
+base monthly revenue, revenue variation ppm, variable cost ppm, fixed monthly cost, 허용 operating scale을
+sealed manifest에 가진다. E2a는 이 값을 공개 catalog와 설립 provenance로만 고정하고 월 손익은 E2b에서
+소비한다. 행정 처리비 30,000원과 자본금 범위도 catalog 소유의 게임 값이다.
+
+### 9.3 E2b 월 손익·대표 급여 계약
+
+법인의 첫 operating month는 active가 된 simulation month의 다음 달이다. 이후 매월 1일에 아직 없는
+`(corporationId, operatingYear, operatingMonth)` 하나를 만든다. 월 entropy는
+`HMAC-SHA256(worldSeed, "lifeledger.corporation.month.v1" · corporationId · yearMonth · stream)`으로
+고정하고 실행 순서나 process 재시작을 입력으로 쓰지 않는다.
+
+`revenue = floor(baseRevenue × scaleRevenuePpm × shockPpm / 1,000,000²)`,
+`variableCost = floor(revenue × variableCostPpm / 1,000,000)`,
+`operatingExpense = variableCost + fixedMonthlyCost + scaleFixedCost`다. 중간값은 checked i128, 최종 원화는
+i64 JSON-safe 범위다. 매출과 비용은 별도 법인 원장에 기록하고 `revenue - operatingExpense - officerPayroll`
+을 세전손익으로 고정한다. 현금으로 비용을 다 낼 수 없으면 미지급비용을 숨기지 않고 법인 cash를 0까지만
+사용하고 나머지를 `operatingPayable`로 기록해 `insolvent`로 전이한다. M4에서는 외부 자금 수혈이나 법인대출로
+이를 해소하지 않는다.
+
+운영규모와 월 대표 gross salary는 typed setting command로 다음 operating month부터 적용한다. 급여는 M3의
+고정 payroll calculator와 현재 employment policy를 재사용하되 `employment_contract`를 만들지 않는다.
+법인에는 officer payroll expense·withholding liability·cash, 개인에는
+`corporationOfficerPayroll` 근로소득 event와 기존 근로소득/원천징수 account를 같은 correlation으로 기록한다.
+같은 월 payroll은 정확히 한 번이며 법인 현금 부족 시 일부 급여로 낮추지 않고 해당 월 급여 전체를
+`operatingPayable`로 남긴다.
+
+### 9.4 E2c 법인세·배당과 공개 계약
+
+12월 결산법인으로 고정해 사업연도 종료 때 월별 세전손익을 합산한다. 결손금 공제·세액공제·중간예납은 M5
+범위이며 v1은 해당 연도 음수 과세표준을 0으로, 양수는 §9.1 bracket에 넣는다. 산출 법인세와 법인지방소득세를
+구분하고 지급 전까지 법인 tax payable로 보존한다. 구현할 수 없는 과세 구성을 0원으로 성공시키지 않는다.
+
+배당 command는 결산 완료된 누적 세후이익에서 과거 배당과 누적 결손을 차감한 `distributableProfitKrw`와
+법인 cash 중 작은 범위만 허용한다. gross 배당, 14% 소득세, 그 세액의 10% 지방소득세와 net을 서버가 계산해
+법인 원장, 개인 원장, M2 금융소득 event를 한 transaction에 기록한다. 원 단위는 각 세액에서 내림하고
+`gross = net + incomeTax + localIncomeTax`를 유지한다.
+
+공개 API는 다음으로 고정한다.
+
+| 경로 | 역할 |
+|---|---|
+| `GET /api/corporations/templates` | active component의 세 업종과 자본금·행정비 provenance |
+| `POST /api/corporations` | E2a 설립·출자·등록비 command |
+| `GET /api/corporations/{id}` | 상태, 현금·자본·이익·미지급·다음 월 설정 |
+| `PUT /api/corporations/{id}/settings` | 다음 operating month 운영규모·대표 gross salary |
+| `POST /api/corporations/{id}/payouts` | typed `officerPayroll|dividend` 지급/replay |
+| `GET /api/corporations/{id}/months` | `(year,month,id)` 오름차순 signed cursor, page max 20 |
+
+`GameSnapshot.life.corporation`은 availability, current corporation summary 1건 또는 null만 담는다. template
+전체, 월 history, 세금 bracket, 원장 posting은 상세 API로 분리한다. unknown body/query/enum은 400,
+비인증은 401, 다른 user/run resource는 같은 404, cursor·상태·멱등 충돌은 409다. 순수 BDD는 등록세 최소액과
+비례액, 각 월 산식·entropy·overflow, 급여 세액, 법인세 bracket, 배당가능이익·원천징수 마지막 1원을 검증한다.
+DOM·라우팅·network test는 만들지 않고 스타일 없는 `/corporation` 화면은 E2 server 계약이 닫힌 뒤 M4-F에서
+연결한다.
+
 ## 10. 일일 planner·멱등성·잠금
 
 ### 10.1 하루의 고정 순서
