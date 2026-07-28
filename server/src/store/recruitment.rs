@@ -52,6 +52,7 @@ struct PostingScopeRow {
     market_world_id: u64,
     world_seed: u64,
     world_model_version: String,
+    save_game_day: u32,
     career_catalog_bundle_id: u64,
     career_catalog_bundle_key: String,
 }
@@ -423,6 +424,15 @@ pub(super) async fn ensure_recruitment_postings_for_user(
         .await
         .context("failed to load the assigned recruitment ruleset")?;
     let platforms = read_platforms(&mut tx, scope.career_catalog_bundle_id).await?;
+    let expected_daily_posting_count = platforms.values().try_fold(0u32, |total, platform| {
+        total
+            .checked_add(platform.daily_slot_count)
+            .context("daily recruitment slot count overflowed")
+    })?;
+    ensure!(
+        expected_daily_posting_count > 0,
+        "career bundle must publish daily recruitment slots"
+    );
     let industry_weights =
         read_platform_industry_weights(&mut tx, scope.career_catalog_bundle_id).await?;
     let templates = read_job_templates(&mut tx, scope.career_catalog_bundle_id).await?;
@@ -431,11 +441,23 @@ pub(super) async fn ensure_recruitment_postings_for_user(
         .map(|template| template.template.posting_open_days)
         .max()
         .context("career bundle has no recruitment templates")?;
-    ensure!(
-        maximum_open_days > 0,
-        "posting open duration must be positive"
-    );
-    let first_game_day = target_game_day.saturating_sub(maximum_open_days - 1);
+    let current_day_posting_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM job_posting
+         WHERE market_world_id = ? AND career_catalog_bundle_id = ?
+           AND posted_game_day = ?",
+    )
+    .bind(scope.market_world_id)
+    .bind(scope.career_catalog_bundle_id)
+    .bind(scope.save_game_day)
+    .fetch_one(&mut *tx)
+    .await?;
+    let first_game_day = first_posting_materialization_game_day(
+        scope.save_game_day,
+        target_game_day,
+        maximum_open_days,
+        signed_u32(current_day_posting_count, "current-day job posting count")?,
+        expected_daily_posting_count,
+    )?;
 
     for game_day in first_game_day..=target_game_day {
         for (platform_id, platform) in &platforms {
@@ -487,6 +509,33 @@ pub(super) async fn ensure_recruitment_postings_for_user(
     Ok(())
 }
 
+fn first_posting_materialization_game_day(
+    save_game_day: u32,
+    target_game_day: u32,
+    maximum_open_days: u32,
+    current_day_posting_count: u32,
+    expected_daily_posting_count: u32,
+) -> Result<u32> {
+    ensure!(
+        maximum_open_days > 0,
+        "posting open duration must be positive"
+    );
+    ensure!(
+        expected_daily_posting_count > 0,
+        "expected daily job posting count must be positive"
+    );
+    ensure!(
+        current_day_posting_count == 0 || current_day_posting_count == expected_daily_posting_count,
+        "current-day job postings are partially materialized"
+    );
+    if target_game_day == save_game_day.saturating_add(1)
+        && current_day_posting_count == expected_daily_posting_count
+    {
+        return Ok(target_game_day);
+    }
+    Ok(target_game_day.saturating_sub(maximum_open_days - 1))
+}
+
 async fn read_posting_scope(
     tx: &mut Transaction<'_, MySql>,
     user_id: u64,
@@ -494,6 +543,7 @@ async fn read_posting_scope(
     sqlx::query_as(
         "SELECT save.market_world_id, world.seed AS world_seed,
                 calibration.version AS world_model_version,
+                save.game_day AS save_game_day,
                 career_run.career_catalog_bundle_id,
                 bundle.bundle_key AS career_catalog_bundle_key
          FROM save
@@ -5260,6 +5310,35 @@ mod tests {
 
     fn when_due_action_is_validated(action: &ScheduledActionEnvelopeRow) -> Result<()> {
         validate_due_scheduled_action_envelope(action, TARGET_GAME_DAY)
+    }
+
+    mod context_채용공고_물질화_시작일을_정하는_경우 {
+        use super::*;
+
+        #[test]
+        fn given_현재일이_완전하고_다음날_target_when_계산하면_then_target만_생성한다() {
+            let save_game_day = 41;
+
+            let first_game_day =
+                first_posting_materialization_game_day(save_game_day, TARGET_GAME_DAY, 14, 20, 20)
+                    .expect("complete posting day should be accepted");
+
+            assert_eq!(first_game_day, TARGET_GAME_DAY);
+        }
+
+        #[test]
+        fn given_현재일_공고가_없을때_when_계산하면_then_공개구간을_복원한다() {
+            let first_game_day = first_posting_materialization_game_day(
+                TARGET_GAME_DAY - 1,
+                TARGET_GAME_DAY,
+                14,
+                0,
+                20,
+            )
+            .expect("missing posting day should use the recovery window");
+
+            assert_eq!(first_game_day, TARGET_GAME_DAY - 13);
+        }
     }
 
     mod context_due_커리어_action_payload를_해석하는_경우 {

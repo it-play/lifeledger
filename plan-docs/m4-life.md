@@ -2522,6 +2522,12 @@ step, 서버 재시작 전후 restriction 종료 hash가 같아야 한다. 다�
 bounded page, sealed graph 보호, fresh/populated migration, 서버 test/clippy/fmt와 클라이언트
 test/typecheck/lint/build도 완료 조건이다.
 
+D+1,825 큰 step 인수는 §4.2의 일일 커밋 경계를 유지한 채 수행한다. 채용공고 준비는 현재 게임일의
+`job_posting` 수가 pinned bundle의 전체 일일 slot 수와 정확히 같고 target이 바로 다음 날인 경우에만
+target 하루로 범위를 줄인다. 현재 게임일이 0건이거나 조회 target인 경우에는 최대 공개기간 전체를
+backfill하고, 부분 생성 상태는 invariant 오류로 거절한다. 따라서 최초 advance·legacy read·재시도는 기존
+멱등 복원 경로를 유지하면서 정상 순차 진행의 과거 `INSERT IGNORE` 반복만 제거한다.
+
 ### 8.9 후속 E2 범위
 
 E2는 이 최소 경계를 넓히기 전에 별도 policy와 설계를 추가한다. 후보는 소득 기반 개인회생,
