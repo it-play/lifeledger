@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-E1 production 전체 인수 완료, 다음 기능 단계 M4-E2 단순 법인, 시각 스타일링 보류
+- 상태: M4-E2a와 E2b 월 영업 정산 production 인수 완료, 다음 기능은 운영 설정·대표 급여, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,28 +22,39 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-현재 구현 checkpoint는 `main`의 `2f96023`이며 development production DB는 migration `45/45`, 실패 0이다.
-M4-E1의 구현·배포·전체 운영 인수 결과는 §13.16~§13.18에 기록했다. 별도 MySQL, 격리 schema, recovery dump는
-만들지 않았고 `main`의 `server/**` push → 원격 image build → 새 server의 `sqlx::migrate!()` → health
-순서로 production DB를 전진시켰다. 접속은 `ssh snowykte0426@59.28.34.117`, service host port는 `10105`,
-public base는 `https://kimtaeeun.site/lifeledger`다. 비밀번호·session token은 문서나 repository에 남기지 않는다.
+현재 구현 checkpoint는 `main`의 `db90aa4`이며 development production DB는 migration `48/48`, 실패 0이다.
+M4-E1의 전체 인수는 §13.16~§13.18, M4-E2a와 E2b의 현재 범위는 §13.19에 기록했다. 별도 MySQL, 격리
+schema, recovery dump는 만들지 않았고 `main`의 `server/**` push → 원격 image build → 새 server의
+`sqlx::migrate!()` → health 순서로 production DB를 전진시켰다. 접속은
+`ssh snowykte0426@59.28.34.117`, service host port는 `10105`, public base는
+`https://kimtaeeun.site/lifeledger`다. 비밀번호·session token은 문서나 repository에 남기지 않는다.
 
-production 인수 fixture는 user 4, save 118, run revision 1이다. case 2는 day 31에 `rebuilding`이 시작됐고
-`creditRestrictionEndExclusive=1856`을 바꾸지 않은 채 실제 일일 pipeline으로 진행했다. day 1,855까지 제한을
-유지하고 day 1,856/state revision 1,860에서 정확히 한 번 `recovered`로 전이했다. terminal game day도
-1,856이고 현재 overview에는 active case가 없다. loan 3·4의 `discharged/0` 이력과 case provenance는
-append-only로 보존했으며, 인수 session은 최종 검증 뒤 삭제했다. 열린 외부 InnoDB transaction은 0건이다.
+M4-E2 production fixture는 user 5, save 3882, run revision 1, corporation 1이다. `softwareService` 법인은
+day 181에 설립됐고 첫 operating month인 2026-08을 실제 일일 pipeline으로 materialize해 현재 day 212/state
+revision 213이다. 개인 cash는 801,318원, 법인 cash는 3,549,093원, retained earnings는 2,549,093원,
+operating payable은 0원이며 법인은 `active`다. E1의 user 4/save 118 fixture와 append-only 이력도 그대로
+보존한다. 인수 session은 삭제했고 열린 외부 InnoDB transaction은 0건이다.
 
 다음 재개 순서는 고정한다.
 
-1. 이 문서 §9, §10, §11, §13.18과 [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다.
-2. §9의 M4-E2 단순 법인을 설계 권위로 삼아 versioned 법인 catalog·policy·schema와 migration 순서를 먼저
-   확정한다. 구현 중 설계가 달라지면 이 문서를 코드보다 먼저 고친다.
-3. 첫 기능 수직 슬라이스는 **법인 설립 command 한 transaction에서 template·대표·자본금·등록비 검증 →
-   `draft` 생성 → 개인 지갑 출자와 법인 원장 기록 → `active` 전이**다. interfaces/factory, strict API,
-   command replay와 양쪽 원장 균형까지 연결하고 스타일링은 하지 않는다.
-4. 다음으로 월 매출·비용·손익, 대표 급여와 배당을 붙인다. pure core/service 규칙에만 표적 BDD를 추가하고
-   단계마다 전체 회귀를 반복하지 않는다. M4-E2 기능이 닫힌 뒤 M4-F의 기능 화면·30년 검증으로 이동한다.
+1. 이 문서 §9.3, §10.1, §10.2, §11, §13.19와
+   [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다. 현재 schema와 runtime은
+   [`0048_m4e2_corporation_monthly_operations.sql`](../server/migrations/0048_m4e2_corporation_monthly_operations.sql),
+   [`life/corporation.rs`](../server/src/life/corporation.rs),
+   [`store/corporations.rs`](../server/src/store/corporations.rs),
+   [`store/mysql.rs`](../server/src/store/mysql.rs)에 있다.
+2. 다음 수직 슬라이스는 §9.3의 **운영규모·대표 급여 설정과 대표 급여 월초 정산**이다. migration `0049`에서
+   append-only setting history, command identity/receipt, 적용 월 provenance, 월 row의 payroll 결과와 법인·개인
+   원장 reference를 함께 설계한다. catalog 응답에는 현재 template의 scale ID·key·계수도 공개한다.
+3. `PUT /api/corporations/{id}/settings`는 strict cursor command로 만들고 다음 미materialize 월부터 적용한다.
+   설정만 먼저 저장해 non-zero salary가 실행되지 않는 중간 production 상태를 만들지 않는다. 같은 rollout에서
+   [`store/employment.rs`](../server/src/store/employment.rs)의 M3 payroll calculator와
+   [`store/employment_income.rs`](../server/src/store/employment_income.rs)의 근로소득 event를 재사용해
+   법인 원장·개인 wallet·개인 원장·원천징수를 한 transaction으로 연결한다.
+4. fixture 3882에서 2026-09 적용 설정을 만든 뒤 9월 1일까지 public `/api/advance`로 진행해 exact-once 급여,
+   command replay/변조/stale cursor, 충분·부족 현금 경계와 재시작 hash를 인수한다. 그 뒤 §9.4 E2c 법인세·배당,
+   마지막으로 M4-F의 스타일 없는 기능 화면·30년 검증으로 이동한다. pure core/service 규칙에만 표적 BDD를
+   추가하고 단계마다 전체 회귀를 반복하지 않는다.
 
 재개 전에 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와 migration은
 [database-schema](../.agents/skills/database-schema/SKILL.md)·
@@ -3402,7 +3413,57 @@ migration `45/45`, 실패 0이고 public health가 HTTP 200이다.
   source와 socket 변경만 비교하고 checksum·license·파일 권한을 별도로 검증했다.
 
 따라서 M4-E1은 전세 quote·실행 제한, 장기 일일 진행 성능, exclusive recovery 경계, 재시작 불변식까지
-production에서 완료했다. 다음 구현은 §1.1의 순서대로 §9 M4-E2 단순 법인에서 재개한다.
+production에서 완료했다. 이 기록 이후 진행한 M4-E2 결과와 현재 재개점은 §13.19와 §1.1을 따른다.
+
+### 13.19 M4-E2a·E2b 월 영업 정산 production 인수 기록 (2026-07-29)
+
+M4-E2a 법인 설립·분리 원장과 E2b 중 결정론적 월 매출·영업비용까지 구현하고 development production에서
+인수했다. 운영규모 설정 command, 대표 급여, 법인세·배당, 월 history API와 화면은 아직 완료 범위가 아니다.
+
+- `4f16032`가 §9의 E2 계약을 먼저 고정했고 `da878e3`이 corporation component v1, policy v5, life aggregate
+  v6, 설립·transition·개인/법인 원장 schema와 세 공개 API를 추가했다. 최초 CD `30394137222`는 migration
+  `0046`이 존재하지 않는 `ledger_posting.insurance_contract_id` 뒤에 열을 추가해 실패했다. production에 이미
+  적용된 DDL은 삭제하거나 복구 dump로 되돌리지 않고 남은 statement를 완료한 뒤 checksum을 맞췄고,
+  `30e06bf`가 실제 마지막 열 `property_tax_event_id` 뒤로 고쳐 CD `30395069499`에서 성공했다.
+- 새 policy v5가 C4 property-tax typed profile을 복제하지 않아 첫 `/api/advance`가
+  `property-tax model and policy versions are not paired`로 실패했다. `0047`/`6252620`은 sealed v4의 acquisition,
+  annual, capital profile과 3/8/16개 band·bracket을 exact clone하고 cardinality guard를 추가했다. CD
+  [`30396319414`](https://github.com/it-play/lifeledger/actions/runs/30396319414) 뒤 advance와 설립 인수가
+  정상화됐다.
+- user 5/save 3882/run 1은 day 181에 `softwareService` corporation 1을 자본금 1,000,000원으로 설립했다.
+  등록면허세 112,500원, 지방교육세 22,500원, 게임 행정비 30,000원으로 개인 wallet 1,165,000원을 한 번
+  차감했다. 개인 원장 97은 투자자산·설립비·wallet 세 posting, 법인 원장 1은 cash·출자자본 두 posting으로
+  각각 합계 0이다. exact replay는 같은 ID와 revision을 반환했고 payload 변조는 `idempotencyConflict`, stale
+  cursor와 두 번째 법인은 `corporationStateConflict`, 다른 ID는 비노출 404였다. 재시작 전후 state/detail도
+  동일했다.
+- `48d9ea6`은 canonical entropy message, unsigned big-endian HMAC key/word, ppm 산식, default standard/급여
+  0원과 settings/payroll 경계를 §9.3에 고정했다. `db90aa4`와 migration `0048`은 injectable HMAC-SHA256 core,
+  immutable operating month, automatic monthly revenue/expense 법인 원장, cash·미지급금·retained earnings와
+  현금 부족 시 `active→insolvent` 전이를 월 1일 pipeline에 연결했다. CD
+  [`30398605450`](https://github.com/it-play/lifeledger/actions/runs/30398605450)은 6분 40초에 성공했고 production
+  migration 48 checksum은
+  `18497a62ac160a0b080de081e75fe7c47c47acaa7c2b727dbd914fb219d88586402111cb77784c7b859e047506f8a55b`다.
+- fixture를 public API로 day 181→211까지 진행했을 때 법인 월 row는 없었고, day 212인 2026-08-01에 정확히
+  하나가 생겼다. 저장된 `entropyWord=4704712710872494035`, `shock=987087ppm`, 매출 7,896,696원,
+  변동비 947,603원, 고정비 4,400,000원, 영업비용 5,347,603원, 세전이익 2,549,093원은 별도 Python HMAC
+  계산과 정확히 일치했다. 법인 cash는 1,000,000→3,549,093원, retained earnings는 0→2,549,093원,
+  payable은 0원을 유지했다.
+- 월 매출 원장 2는 cash +7,896,696/operating revenue -7,896,696, 비용 원장 3은 variable expense
+  +947,603/fixed expense +4,400,000/cash -5,347,603으로 각각 합계 0이다. 두 transaction은 command
+  correlation 없이 같은 operating month 1을 참조한다. 같은 1일 advance command replay는 day 212/state
+  revision 213과 월 1건·월 원장 2건을 유지했다.
+- container 재시작 전후 state SHA-256은
+  `d097b7a01952b8b07c8268ce1b2da4758aebf32f4cc9a88413ca16f151612fff`, corporation detail은
+  `aba5027d4d13d752156c8ef8324a7785fab287462bd41a8dacf679f84aa6cb4d`로 각각 같았다. 시작 로그는 MySQL
+  연결·migration 적용·listen을 확인했고 최신 warning/error는 0건, 내부와 public health는 HTTP 200이었다.
+  인수 session과 외부 열린 InnoDB transaction은 0건이며 별도 DB, dump, 임시 복구 artifact를 만들지 않았다.
+- 구현 우선 원칙에 따라 전체 회귀를 반복하지 않았다. 순수 법인 BDD 6건, `cargo check`, server
+  clippy `-D warnings`, fmt와 `git diff --check`를 통과했고 보안 점검은 session/current-run scope, bound SQL,
+  checked 산술, command와 automatic ledger correlation 분리, secret 미저장을 확인했다.
+
+따라서 M4-E2a는 완료다. E2b는 default standard/대표 급여 0원인 월 영업 정산까지만 완료이며, 정확한 다음
+재개점은 §1.1의 migration `0049` 운영 설정·대표 급여 수직 슬라이스다. 이 경계를 닫기 전 E2b 전체 완료나
+M4-E2 완료로 표시하지 않는다.
 
 ## 14. M4 완료 조건
 
