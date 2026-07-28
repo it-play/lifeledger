@@ -595,7 +595,7 @@ async fn submit_case(
         .bind(claim.loan_contract_id)
         .fetch_all(&mut **tx)
         .await?;
-        let aggregated = aggregate_buckets(&buckets)?;
+        let aggregated = complete_claim_buckets(&claim, aggregate_buckets(&buckets)?)?;
         runtime_claims.push(ClaimRuntime {
             claim,
             buckets,
@@ -835,10 +835,26 @@ async fn apply_claim_distribution(
                 .checked_sub(paid)
                 .context("insolvency allocation underflowed")?;
         }
-        ensure!(
-            remaining == 0,
-            "insolvency allocation exceeded stored buckets"
-        );
+        if remaining > 0 {
+            sqlx::query(
+                "INSERT INTO loan_payment_allocation
+                     (save_id, run_revision, loan_contract_id, loan_payment_id,
+                      loan_obligation_bucket_id, allocation_order, allocation_kind, amount_krw)
+                 VALUES (?, ?, ?, ?, NULL, ?, ?, ?)",
+            )
+            .bind(scope.save_id)
+            .bind(scope.run_revision)
+            .bind(runtime.claim.loan_contract_id)
+            .bind(payment_id)
+            .bind(allocation_order)
+            .bind(bucket_kind_db(allocation.kind))
+            .bind(remaining)
+            .execute(&mut **tx)
+            .await?;
+            allocation_order = allocation_order
+                .checked_add(1)
+                .context("insolvency allocation order overflowed")?;
+        }
     }
 
     let (principal, interest, fee) = paid_totals(&planned.repayment.buckets)?;
@@ -1689,6 +1705,57 @@ fn aggregate_buckets(rows: &[BucketRow]) -> Result<Vec<RepaymentBucketBalance>> 
         .collect())
 }
 
+fn complete_claim_buckets(
+    claim: &ClaimRow,
+    mut buckets: Vec<RepaymentBucketBalance>,
+) -> Result<Vec<RepaymentBucketBalance>> {
+    for (claim_amount, overdue, current) in [
+        (
+            claim.fee_krw,
+            RepaymentBucketKind::OverdueFee,
+            RepaymentBucketKind::CurrentFee,
+        ),
+        (
+            claim.interest_krw,
+            RepaymentBucketKind::OverdueInterest,
+            RepaymentBucketKind::CurrentInterest,
+        ),
+        (
+            claim.principal_krw,
+            RepaymentBucketKind::OverduePrincipal,
+            RepaymentBucketKind::CurrentPrincipal,
+        ),
+    ] {
+        let materialized = buckets
+            .iter()
+            .filter(|bucket| bucket.kind == overdue || bucket.kind == current)
+            .try_fold(0_i64, |sum, bucket| {
+                sum.checked_add(bucket.due_krw)
+                    .context("insolvency bucket component overflowed")
+            })?;
+        ensure!(
+            materialized <= claim_amount,
+            "insolvency buckets exceed the frozen claim"
+        );
+        let residual = claim_amount - materialized;
+        if residual > 0 {
+            if let Some(bucket) = buckets.iter_mut().find(|bucket| bucket.kind == current) {
+                bucket.due_krw = bucket
+                    .due_krw
+                    .checked_add(residual)
+                    .context("insolvency residual bucket overflowed")?;
+            } else {
+                buckets.push(RepaymentBucketBalance {
+                    kind: current,
+                    due_krw: residual,
+                });
+            }
+        }
+    }
+    buckets.sort_by_key(|bucket| bucket.kind);
+    Ok(buckets)
+}
+
 fn bucket_kind(row: &BucketRow) -> Result<RepaymentBucketKind> {
     match (row.status == "delinquent", row.bucket_kind.as_str()) {
         (true, "fee") => Ok(RepaymentBucketKind::OverdueFee),
@@ -2092,4 +2159,38 @@ pub(super) fn is_composition_changed(error: &anyhow::Error) -> bool {
 
 fn is_composition_unsupported(error: &anyhow::Error) -> bool {
     error.downcast_ref::<CompositionUnsupported>().is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod context_default_뒤_미래원금_bucket이_없는경우 {
+        use super::*;
+
+        #[test]
+        fn given_고정된_claim과빈bucket_when_보완하면_then_남은원금을직접배분bucket으로만든다() {
+            let claim = ClaimRow {
+                id: 1,
+                loan_contract_id: 3,
+                principal_krw: 49_583_334,
+                interest_krw: 0,
+                fee_krw: 0,
+                allowed_krw: 49_583_334,
+                distributed_krw: 0,
+                discharged_krw: 0,
+            };
+
+            let completed = complete_claim_buckets(&claim, Vec::new())
+                .expect("남은 claim은 직접 배분 bucket으로 보완되어야 한다");
+
+            assert_eq!(
+                completed,
+                vec![RepaymentBucketBalance {
+                    kind: RepaymentBucketKind::CurrentPrincipal,
+                    due_krw: 49_583_334,
+                }]
+            );
+        }
+    }
 }
