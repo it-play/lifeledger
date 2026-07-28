@@ -1,5 +1,6 @@
 import { type AuthApi, createAuthApi } from './api/auth-api.js';
 import { createCareerApi } from './api/career-api.js';
+import { createCorporationApi } from './api/corporation-api.js';
 import { createGameApi } from './api/game-api.js';
 import { createHousingApi } from './api/housing-api.js';
 import { createInsolvencyApi } from './api/insolvency-api.js';
@@ -11,6 +12,7 @@ import { createWelfareApi } from './api/welfare-api.js';
 import { createGameStateWriter, type GameStateWriter } from './app/game-state/index.js';
 import { createCareerView } from './app/screens/career.js';
 import { createCharacterCreateView } from './app/screens/character-create.js';
+import { createCorporationView } from './app/screens/corporation.js';
 import { createDashboardView } from './app/screens/dashboard.js';
 import { createEventsInsuranceView } from './app/screens/events-insurance.js';
 import { createHousingView } from './app/screens/housing.js';
@@ -54,6 +56,7 @@ function bootstrap(): void {
   const stream = createSseClient({ url: '/api/stream', logger, credentials: 'same-origin' });
   const auth = createAuthApi({ http });
   const careerApi = createCareerApi({ http });
+  const corporationApi = createCorporationApi({ http });
   const housingApi = createHousingApi({ http });
   const insolvencyApi = createInsolvencyApi({ http });
   const insuranceApi = createInsuranceApi({ http });
@@ -107,6 +110,16 @@ function bootstrap(): void {
           auth,
           toasts,
           createOrderId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/corporation',
+        handler: createCorporationView({
+          store,
+          snapshots,
+          api: corporationApi,
+          toasts,
+          createCommandId: () => globalThis.crypto.randomUUID(),
         }),
       },
       {

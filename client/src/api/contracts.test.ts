@@ -3067,6 +3067,7 @@ describe('생활비 M4-A protocol 계약', () => {
           reasons: ['componentUnavailable'],
           currentCase: null,
         },
+        corporation: { availability: 'unavailable', current: null },
       });
 
       expect(result.success).toBe(true);
@@ -3118,6 +3119,7 @@ describe('생활비 M4-A protocol 계약', () => {
           reasons: ['componentUnavailable'],
           currentCase: null,
         },
+        corporation: { availability: 'unavailable', current: null },
       });
 
       expect(result.success).toBe(false);
@@ -4210,6 +4212,7 @@ function givenOwnerLifeSnapshot() {
       reasons: ['componentUnavailable'],
       currentCase: null,
     },
+    corporation: { availability: 'unavailable', current: null },
   };
 }
 
@@ -4297,6 +4300,7 @@ function givenJeonseLifeSnapshot() {
       reasons: ['componentUnavailable'],
       currentCase: null,
     },
+    corporation: { availability: 'unavailable', current: null },
   };
 }
 

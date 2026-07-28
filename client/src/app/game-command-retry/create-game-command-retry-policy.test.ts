@@ -262,6 +262,7 @@ function givenSnapshot(runRevision: number, stateRevision: number, gameDay: numb
         reasons: ['componentUnavailable'],
         currentCase: null,
       },
+      corporation: { availability: 'unavailable', current: null },
     },
   };
 }

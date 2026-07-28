@@ -252,6 +252,7 @@ function givenSnapshot(stateRevision: number): GameSnapshot {
         reasons: ['componentUnavailable'],
         currentCase: null,
       },
+      corporation: { availability: 'unavailable', current: null },
     },
   };
 }

@@ -496,6 +496,7 @@ function givenSnapshot(options: SnapshotOptions = {}): GameSnapshot {
         reasons: ['componentUnavailable'],
         currentCase: null,
       },
+      corporation: { availability: 'unavailable', current: null },
     },
   };
 }

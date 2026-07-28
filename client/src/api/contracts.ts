@@ -3425,6 +3425,145 @@ export const InsolvencyLiquidationPageResponseSchema = z
   })
   .strict();
 
+export const CorporationAvailabilitySchema = z.enum(['unavailable', 'active']);
+export const CorporationStatusSchema = z.enum([
+  'draft',
+  'active',
+  'dormant',
+  'insolvent',
+  'dissolved',
+]);
+
+export const CorporationOperatingScaleSchema = z
+  .object({
+    id: ResourceIdSchema,
+    scaleKey: z.string().min(1).max(64),
+    scaleOrder: z.number().int().min(1).max(3),
+    revenueFactorPpm: z.number().int().min(1).max(3_000_000),
+    fixedCostKrw: NonnegativeKrwSchema,
+  })
+  .strict();
+
+export const CorporationTemplateSchema = z
+  .object({
+    id: ResourceIdSchema,
+    templateKey: z.string().min(1).max(64),
+    displayName: z.string().min(1).max(100),
+    templateOrder: z.number().int().min(1).max(3),
+    baseMonthlyRevenueKrw: PositiveKrwSchema,
+    revenueVariationPpm: z.number().int().min(0).max(900_000),
+    variableCostPpm: z.number().int().min(0).max(1_000_000),
+    fixedMonthlyCostKrw: NonnegativeKrwSchema,
+    operatingScales: z.array(CorporationOperatingScaleSchema).max(3),
+  })
+  .strict();
+
+export const CorporationOperatingSettingSchema = z
+  .object({
+    id: ResourceIdSchema,
+    corporationId: ResourceIdSchema,
+    operatingScaleId: ResourceIdSchema,
+    scaleKey: z.string().min(1).max(64),
+    scaleOrder: z.number().int().min(1).max(3),
+    revenueFactorPpm: z.number().int().min(1).max(3_000_000),
+    fixedCostKrw: NonnegativeKrwSchema,
+    effectiveYear: z.number().int().min(1).max(9999),
+    effectiveMonth: z.number().int().min(1).max(12),
+    officerGrossSalaryKrw: z.number().int().safe().min(0).max(100_000_000),
+    createdGameDay: z.number().int().safe().nonnegative(),
+  })
+  .strict();
+
+export const CorporationNextMonthSettingSchema = z
+  .object({
+    settingId: ResourceIdSchema.nullable(),
+    operatingScaleId: ResourceIdSchema,
+    scaleKey: z.string().min(1).max(64),
+    scaleOrder: z.number().int().min(1).max(3),
+    revenueFactorPpm: z.number().int().min(1).max(3_000_000),
+    fixedCostKrw: NonnegativeKrwSchema,
+    effectiveYear: z.number().int().min(1).max(9999),
+    effectiveMonth: z.number().int().min(1).max(12),
+    officerGrossSalaryKrw: z.number().int().safe().min(0).max(100_000_000),
+    createdGameDay: z.number().int().safe().nonnegative().nullable(),
+  })
+  .strict();
+
+export const CorporationTemplatesResponseSchema = z
+  .object({
+    availability: CorporationAvailabilitySchema,
+    componentVersionId: ResourceIdSchema.nullable(),
+    registeredOfficeClass: z.string().min(1).max(64).nullable(),
+    minimumCapitalKrw: PositiveKrwSchema.nullable(),
+    maximumCapitalKrw: PositiveKrwSchema.nullable(),
+    gameAdministrativeFeeKrw: NonnegativeKrwSchema.nullable(),
+    templates: z.array(CorporationTemplateSchema).max(3),
+  })
+  .strict();
+
+export const CorporationSummarySchema = z
+  .object({
+    id: ResourceIdSchema,
+    componentVersionId: ResourceIdSchema,
+    industryTemplateId: ResourceIdSchema,
+    templateKey: z.string().min(1).max(64),
+    templateDisplayName: z.string().min(1).max(100),
+    name: z.string().min(2).max(40),
+    representativeName: z.string().min(1).max(100),
+    status: CorporationStatusSchema,
+    establishedGameDay: z.number().int().safe().nonnegative(),
+    capitalKrw: NonnegativeKrwSchema,
+    registrationLicenseTaxKrw: NonnegativeKrwSchema,
+    localEducationTaxKrw: NonnegativeKrwSchema,
+    gameAdministrativeFeeKrw: NonnegativeKrwSchema,
+    totalEstablishmentFeeKrw: NonnegativeKrwSchema,
+    cashKrw: NonnegativeKrwSchema,
+    contributedCapitalKrw: NonnegativeKrwSchema,
+    retainedEarningsKrw: z.number().int().safe(),
+    operatingPayableKrw: NonnegativeKrwSchema,
+    corporateTaxPayableKrw: NonnegativeKrwSchema,
+    distributableProfitKrw: NonnegativeKrwSchema,
+    personalLedgerTransactionId: ResourceIdSchema,
+    corporationLedgerTransactionId: ResourceIdSchema,
+    nextMonthSetting: CorporationNextMonthSettingSchema,
+  })
+  .strict();
+
+export const CorporationSnapshotSchema = z
+  .object({
+    availability: CorporationAvailabilitySchema,
+    current: CorporationSummarySchema.nullable(),
+  })
+  .strict();
+
+export const CorporationPayrollStatusSchema = z.enum(['notConfigured', 'paid', 'unpaid']);
+
+export const CorporationOperatingMonthSchema = z
+  .object({
+    id: ResourceIdSchema,
+    operatingYear: z.number().int().min(1).max(9999),
+    operatingMonth: z.number().int().min(1).max(12),
+    scaleKey: z.string().min(1).max(64),
+    officerGrossSalaryKrw: NonnegativeKrwSchema,
+    revenueKrw: NonnegativeKrwSchema,
+    operatingExpenseKrw: NonnegativeKrwSchema,
+    totalPayrollCostKrw: NonnegativeKrwSchema,
+    preTaxProfitKrw: z.number().int().safe(),
+    payrollStatus: CorporationPayrollStatusSchema,
+    cashAfterKrw: NonnegativeKrwSchema,
+    operatingPayableAfterKrw: NonnegativeKrwSchema,
+    retainedEarningsAfterKrw: z.number().int().safe(),
+    appliedGameDay: z.number().int().safe().nonnegative(),
+  })
+  .strict();
+
+export const CorporationOperatingMonthPageResponseSchema = z
+  .object({
+    months: z.array(CorporationOperatingMonthSchema).max(20),
+    nextCursor: z.string().min(1).max(512).nullable(),
+  })
+  .strict();
+
 export const LifeSnapshotSchema = z
   .object({
     ...LifeSummaryFields,
@@ -3449,6 +3588,7 @@ export const LifeSnapshotSchema = z
     pendingInsuranceClaims: z.array(PendingInsuranceClaimSchema).max(8),
     pendingEvents: z.array(PendingLifeEventSchema).max(8),
     insolvency: InsolvencySnapshotSchema,
+    corporation: CorporationSnapshotSchema,
   })
   .strict()
   .superRefine((life, context) => {
@@ -3713,6 +3853,93 @@ const LifeCommandCursorFields = {
   expectedGameDay: z.number().int().nonnegative(),
 } as const;
 
+export const CorporationCreateDraftSchema = z
+  .object({
+    industryTemplateId: ResourceIdSchema,
+    name: z.string().trim().min(2).max(40),
+    capitalKrw: PositiveKrwSchema,
+  })
+  .strict();
+
+export const CorporationCreateRequestSchema = z
+  .object({ ...LifeCommandCursorFields, ...CorporationCreateDraftSchema.shape })
+  .strict();
+
+export const CorporationSettingsDraftSchema = z
+  .object({
+    operatingScaleId: ResourceIdSchema,
+    officerGrossSalaryKrw: z.number().int().safe().min(0).max(100_000_000),
+  })
+  .strict();
+
+export const CorporationSettingsRequestSchema = z
+  .object({ ...LifeCommandCursorFields, ...CorporationSettingsDraftSchema.shape })
+  .strict();
+
+export const CorporationPayoutDraftSchema = z
+  .object({ grossDividendKrw: PositiveKrwSchema })
+  .strict();
+
+export const CorporationPayoutRequestSchema = z
+  .object({
+    ...LifeCommandCursorFields,
+    kind: z.literal('dividend'),
+    ...CorporationPayoutDraftSchema.shape,
+  })
+  .strict();
+
+export const CorporationDividendSchema = z
+  .object({
+    id: ResourceIdSchema,
+    corporationId: ResourceIdSchema,
+    taxYear: z.number().int().min(1).max(9999),
+    grossDividendKrw: PositiveKrwSchema,
+    withheldIncomeTaxKrw: NonnegativeKrwSchema,
+    withheldLocalIncomeTaxKrw: NonnegativeKrwSchema,
+    netDividendKrw: NonnegativeKrwSchema,
+    corporationLedgerTransactionId: ResourceIdSchema,
+    personalLedgerTransactionId: ResourceIdSchema,
+    paidGameDay: z.number().int().safe().nonnegative(),
+  })
+  .strict()
+  .superRefine((dividend, context) => {
+    if (
+      dividend.grossDividendKrw !==
+      dividend.withheldIncomeTaxKrw + dividend.withheldLocalIncomeTaxKrw + dividend.netDividendKrw
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['netDividendKrw'],
+        message: 'dividend components must reconcile with the gross amount',
+      });
+    }
+  });
+
+export const CorporationCreateResponseSchema = z
+  .object({
+    result: CorporationSummarySchema,
+    walletDebitKrw: PositiveKrwSchema,
+    replayed: z.boolean(),
+    snapshot: GameSnapshotSchema,
+  })
+  .strict();
+
+export const CorporationSettingsResponseSchema = z
+  .object({
+    result: CorporationOperatingSettingSchema,
+    replayed: z.boolean(),
+    snapshot: GameSnapshotSchema,
+  })
+  .strict();
+
+export const CorporationDividendResponseSchema = z
+  .object({
+    result: CorporationDividendSchema,
+    replayed: z.boolean(),
+    snapshot: GameSnapshotSchema,
+  })
+  .strict();
+
 export const WelfareApplicationRequestSchema = z
   .object({
     ...LifeCommandCursorFields,
@@ -3929,6 +4156,8 @@ export const LifeFailureCodeSchema = z.enum([
   'eventExpired',
   'insuranceResourceNotFound',
   'insolvencyResourceNotFound',
+  'corporationResourceNotFound',
+  'corporationStateConflict',
   'insolvencyCompositionUnsupported',
   'insolvencyCompositionChanged',
   'insolvencyStateConflict',
@@ -9642,10 +9871,34 @@ export type InsolvencyLiquidation = z.infer<typeof InsolvencyLiquidationSchema>;
 export type InsolvencyLiquidationPageResponse = z.infer<
   typeof InsolvencyLiquidationPageResponseSchema
 >;
+export type CorporationAvailability = z.infer<typeof CorporationAvailabilitySchema>;
+export type CorporationStatus = z.infer<typeof CorporationStatusSchema>;
+export type CorporationOperatingScale = z.infer<typeof CorporationOperatingScaleSchema>;
+export type CorporationTemplate = z.infer<typeof CorporationTemplateSchema>;
+export type CorporationOperatingSetting = z.infer<typeof CorporationOperatingSettingSchema>;
+export type CorporationNextMonthSetting = z.infer<typeof CorporationNextMonthSettingSchema>;
+export type CorporationTemplatesResponse = z.infer<typeof CorporationTemplatesResponseSchema>;
+export type CorporationSummary = z.infer<typeof CorporationSummarySchema>;
+export type CorporationSnapshot = z.infer<typeof CorporationSnapshotSchema>;
+export type CorporationPayrollStatus = z.infer<typeof CorporationPayrollStatusSchema>;
+export type CorporationOperatingMonth = z.infer<typeof CorporationOperatingMonthSchema>;
+export type CorporationOperatingMonthPageResponse = z.infer<
+  typeof CorporationOperatingMonthPageResponseSchema
+>;
 export type LifeSnapshot = z.infer<typeof LifeSnapshotSchema>;
 export type LifeBudgetResponse = z.infer<typeof LifeBudgetResponseSchema>;
 export type GameSnapshot = z.infer<typeof GameSnapshotSchema>;
 export type GameCommandCursor = z.infer<typeof GameCommandCursorSchema>;
+export type CorporationCreateDraft = z.infer<typeof CorporationCreateDraftSchema>;
+export type CorporationCreateRequest = z.infer<typeof CorporationCreateRequestSchema>;
+export type CorporationSettingsDraft = z.infer<typeof CorporationSettingsDraftSchema>;
+export type CorporationSettingsRequest = z.infer<typeof CorporationSettingsRequestSchema>;
+export type CorporationPayoutDraft = z.infer<typeof CorporationPayoutDraftSchema>;
+export type CorporationPayoutRequest = z.infer<typeof CorporationPayoutRequestSchema>;
+export type CorporationDividend = z.infer<typeof CorporationDividendSchema>;
+export type CorporationCreateResponse = z.infer<typeof CorporationCreateResponseSchema>;
+export type CorporationSettingsResponse = z.infer<typeof CorporationSettingsResponseSchema>;
+export type CorporationDividendResponse = z.infer<typeof CorporationDividendResponseSchema>;
 export type LifeBudgetUpdateDraft = z.infer<typeof LifeBudgetUpdateDraftSchema>;
 export type LifeBudgetUpdateRequest = z.infer<typeof LifeBudgetUpdateRequestSchema>;
 export type EssentialArrearPaymentDraft = z.infer<typeof EssentialArrearPaymentDraftSchema>;

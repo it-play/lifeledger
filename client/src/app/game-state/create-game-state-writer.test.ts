@@ -144,6 +144,7 @@ const givenSnapshot = (
       reasons: ['componentUnavailable'],
       currentCase: null,
     },
+    corporation: { availability: 'unavailable', current: null },
   },
 });
 

@@ -1225,6 +1225,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           el('p', { class: 'account-line' }, accountValue, ' ', logoutButton),
           el('p', { class: 'connection' }, '스트림: ', statusValue),
           el('p', {}, el('a', { href: '/career', dataset: { link: '' } }, '커리어 관리')),
+          el('p', {}, el('a', { href: '/corporation', dataset: { link: '' } }, '법인 경영')),
           el('p', {}, el('a', { href: '/life', dataset: { link: '' } }, '생활비 관리')),
           el('p', {}, el('a', { href: '/loans', dataset: { link: '' } }, '신용과 대출')),
           el('p', {}, el('a', { href: '/housing', dataset: { link: '' } }, '주거 시장')),
