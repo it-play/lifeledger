@@ -5,7 +5,7 @@
 
 - 최초 작성: 2026-07-25
 - 최근 갱신: 2026-07-28
-- 상태: M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2 기능 구현·검증 완료, M4-D3 기능 구현·로컬 검증 완료 및 최종 인수 중
+- 상태: M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3 기능 구현·검증 완료, 다음 구현 M4-E1
 
 ---
 
@@ -529,7 +529,7 @@ SSE만 그 채널을 구독한다. 전역 채널에서 `save_id`로 사후 필�
 
 ## 12. 로드맵
 
-현재 구현 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2 완료, M4-D3 기능 구현·로컬 검증 완료 및 최종 인수 중**이다. 기존 월드 v1·v2·v3와 그 월드에 고정된 런은
+현재 구현 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3 완료, 다음 구현 M4-E1**이다. 기존 월드 v1·v2·v3와 그 월드에 고정된 런은
 보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를 사용한다. M3는 style 없는 기능 화면,
 fresh MySQL 8 전진 마이그레이션과 실제 HTTP 스모크까지 완료했다. M3-C는 지급일 귀속 월 급여,
 4대보험·원천징수·원장, 1월 1일 annual coordinator, 2월 정산, 연금 세액공제 allocation과 M2 금융소득
@@ -572,13 +572,18 @@ event catalog, 독립 HMAC 월 후보, 선택·D+7 자동 만료·비용 원장�
 small/big step·명령 replay·소유권/strict cursor와 재시작 hash를 실제 MySQL 8.4·public HTTP로 검증했다.
 M4-D3 가상 보험의 계약·30일 보험료·비소급 claim·청구·만기와 스타일 없는 기능 화면은 커밋
 `4b2b3db`에 구현했고 전체 로컬 검사를 통과했다. 격리 MySQL 8.4·public HTTP에서는 D0 가입 전 pin부터
-D360 만기·12회 보험료, 서버 재시작 전후 DB/state hash 일치까지 확인했다. 다만 인수 DB를 정리하기 전에
-재시작 후 최종 aggregate·pin·orphan invariant SQL을 다시 실행하지 못했으므로 D3 전체 완료로 표시하지
-않는다. 운영 CD는 `aea745d`의 build heartbeat, `0b2c20b`의 직접 MySQL network, `eac0b92`의 populated
-`0023` backfill 수정을 거쳐 실행 `30314779686`에서 성공했다. production migration `40/40`, container
-healthy와 내부·외부 health HTTP 200을 확인했지만 이는 남은 D3 invariant 인수를 대체하지 않는다. 정확한
-재개 경계는 [M4 생애](./m4-life.md) §1.1, §7.13, §13.15다. 그 인수를 끝낸 다음 구현은 M4-E1
-§8.1~§8.9이며, 시각 스타일링은 계속 보류한다.
+D360 만기·12회 보험료, 서버 재시작 전후 DB/state hash 일치까지 확인했다. 당시 정리 전에 빠졌던
+재시작 후 최종 aggregate·pin·orphan 검사는 사용자 지시에 따라 development production DB에서 별도 dump
+없이 마쳤다. production MySQL 8.0.46의 migration `40/40`, 239 tables·11 views·719 triggers와 canonical
+rehash를 확인했고, D0 pin 0 `notCovered` → D30 premium → D31 pin 1 ready/paid/replay를 재생했다. 서버
+재시작 전후 HTTP와 contract/charge/pin/claim/cash/ledger를 포함한 18개 hash가 동일했으며 pin digest,
+paid/reserved, allocation, cardinality, orphan, settlement, ledger balance와 wallet tie-out 위반은 전부 0이었다.
+sealed update/delete도 SQLSTATE 45000으로 거절됐다. 운영 CD는 `aea745d`의 build heartbeat, `0b2c20b`의
+직접 MySQL network, `eac0b92`의 populated `0023` backfill 수정을 거쳐 실행 `30314779686`에서 성공했고,
+최종 수동 재시작 뒤에도 container healthy와 내부·외부 health HTTP 200을 확인했다. D3는 완료이며 정확한
+다음 재개 경계는 [M4 생애](./m4-life.md) §1.1, §8.1~§8.9, §10.1~§10.2, §13.15다. M4-E1은 순수
+`cashOnlyLiquidation` core → SQLx `0041` → store/state/strict API → 스타일 없는 `/recovery` → 실제
+MySQL/public HTTP 순서로 진행하고, M4-E2·법인·시각 스타일링은 계속 보류한다.
 
 | 마일스톤 | 범위 | 완료 기준 |
 |---------|------|-----------|

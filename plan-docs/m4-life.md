@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-A·M4-B·M4-C·M4-D1·M4-D2 완료, M4-D3 기능 구현·로컬 검증 완료 및 최종 인수 중, 시각 스타일링 보류
+- 상태: M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3 완료, 다음 구현 M4-E1, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -23,10 +23,11 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 ### 1.1 현재 재개 지점 (2026-07-28)
 
 권위 checkpoint는 `main`의 M4-D3 구현 커밋 `4b2b3db`와 운영 복구 커밋 `aea745d`, `0b2c20b`,
-`eac0b92`다. D3 기능과 운영 배포는 끝났지만 §7.13의 최종 인수 한 묶음이 남아 있으므로 아직 D3 완료로
-승격하지 않는다.
+`eac0b92`다. D3 기능·운영 배포와 §7.13의 마지막 재시작 후 global invariant까지 모두 끝났으므로
+**M4-D3는 완료**다. 다음 기능 구현은 §8.1~§8.9의 M4-E1 `cashOnlyLiquidation`이며, §9 법인과 시각
+스타일링은 시작하지 않는다.
 
-완료된 범위는 다음과 같다.
+완료 근거는 다음과 같다.
 
 - 서버 `cargo test` 1,170건, `cargo check`, clippy, fmt와 클라이언트 30 suite·551 tests,
   typecheck·lint·build, Docker build check, `git diff --check`가 통과했다.
@@ -42,25 +43,53 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
   canonical hash가 각각 같았고, 재시작 뒤 계약 API도 HTTP 200이었다.
 - 운영 CD 실행 [`30314779686`](https://github.com/it-play/lifeledger/actions/runs/30314779686)은 성공했다.
   production MySQL 8.0.46은 migration `40/40`, 실패 0건이고
-  `0023`·`0040` 모두 success다. 서버는 `readygsm-net`의 직접 MySQL 연결에서 restart 0·healthy였으며
-  내부·외부 `/api/health`가 모두 HTTP 200이었다. 이 운영 확인은 아래에 남은 D3 전체 invariant 재현을
-  대체하지 않는다.
+  `0023`·`0040` 모두 success다. 서버는 `readygsm-net`의 직접 MySQL 연결을 쓰며 내부·외부
+  `/api/health`가 모두 HTTP 200이다.
+- 사용자의 지시에 따라 마지막 누락 검증은 별도 DB나 dump 없이 production DB에서 수행했다. 기존 DataGSM
+  계정과 save는 변경하지 않았고, `provider_user_id=codex-m4d3-prod-20260728-v1`인 명시적 인수 계정 하나만
+  추가했다. 보험 이력은 append-only라 이 계정과 save 29는 검증 provenance로 남겼으며 session은 삭제했다.
+- production에서 D0 empty pin 0건과 가입 뒤 `notCovered`, D30 두 번째 10,000원 보험료, D31 pin 1건의
+  gross 120,000원·ready/paid 100,000원 claim과 정확한 replay를 다시 확인했다. 인수 도구의 첫 cursor 전달
+  오류로 생긴 run 1은 다음 run 시작에서 `expired/newRun`으로 정상 닫혔고, 주 경로 run 2와 취소 run 3을
+  포함한 모든 남은 행은 아래 global invariant를 만족한다.
+- 서버를 다시 시작한 뒤 `/api/state`, `/api/insurance/contracts`, save, run bundle, command identity,
+  event instance, contract·eligibility·transition·charge·claim·pin·allocation·receipt, settlement와 ledger
+  두 표를 포함한 **18개 canonical hash**가 전후 byte-identical이었다.
+- 재시작 후 migration `40/40`, 239 base tables·11 views·719 triggers, 보험 12 tables·36 triggers,
+  integration trigger 6개와 event draft guard 3개를 다시 확인했다. insurance v1과 event v1/v2의 stored
+  manifest·projection rehash는 모두 일치했고 newRun과 인수 run은 aggregate v4·event v2·insurance v1을
+  고정했다.
+- claim contract-pin digest, eligibility fingerprint, paid/reserved aggregate, claim allocation, contract·pin
+  cardinality, event/claim·allocation orphan, charge/settlement, ledger source ownership, 보험 원장 balance와
+  wallet tie-out의 위반 수가 전부 0이었다. sealed product no-op update와 coverage delete는 SQLSTATE 45000으로
+  거절됐고 coverage 1건과 열린 transaction 0건이 그대로였다. 인수 세션 0건, container healthy,
+  내부·외부 health HTTP 200으로 종료했으며 복구 dump는 만들지 않았다. 세부 출력은 §13.15에 남긴다.
 
-마지막 acceptance 서버·MySQL container·volume과 scratch DB는 이미 정리되어 기존 D360 상태를 이어서 쓸 수
-없다. 남은 검증은 다음 순서로 **fresh 격리 환경에서 한 번에 재현**한다.
+다음 재개 순서는 다음과 같다.
 
-1. `0001→0040`과 populated `0039→0040` 전진, metadata 수, migration 40, draft guard, 기존/신규 run pin과
-   canonical hash를 다시 확인한다.
-2. D0·D30/D31 주 경로와 cancel·deadline expiry·premium 부족 lapse·term D360을 재생해 contract, charge,
-   pin, claim, cash와 balanced ledger를 확인한다.
-3. 같은 DB로 서버를 재시작하고 contract/charge/pin/claim/cash/ledger와 `/api/state`의 전후 hash를 비교한다.
-4. 재시작 뒤 paid/reserved aggregate, contract/event pin 수, orphan reference 0건, ledger balance 0원과
-   sealed catalog update/delete 거절을 포함한 최종 global invariant SQL을 실행한다.
-5. 위 네 단계가 모두 통과한 뒤에만 §13.15를 완료 기록으로 바꾸고 D3 상태를 완료로 승격한다.
-6. 다음 기능 구현은 §8.1~§8.9의 M4-E1이다. core rule → SQLx `0041` → store/state/API → 스타일 없는
-   `/recovery` → 실제 MySQL/public HTTP 순서로 진행하며 §9 법인과 시각 스타일링은 시작하지 않는다.
+1. 이 문서 §8.1~§8.5와 §10.1~§10.2를 다시 읽고, §8.1의 2026 정책 source·게임 해석 경계를 변경 없이
+   사용한다.
+2. 현재 insolvency 전용 server/client 코드와 migration은 없다. 첫 구현은
+   `server/src/life/insolvency.rs`를 만들고 `server/src/life/types.rs`·`server/src/life/mod.rs`에 contract와
+   factory를 연결하는 순수 core다. `cashOnlyLiquidation` eligibility, 보호 현금, claim 비례 배분·잔여 1원,
+   composition hash와 1,825일 restriction 경계를 BDD/DCI로 고정하며 기존 `LoanRules::allocate_repayment`의
+   비용→이자→원금 배분을 재사용한다.
+3. core가 통과한 뒤 §8.6의 `server/migrations/0041_m4e_insolvency.sql`을 작성한다. `0024`, `0038`, `0039`,
+   특히 `0040_m4d_insurance.sql`의 immutable graph·barrier·assignment-only update 패턴을 참조하고,
+   installment/payment/ledger enum과 DB check도 `discharged · insolvencyDistribution · insolvencyDischarge`에
+   맞춰 함께 확장한다.
+4. runtime은 `server/src/store/insolvency.rs`를 추가하고 `store/mod.rs`, `store/types.rs`, `store/life.rs`,
+   `store/loans.rs`, `store/properties.rs`, `store/mysql.rs` 순서로 composition, submit/withdraw, 신용 overlay와
+   D+1,825 recovery를 연결한다. 그 뒤 `server/src/state.rs`와 `server/src/routes/mod.rs`에 §8.7의 여섯 strict
+   API와 bounded snapshot을 공개한다.
+5. client는 [client-foundation](../.agents/skills/client-foundation/SKILL.md)을 먼저 읽고
+   `client/src/api/contracts.ts`, 새 `insolvency-api.ts`, 새 `app/insolvency-retry/`, 새
+   `app/screens/recovery.ts`, `main.ts`, `dashboard.ts`만 기능 중심으로 연결한다. 별도 global store branch나
+   CSS·DOM 테스트는 만들지 않는다.
+6. §8.8의 server/client gate와 fresh/populated MySQL·public HTTP 인수까지 끝내기 전 M4-E2, §9 법인,
+   시각 스타일링으로 넘어가지 않는다.
 
-재개 전에 이 문서의 §2, §7.8~§7.13, §8.1~§8.9, §10~§13.15와 상위
+재개 전에 이 문서의 §2, §8.1~§8.9, §10~§13.15와 상위
 [`development-plan.md` §12](./development-plan.md)를 읽는다. 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와
 migration은 [database-schema](../.agents/skills/database-schema/SKILL.md)·
 [migration-guide](../.agents/skills/migration-guide/SKILL.md), API는
@@ -3049,8 +3078,8 @@ schema가 배포되기 전 알 수 없는 보험 component를 fail-closed한다.
 ### 13.15 M4-D3 검증 진행 기록 (2026-07-28)
 
 M4-D3의 가상 보험 계약·보험료·중도 취소·사건 시점 pin·비소급 claim·지급·만기와 스타일 없는
-`/events-insurance` 기능은 커밋 `4b2b3db`에 구현했다. 기능 구현과 로컬 gate는 끝났고 실제 MySQL/HTTP
-인수의 마지막 global invariant 재현만 남아 있다.
+`/events-insurance` 기능은 커밋 `4b2b3db`에 구현했다. 기능 구현, 로컬 gate, 실제 MySQL/HTTP와 마지막
+재시작 후 global invariant까지 모두 끝났으며 M4-D3는 완료다.
 
 - SQLx `0040`은 insurance fact/product/coverage catalog와 contract·premium·claim·allocation·transition·
   receipt runtime을 추가했다. fresh MySQL 8.4에서 migration 40 success, 239 base tables·11 views·719
@@ -3064,10 +3093,42 @@ M4-D3의 가상 보험 계약·보험료·중도 취소·사건 시점 pin·비�
 - 장기 정상 경로는 D300 charge 11, D330 charge 12, D360 `expired/termEnded`까지 통과했다. 12개 premium
   charge와 원장이 정확히 한 번씩 존재했고 13번째 charge와 D360 이후 보장은 없었다.
 - 동일 scratch DB에서 서버를 재시작한 뒤에도 보험 aggregate와 `/api/state` hash가 각각 동일했고 계약
-  API가 HTTP 200이었다. 다만 그 뒤 최종 aggregate·pin·orphan invariant SQL을 재실행하기 전에 scratch
-  container·volume을 정리했으므로 §1.1의 fresh 전체 재현이 필요하다.
+  API가 HTTP 200이었다. 당시 최종 aggregate·pin·orphan invariant SQL을 재실행하기 전에 scratch
+  container·volume을 정리해 검증 공백이 생겼지만, 아래 production 최종 인수로 그 공백을 닫았다.
 - D3 합본은 서버 1,170 tests와 check/clippy/fmt, 클라이언트 30 suite·551 tests와
   typecheck/lint/build, Docker build check와 `git diff --check`를 통과했다.
+
+사용자 지시에 따라 2026-07-28의 마지막 인수는 별도 MySQL·schema·dump를 만들지 않고 development 용도의
+production DB에서 수행했다. 기존 DataGSM 계정과 save는 그대로 보존하고, 식별 가능한 Google 인수 계정
+`codex-m4d3-prod-20260728-v1`과 save 29만 추가했다. runtime history는 의도적으로 append-only이므로 이
+계정은 provenance로 남기되 원문 session token과 session row는 삭제했다.
+
+- public HTTP 주 경로는 run 2에서 D0 empty contract pin 0건 → 가입 뒤 gross 120,000원 `notCovered` →
+  D30 두 번째 premium paid → D31 contract pin 1건·waiting 통과 → ready 100,000원 → paid와 exact replay로
+  끝났다. DB에는 `notCovered:pin0`, `paid:pin1`, 지급 benefit 100,000원, reservation 0원이 남았다.
+- 첫 인수 도구는 가입 함수가 subshell에서 snapshot을 갱신해 stale cursor를 보낸 탓에 HTTP 409 `busy`로
+  멈췄다. 서버 권위 cursor가 올바른 것을 DB로 확인한 뒤 도구의 cursor 전달만 고쳤다. 그 preflight run 1은
+  다음 run 시작 때 `expired/newRun`으로 닫혔고, run 3의 D0 취소 계약은 `cancelled/playerCancellation`으로
+  닫혔다. 중단 뒤 열린 transaction과 인수 session은 모두 0건이었다.
+- production MySQL 8.0.46은 migration `40/40`, 실패 0, migration 40 checksum 48 bytes였다. schema는
+  239 base tables·11 views·719 triggers, 보험 12 tables·36 direct triggers, integration trigger 6개,
+  event draft guard 3개였다.
+- canonical hash는 insurance v1
+  `77bbed525cdc4d7014dacce75eaafe2bf833fcb145009a4405603af28bb27a0c`, event v1
+  `6657664680f683073740cefe3317334b3c30963940dae0f2b91adec4b3c4104c`, event v2
+  `7b924fffb11b93e823885f668e15e2bb988da96988ed614eeb312c43478275ea`였고 세 manifest·projection rehash와
+  stored digest가 모두 일치했다. `newRun` assignment revision 14와 인수 run 1~3은 aggregate v4·event v2·
+  insurance v1을 고정했다.
+- 동일 container를 실제로 다시 시작한 전후 `/api/state`, `/api/insurance/contracts`, save, run bundle,
+  command identity, event instance, 모든 D3 contract/charge/pin/claim/allocation/receipt, settlement와 원장까지
+  18개 hash를 비교해 모두 동일했다. 잘못된 `command_identity.run_revision` 정렬로 빈 hash가 된 첫 보조
+  검사는 실제 column `initial_run_revision`으로 고쳐 전체 검사를 다시 실행한 뒤에만 통과로 기록했다.
+- 재시작된 DB에서 claim pin digest, eligibility fingerprint, paid/reserved aggregate, claim allocation,
+  contract·pin cardinality, event/claim·allocation orphan, charge/settlement, ledger source ownership, 보험 원장
+  balance와 wallet tie-out 위반이 전부 0이었다. sealed insurance product update와 coverage delete는 각각
+  SQLSTATE 45000 `immutable`로 거절됐고 coverage 1건, 열린 transaction 0건을 재확인했다.
+- 종료 시 container는 healthy, 내부와 외부 `/api/health`는 HTTP 200, 인수 session과 열린 DB transaction은
+  0건이었다. recovery dump는 만들지 않았고 전송한 임시 스크립트·SQL·hash 파일은 모두 제거했다.
 
 운영 CD는 `main`의 `server/**` push에서 source 전송 → Docker image build → container 교체 → health
 validation을 수행하며, 새 binary 시작 시 `sqlx::migrate!()`가 외부 요청 bind 전에 pending migration을
