@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-E2 production 인수 완료, `/corporation` client production 전달과 M4-F 30년 검증 대기, 시각 스타일링 보류
+- 상태: M4-F client production 전달·30년 30일 step 첫 750일 완료, 정상·도산·재기와 step 동등성 검증 대기, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,50 +22,51 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-production server checkpoint는 `c79db45` binary이고 DB는 migration `51/51`, 실패 0이다. 운영 설정·대표
+production server checkpoint는 `c79db45` binary이고 DB는 migration `51/51`, 실패 0이다. client checkpoint
+`2a4dea1`은 Vercel deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 `Ready`이며 canonical origin
+`https://lifeledger-ruby.vercel.app`이 이 deployment를 가리킨다. `/corporation`은 HTTP 200, 생성 HTML의
+`js/app.js`는 정확히 한 개, same-origin `/api/health`는 200, 비인증 `/api/state`는 401이다. 운영 설정·대표
 급여, 연 결산·법인세, 배당·M2 금융소득, bounded 월 history까지 development production DB와 public API에서
-인수했다. 전체 결과는 §13.21, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
-스타일 없는 `/corporation`은 Vercel Git integration으로 `https://lifeledger-ruby.vercel.app` production에
-전달된다. project root는 `client/`, build는 `npm run build`, output은 `dist/`이며 latest production bundle에
-법인 route·API·한국어 조작 문자열이 포함된 것을 확인했다. `https://kimtaeeun.site/lifeledger/`는 다른 정적
-사이트가 점유하고 API reverse proxy만 제공하므로 client origin으로 쓰지 않는다.
+인수했다. 전체 결과는 §13.21~§13.22, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
+`https://kimtaeeun.site/lifeledger/`는 다른 정적 사이트가 점유하고 API reverse proxy만 제공하므로 client
+origin으로 쓰지 않는다.
 
 별도 MySQL, 격리 schema, recovery dump는 만들지 않는다. server 변경은 `main`의 `server/**` push → 원격
 image build → 새 server 시작 시 `sqlx::migrate!()` → health 순서로 development production DB를 직접
 전진시킨다. 접속은 `ssh snowykte0426@59.28.34.117`, service host port는 `10105`, public base는
 `https://kimtaeeun.site/lifeledger`다. 비밀번호·session token은 문서나 repository에 남기지 않는다.
 
-M4-E2 production fixture는 user 5, save 3882, run revision 1, corporation 1이다. 최종 cursor는 day 365/state
-revision 368이다. 개인 cash는 1,748,830원, 법인 cash는 7,187,537원, retained earnings는 4,313,173원,
-operating payable은 0원, corporate tax payable은 706,164원, distributable profit은 4,713,519원이며 법인은
-`active`다. 2026년 세전이익 6,419,683원의 결산과 1,000,000원 gross 배당까지 완료했다. E1의 user 4/save
-118 fixture와 append-only 이력은 보존했다. 인수용 session 13은 삭제했고 열린 외부 InnoDB transaction은
-0건이다.
+M4-F 30일 step fixture는 user 5, save 3882, run revision 1, corporation 1이다. E2 인수 기준점 day 365/state
+revision 368에서 lean scale·대표 급여 0원을 설정해 state 369로 만든 뒤 25×30일을 진행했다. 현재 cursor는
+day 1115/state revision 1119다. 개인 cash는 0원이고 debt 20,620,932원은 전부 active essential arrear이며
+loan·lease arrear·tax obligation은 0원이다. 법인은 `active`, cash 61,454,825원, retained earnings
+53,094,253원, operating payable 0원, corporate tax payable 6,192,372원, distributable profit
+49,101,954원이다. 2026~2028 결산과 2026-08~2029-01 월 30건이 적용됐다. E2의 day 365 기준값은 §13.21,
+이번 첫 장기 구간은 §13.22를 따른다. E1의 user 4/save 118 fixture와 append-only 이력은 보존했다. 임시
+session 14·15는 삭제했고 열린 외부 InnoDB transaction은 0건이다.
 
 다음 재개 순서는 고정한다.
 
-1. [`AGENTS.md`](../AGENTS.md), 이 문서 §12, §13.1, §13.2, §13.19~§13.21, §14와
+1. [`AGENTS.md`](../AGENTS.md), 이 문서 §8.7~§8.8, §12, §13.1, §13.2, §13.19~§13.22, §14와
    [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다. E2 기능을 다시 수정할 때만 §9.3,
    §9.4와 [`store/corporations.rs`](../server/src/store/corporations.rs),
    [`0050_m4e2_corporation_tax_dividend.sql`](../server/migrations/0050_m4e2_corporation_tax_dividend.sql),
    [`0051_m4e2_corporation_payroll_source_width.sql`](../server/migrations/0051_m4e2_corporation_payroll_source_width.sql)을
    함께 읽는다.
-2. M4-F의 첫 수정은 production HTML이 `js/app.js`를 두 번 포함해 bootstrap을 중복 실행하는 문제를
-   [`webpack.config.prod.js`](../client/webpack.config.prod.js)에서 제거하는 것이다. 기존 template script는
-   유지하고 `HtmlWebpackPlugin` 자동 주입만 끈다. typecheck·production build 뒤 생성 HTML의 app script가
-   정확히 한 개인지 확인하고 Vercel production deployment까지 추적한다.
-3. 수정된 client가 전달된 뒤 public `https://lifeledger-ruby.vercel.app/corporation`에서 설립·설정·월
-   history·배당을 한 번 조작한다. client가
-   세금·급여·시간을 재계산하지 않고 server snapshot만 표시하는지 확인하며, DOM·routing·network test를
-   새로 만들지 않는다. 기능 실패가 드러날 때만 해당 pure core/service 또는 protocol 범위를 고친다.
-4. 이어 §13.2의 고정 30년 시나리오를 development production DB에서 실행한다. 정상·연체·도산·재기와 법인
-   경로를 작은 step·30일 step으로 끝까지 진행해 최종 cursor, 원장 합계, debt/net-worth projection,
-   corporation 월·세금·배당, orphan과 재시작 hash를 비교한다. 사용자 지시에 따라 별도 DB·dump는 만들지
-   않고 PII 없는 인수 fixture와 임시 session만 사용한 뒤 정확한 ID로 삭제한다.
-5. 30년 시나리오가 닫힌 뒤에만 M4 완료를 선언하고 시각 스타일링으로 이동한다. month history가 20건을
-   넘는 이 단계에서 실제 signed next cursor의 다음 페이지·변조 400·다른 run 비노출도 함께 닫는다.
-   구현 우선 원칙에 따라 전체 회귀를 반복하지 않고, 변경된 순수 규칙·service와 typecheck/build 등 필요한
-   gate만 실행한다.
+2. **다음 한 단계는 현재 fixture의 도산 경계 확인이다.** user 5용 하루 만료 임시 session을 만들고
+   `GET /api/insolvency`로 day 1115의 eligibility와 reason을 먼저 저장한다. 현재 essential arrear 구성이
+   지원되면 prepare→submit→recovery 경로를 진행하고, 지원되지 않으면 이 fixture는 연체 장기 경로로
+   보존한 뒤 §8.8 구성을 만족하는 별도 PII 없는 production fixture에서 도산·재기를 진행한다.
+3. 그 다음 user 5의 30일 step을 고정 30년 끝까지 먼저 진행한다. 매 command마다 전체 회귀를 돌리지 않고
+   연 경계와 상태 전이에서만 cursor, debt projection, 개인·법인 원장 합, 법인 월·세금과 exact replay를
+   확인한다. 실패하면 같은 command ID로 재개해 일일 commit 경계를 검증하고 실제 원인만 표적 수정한다.
+4. 마지막으로 같은 bundle·seed·초기 입력을 고정한 PII 없는 paired fixture를 같은 production DB에 만들어
+   1일 step과 30일 step의 최종 hash를 비교하고 정상·도산·재기 경로, 다른 run 비노출, orphan, 재시작
+   불변식을 닫는다. 별도 DB·schema·dump는 만들지 않는다. 인증된 브라우저 session이 준비되면
+   `/corporation` 화면 조작도 이 단계에서 한 번 확인하되, 현재는 공개 로그인 화면과 같은 Vercel origin의
+   인증 API 설정·replay까지 검증돼 있어 장기 기능 검증을 막지 않는다.
+5. 위 세 단계가 끝난 뒤에만 M4 완료를 선언하고 시각 스타일링으로 이동한다. 구현 우선 원칙에 따라 전체
+   회귀를 반복하지 않고 변경된 순수 규칙·service와 typecheck/build 등 필요한 gate만 실행한다.
 
 재개 전에 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와 migration은
 [database-schema](../.agents/skills/database-schema/SKILL.md)·
@@ -3593,6 +3594,52 @@ production 전달은 이 인수 범위가 아니며 §1.1의 다음 재개점으
 따라서 server 기준 M4-E2a·E2b·E2c는 완료다. 다음 작업은 새 법인 기능 추가나 시각 스타일링이 아니라
 §1.1의 client production 전달 확인과 §13.2 고정 30년 기능 검증이다. 30년 검증 전에는 M4 전체 완료나
 스타일링 시작을 선언하지 않는다.
+
+### 13.22 M4-F client production과 30년 시나리오 첫 구간 (2026-07-29)
+
+client production 전달을 닫고 §13.2의 기존 user 5 법인 fixture로 30일 step 장기 시나리오를 시작했다.
+별도 MySQL·schema·dump는 만들지 않았고, 구현 우선 원칙에 따라 DOM·network test와 전체 회귀를 추가하지
+않았다.
+
+- production HTML은 template의 기존 script와 `HtmlWebpackPlugin` 자동 주입이 겹쳐 `js/app.js`를 두 번
+  실행하고 있었다. 설계·배포 경계를 먼저 문서화한 `5d3edf1` 뒤 `2a4dea1`에서 plugin `inject`를 껐다.
+  client typecheck·lint·production build를 통과했고 생성 HTML의 app script가 한 개임을 확인했다. Vercel은
+  GitHub `main`의 `2a4dea1`을 deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 build해 `Ready`가 됐고
+  canonical alias 세 개 중 `https://lifeledger-ruby.vercel.app`이 이 deployment를 가리킨다. build warning은
+  기존 654 KiB 단일 bundle 크기 권고뿐이다.
+- canonical `/corporation`과 `/api/health`는 각각 HTTP 200, 비인증 `/api/state`는 401이었다. 브라우저에서는
+  LifeLedger 로그인 화면과 DataGSM·Google 버튼까지 확인했다. 사용자의 OAuth session을 대신 만들거나 계정
+  로그인을 진행하지 않았다. 대신 같은 Vercel origin의 인증 API로 화면과 동일한 설정 command를 실행해
+  corporation 1의 다음 달 설정을 standard scale 6·대표 급여 1,000,000원에서 lean scale 3·0원으로 바꿨다.
+  setting 2는 day 365에서 state 368→369로 한 번만 전진했고 exact replay는 같은 result와
+  `replayed=true`, state 369를 반환했다.
+- state 369/day 365에서 24×30일을 55초에 진행해 state 1089/day 1085에 도달했다. 이어 별도 30일 command로
+  state 1119/day 1115까지 전진한 뒤 같은 command를 재전송했다. replay는 initial state 1089/day 1085와
+  committed state 1119/day 1115를 그대로 반환하고 더 전진하지 않았다. 총 750일 동안 HTTP 실패나 중간
+  command 복구는 없었다.
+- 개인 wallet은 day 425부터 0원을 유지하고 부족액을 typed 채무로 전환했다. 최종 저장 debt 20,620,932원은
+  active `essential_arrear` 합 20,620,932원과 정확히 같고 active loan, lease arrear, outstanding tax
+  obligation은 모두 0원이다. `save.cash_krw`는 음수가 아니며 typed authority 네 항목도 음수가 아니다.
+- 법인은 lean·급여 0원으로 active를 유지했다. 최종 cash 61,454,825원, retained earnings 53,094,253원,
+  operating payable 0원, corporate tax payable 6,192,372원, distributable profit 49,101,954원이다.
+  월 row는 2026-08~2029-01 30건이다. 2026·2027·2028 applied tax year의 세액은 각각 706,164원,
+  2,463,271원, 3,022,937원으로 payable 합과 일치한다.
+- month history 첫 page는 limit 20을 채우고 signed `nextCursor`를 반환했다. cursor 다음 page는 2028-04부터
+  남은 row를 오름차순으로 반환했으며 마지막 page cursor는 null이었다. 서명의 마지막 문자를 바꾼 cursor는
+  HTTP 400이었다. user 4의 별도 임시 session으로 corporation 1 detail과 month history를 요청하면 둘 다
+  동일한 HTTP 404여서 다른 사용자 graph를 노출하지 않았다.
+- save 3882/run 1의 개인 ledger와 corporation ledger를 transaction별로 전수 집계했을 때 posting 2개 미만
+  또는 합계가 0이 아닌 transaction은 각각 0건이었다. container restart 전후 canonical state,
+  corporation detail, month first page hash는 모두 exact match였고 prefix는 각각
+  `3ff6b160c20bc368`, `0b01a81a1f8f39fc`, `bbca84dcd7645c50`이다. 재시작은 MySQL 연결, migration 적용,
+  두 OAuth provider 활성화와 listen을 기록했고 warning/error/panic 0건, health 200, 열린 InnoDB transaction
+  0건이었다.
+- 인수 session 14(user 5)와 15(user 4)는 ID·user를 함께 제한해 정확히 두 행 삭제했고 이후 두 ID count가
+  0임을 확인했다. token·hash 변수도 폐기했으며 repository나 문서에 credential을 남기지 않았다. server
+  코드와 schema는 바뀌지 않았으므로 server CD나 테스트를 다시 실행하지 않았다.
+
+이 checkpoint는 **30년 검증 완료가 아니다**. 정확한 재개점은 §1.1의 day 1115 도산 eligibility 확인이며,
+그 뒤 현재 30일 step 장기 경로, paired 1일 step·정상 경로와 도산·재기 비교를 순서대로 닫는다.
 
 ## 14. M4 완료 조건
 
