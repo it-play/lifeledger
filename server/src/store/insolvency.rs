@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, MySql, MySqlPool, Transaction};
+use sqlx::{MySql, MySqlPool, Transaction};
 use time::Date;
 
 use super::loans::{LoanPostingReference, write_loan_ledger_transaction};
@@ -969,7 +969,7 @@ async fn apply_bucket_payment(
          WHERE id = ? AND save_id = ? AND run_revision = ?
            AND status IN ('pending', 'due', 'partiallyPaid')"
     );
-    let updated = sqlx::query(AssertSqlSafe(query.as_str()))
+    let updated = sqlx::query(query.as_str())
         .bind(paid_krw)
         .bind(paid_krw)
         .bind(bucket.loan_installment_id)
@@ -1497,7 +1497,7 @@ async fn read_scope_for_user(
     lock: bool,
 ) -> Result<Option<ScopeRow>> {
     let query = scope_query("save.user_id = ?", lock);
-    sqlx::query_as(AssertSqlSafe(query.as_str()))
+    sqlx::query_as(query.as_str())
         .bind(user_id)
         .fetch_optional(&mut **tx)
         .await
@@ -1509,7 +1509,7 @@ async fn read_scope_for_save(
     save_id: u64,
 ) -> Result<Option<ScopeRow>> {
     let query = scope_query("save.id = ?", false);
-    sqlx::query_as(AssertSqlSafe(query.as_str()))
+    sqlx::query_as(query.as_str())
         .bind(save_id)
         .fetch_optional(&mut **tx)
         .await
@@ -1570,7 +1570,7 @@ async fn read_loan_rows(
          ORDER BY id LIMIT 21{}",
         if lock { " FOR UPDATE" } else { "" }
     );
-    let rows = sqlx::query_as(AssertSqlSafe(query.as_str()))
+    let rows = sqlx::query_as(query.as_str())
         .bind(scope.save_id)
         .bind(scope.run_revision)
         .fetch_all(&mut **tx)
@@ -1622,7 +1622,7 @@ async fn read_case_by_id(
          WHERE id = ? AND save_id = ? AND run_revision = ?{}",
         if lock { " FOR UPDATE" } else { "" }
     );
-    sqlx::query_as(AssertSqlSafe(query.as_str()))
+    sqlx::query_as(query.as_str())
         .bind(case_id)
         .bind(scope.save_id)
         .bind(scope.run_revision)
