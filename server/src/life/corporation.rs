@@ -47,6 +47,207 @@ impl CorporationRules for V1CorporationRules {
     ) -> Result<CorporationOperatingMonthPlan, CorporationError> {
         plan_operating_month(self.entropy.as_ref(), input)
     }
+
+    fn plan_officer_payroll(
+        &self,
+        input: CorporationOfficerPayrollInput,
+    ) -> Result<CorporationOfficerPayrollPlan, CorporationError> {
+        plan_officer_payroll(input)
+    }
+
+    fn plan_corporate_tax(
+        &self,
+        input: CorporationTaxInput<'_>,
+    ) -> Result<CorporationTaxPlan, CorporationError> {
+        plan_corporate_tax(input)
+    }
+
+    fn plan_dividend(
+        &self,
+        input: CorporationDividendInput,
+    ) -> Result<CorporationDividendPlan, CorporationError> {
+        plan_dividend(input)
+    }
+}
+
+fn plan_corporate_tax(
+    input: CorporationTaxInput<'_>,
+) -> Result<CorporationTaxPlan, CorporationError> {
+    validate_tax_brackets(input.policy.national_brackets)?;
+    validate_tax_brackets(input.policy.local_brackets)?;
+    if !(-CORPORATION_MAX_PUBLIC_MONEY_KRW..=CORPORATION_MAX_PUBLIC_MONEY_KRW)
+        .contains(&input.annual_pre_tax_profit_krw)
+    {
+        return Err(CorporationError::InvalidTaxPolicy);
+    }
+    let tax_base_krw = input.annual_pre_tax_profit_krw.max(0);
+    let corporate_income_tax_krw =
+        calculate_bracket_tax(tax_base_krw, input.policy.national_brackets)?;
+    let local_corporate_income_tax_krw =
+        calculate_bracket_tax(tax_base_krw, input.policy.local_brackets)?;
+    let total_tax_krw = corporate_income_tax_krw
+        .checked_add(local_corporate_income_tax_krw)
+        .ok_or(CorporationError::ArithmeticOverflow)?;
+    let after_tax_profit_krw = input
+        .annual_pre_tax_profit_krw
+        .checked_sub(total_tax_krw)
+        .ok_or(CorporationError::ArithmeticOverflow)?;
+    Ok(CorporationTaxPlan {
+        tax_base_krw,
+        corporate_income_tax_krw,
+        local_corporate_income_tax_krw,
+        total_tax_krw,
+        after_tax_profit_krw,
+    })
+}
+
+fn validate_tax_brackets(brackets: &[CorporationTaxBracket]) -> Result<(), CorporationError> {
+    if brackets.is_empty() {
+        return Err(CorporationError::InvalidTaxPolicy);
+    }
+    let mut previous_maximum = 0_i64;
+    for (index, bracket) in brackets.iter().enumerate() {
+        if !(1..=1_000_000).contains(&bracket.rate_ppm)
+            || !(0..=CORPORATION_MAX_PUBLIC_MONEY_KRW).contains(&bracket.progressive_deduction_krw)
+            || bracket.maximum_tax_base_krw.is_none() != (index + 1 == brackets.len())
+        {
+            return Err(CorporationError::InvalidTaxPolicy);
+        }
+        if let Some(maximum) = bracket.maximum_tax_base_krw {
+            if maximum <= previous_maximum || maximum > CORPORATION_MAX_PUBLIC_MONEY_KRW {
+                return Err(CorporationError::InvalidTaxPolicy);
+            }
+            previous_maximum = maximum;
+        }
+    }
+    Ok(())
+}
+
+fn calculate_bracket_tax(
+    tax_base_krw: i64,
+    brackets: &[CorporationTaxBracket],
+) -> Result<i64, CorporationError> {
+    if tax_base_krw == 0 {
+        return Ok(0);
+    }
+    let bracket = brackets
+        .iter()
+        .find(|bracket| {
+            bracket
+                .maximum_tax_base_krw
+                .is_none_or(|maximum| tax_base_krw <= maximum)
+        })
+        .ok_or(CorporationError::InvalidTaxPolicy)?;
+    let calculated = i128::from(tax_base_krw)
+        .checked_mul(i128::from(bracket.rate_ppm))
+        .and_then(|amount| amount.checked_div(1_000_000))
+        .and_then(|amount| amount.checked_sub(i128::from(bracket.progressive_deduction_krw)))
+        .ok_or(CorporationError::ArithmeticOverflow)?;
+    i64::try_from(calculated.max(0)).map_err(|_| CorporationError::ArithmeticOverflow)
+}
+
+fn plan_dividend(
+    input: CorporationDividendInput,
+) -> Result<CorporationDividendPlan, CorporationError> {
+    if !(1..=CORPORATION_MAX_PUBLIC_MONEY_KRW).contains(&input.gross_dividend_krw)
+        || !(0..=CORPORATION_MAX_PUBLIC_MONEY_KRW).contains(&input.distributable_profit_krw)
+        || !(0..=CORPORATION_MAX_PUBLIC_MONEY_KRW).contains(&input.corporation_cash_krw)
+        || !(1..=1_000_000).contains(&input.income_tax_rate_ppm)
+        || !(1..=1_000_000).contains(&input.local_income_tax_on_income_tax_ppm)
+    {
+        return Err(CorporationError::InvalidDividend);
+    }
+    if input.gross_dividend_krw
+        > input
+            .distributable_profit_krw
+            .min(input.corporation_cash_krw)
+    {
+        return Err(CorporationError::InsufficientDividendCapacity);
+    }
+    let withheld_income_tax_krw =
+        checked_rate_amount(input.gross_dividend_krw, input.income_tax_rate_ppm)?;
+    let withheld_local_income_tax_krw = checked_rate_amount(
+        withheld_income_tax_krw,
+        input.local_income_tax_on_income_tax_ppm,
+    )?;
+    let net_dividend_krw = input
+        .gross_dividend_krw
+        .checked_sub(withheld_income_tax_krw)
+        .and_then(|amount| amount.checked_sub(withheld_local_income_tax_krw))
+        .ok_or(CorporationError::ArithmeticOverflow)?;
+    Ok(CorporationDividendPlan {
+        gross_dividend_krw: input.gross_dividend_krw,
+        withheld_income_tax_krw,
+        withheld_local_income_tax_krw,
+        net_dividend_krw,
+        distributable_profit_after_krw: input
+            .distributable_profit_krw
+            .checked_sub(input.gross_dividend_krw)
+            .ok_or(CorporationError::ArithmeticOverflow)?,
+        corporation_cash_after_krw: input
+            .corporation_cash_krw
+            .checked_sub(net_dividend_krw)
+            .ok_or(CorporationError::ArithmeticOverflow)?,
+    })
+}
+
+fn checked_rate_amount(amount_krw: i64, rate_ppm: i64) -> Result<i64, CorporationError> {
+    i64::try_from(
+        i128::from(amount_krw)
+            .checked_mul(i128::from(rate_ppm))
+            .and_then(|amount| amount.checked_div(1_000_000))
+            .ok_or(CorporationError::ArithmeticOverflow)?,
+    )
+    .map_err(|_| CorporationError::ArithmeticOverflow)
+}
+
+fn plan_officer_payroll(
+    input: CorporationOfficerPayrollInput,
+) -> Result<CorporationOfficerPayrollPlan, CorporationError> {
+    let amounts = [
+        input.cash_after_operating_krw,
+        input.gross_salary_krw,
+        input.employee_insurance_total_krw,
+        input.employer_insurance_total_krw,
+        input.withheld_income_tax_krw,
+        input.withheld_local_income_tax_krw,
+        input.net_salary_krw,
+    ];
+    if amounts
+        .into_iter()
+        .any(|amount| !(0..=CORPORATION_MAX_PUBLIC_MONEY_KRW).contains(&amount))
+    {
+        return Err(CorporationError::InvalidOfficerPayroll);
+    }
+    let deductions_krw = input
+        .employee_insurance_total_krw
+        .checked_add(input.withheld_income_tax_krw)
+        .and_then(|amount| amount.checked_add(input.withheld_local_income_tax_krw))
+        .ok_or(CorporationError::ArithmeticOverflow)?;
+    if input
+        .net_salary_krw
+        .checked_add(deductions_krw)
+        .ok_or(CorporationError::ArithmeticOverflow)?
+        != input.gross_salary_krw
+    {
+        return Err(CorporationError::InvalidOfficerPayroll);
+    }
+    let total_payroll_cost_krw = input
+        .gross_salary_krw
+        .checked_add(input.employer_insurance_total_krw)
+        .ok_or(CorporationError::ArithmeticOverflow)?;
+    let withholding_liability_krw = deductions_krw
+        .checked_add(input.employer_insurance_total_krw)
+        .ok_or(CorporationError::ArithmeticOverflow)?;
+    let paid = input.cash_after_operating_krw >= total_payroll_cost_krw;
+    Ok(CorporationOfficerPayrollPlan {
+        paid,
+        total_payroll_cost_krw,
+        withholding_liability_krw: if paid { withholding_liability_krw } else { 0 },
+        corporation_cash_debit_krw: if paid { input.net_salary_krw } else { 0 },
+        operating_payable_increase_krw: if paid { 0 } else { total_payroll_cost_krw },
+        personal_wallet_credit_krw: if paid { input.net_salary_krw } else { 0 },
+    })
 }
 
 fn plan_operating_month(
@@ -354,6 +555,55 @@ mod tests {
         .plan_operating_month(input)
     }
 
+    fn given_corporate_tax_policy() -> ([CorporationTaxBracket; 4], [CorporationTaxBracket; 4]) {
+        (
+            [
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: Some(200_000_000),
+                    rate_ppm: 100_000,
+                    progressive_deduction_krw: 0,
+                },
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: Some(20_000_000_000),
+                    rate_ppm: 200_000,
+                    progressive_deduction_krw: 20_000_000,
+                },
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: Some(300_000_000_000),
+                    rate_ppm: 220_000,
+                    progressive_deduction_krw: 420_000_000,
+                },
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: None,
+                    rate_ppm: 250_000,
+                    progressive_deduction_krw: 9_420_000_000,
+                },
+            ],
+            [
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: Some(200_000_000),
+                    rate_ppm: 10_000,
+                    progressive_deduction_krw: 0,
+                },
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: Some(20_000_000_000),
+                    rate_ppm: 20_000,
+                    progressive_deduction_krw: 2_000_000,
+                },
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: Some(300_000_000_000),
+                    rate_ppm: 22_000,
+                    progressive_deduction_krw: 39_800_000,
+                },
+                CorporationTaxBracket {
+                    maximum_tax_base_krw: None,
+                    rate_ppm: 25_000,
+                    progressive_deduction_krw: 655_800_000,
+                },
+            ],
+        )
+    }
+
     mod context_최저_등록면허세가_적용되는_경우 {
         use super::*;
 
@@ -445,6 +695,127 @@ mod tests {
             let result = when_planning_operating_month(input, 0);
 
             assert_eq!(result, Err(CorporationError::InvalidOperatingTerms));
+        }
+    }
+
+    mod context_법인현금이_급여총비용을_감당하는_경우 {
+        use super::*;
+
+        #[test]
+        fn given_총비용이하의_법인현금_when_대표급여를_계획하면_then_개인지갑과_예수금을_기록한다()
+        {
+            let result = create_corporation_rules()
+                .plan_officer_payroll(CorporationOfficerPayrollInput {
+                    cash_after_operating_krw: 4_000_000,
+                    gross_salary_krw: 3_000_000,
+                    employee_insurance_total_krw: 270_000,
+                    employer_insurance_total_krw: 330_000,
+                    withheld_income_tax_krw: 70_000,
+                    withheld_local_income_tax_krw: 7_000,
+                    net_salary_krw: 2_653_000,
+                })
+                .expect("대표 급여 계획이 유효해야 한다");
+
+            assert!(result.paid);
+            assert_eq!(result.total_payroll_cost_krw, 3_330_000);
+            assert_eq!(result.corporation_cash_debit_krw, 2_653_000);
+            assert_eq!(result.withholding_liability_krw, 677_000);
+            assert_eq!(result.personal_wallet_credit_krw, 2_653_000);
+        }
+    }
+
+    mod context_법인현금이_급여총비용보다_적은_경우 {
+        use super::*;
+
+        #[test]
+        fn given_순급여는_있지만_총비용이_부족할때_when_대표급여를_계획하면_then_전액미지급금으로_기록한다()
+         {
+            let result = create_corporation_rules()
+                .plan_officer_payroll(CorporationOfficerPayrollInput {
+                    cash_after_operating_krw: 3_000_000,
+                    gross_salary_krw: 3_000_000,
+                    employee_insurance_total_krw: 270_000,
+                    employer_insurance_total_krw: 330_000,
+                    withheld_income_tax_krw: 70_000,
+                    withheld_local_income_tax_krw: 7_000,
+                    net_salary_krw: 2_653_000,
+                })
+                .expect("대표 급여 계획이 유효해야 한다");
+
+            assert!(!result.paid);
+            assert_eq!(result.operating_payable_increase_krw, 3_330_000);
+            assert_eq!(result.corporation_cash_debit_krw, 0);
+            assert_eq!(result.withholding_liability_krw, 0);
+            assert_eq!(result.personal_wallet_credit_krw, 0);
+        }
+    }
+
+    mod context_법인세_두번째_구간의_마지막_원인_경우 {
+        use super::*;
+
+        #[test]
+        fn given_과세표준_이억원초과_when_결산하면_then_국세와_지방세_누진공제를_각각_적용한다() {
+            let (national, local) = given_corporate_tax_policy();
+
+            let result = create_corporation_rules()
+                .plan_corporate_tax(CorporationTaxInput {
+                    annual_pre_tax_profit_krw: 200_000_001,
+                    policy: CorporationTaxPolicy {
+                        national_brackets: &national,
+                        local_brackets: &local,
+                    },
+                })
+                .expect("법인세 정책이 유효해야 한다");
+
+            assert_eq!(result.corporate_income_tax_krw, 20_000_000);
+            assert_eq!(result.local_corporate_income_tax_krw, 2_000_000);
+            assert_eq!(result.after_tax_profit_krw, 178_000_001);
+        }
+    }
+
+    mod context_결손_사업연도를_결산하는_경우 {
+        use super::*;
+
+        #[test]
+        fn given_음수_세전손익_when_결산하면_then_과세표준과_세액은_영원이다() {
+            let (national, local) = given_corporate_tax_policy();
+
+            let result = create_corporation_rules()
+                .plan_corporate_tax(CorporationTaxInput {
+                    annual_pre_tax_profit_krw: -1,
+                    policy: CorporationTaxPolicy {
+                        national_brackets: &national,
+                        local_brackets: &local,
+                    },
+                })
+                .expect("결손도 유효한 결산 입력이다");
+
+            assert_eq!(result.tax_base_krw, 0);
+            assert_eq!(result.total_tax_krw, 0);
+            assert_eq!(result.after_tax_profit_krw, -1);
+        }
+    }
+
+    mod context_배당가능이익과_현금이_충분한_경우 {
+        use super::*;
+
+        #[test]
+        fn given_일원_배당_when_지급을_계획하면_then_각_세액을_원단위_내림한다() {
+            let result = create_corporation_rules()
+                .plan_dividend(CorporationDividendInput {
+                    gross_dividend_krw: 1,
+                    distributable_profit_krw: 1,
+                    corporation_cash_krw: 1,
+                    income_tax_rate_ppm: 140_000,
+                    local_income_tax_on_income_tax_ppm: 100_000,
+                })
+                .expect("배당 계획이 유효해야 한다");
+
+            assert_eq!(result.withheld_income_tax_krw, 0);
+            assert_eq!(result.withheld_local_income_tax_krw, 0);
+            assert_eq!(result.net_dividend_krw, 1);
+            assert_eq!(result.distributable_profit_after_krw, 0);
+            assert_eq!(result.corporation_cash_after_krw, 0);
         }
     }
 }

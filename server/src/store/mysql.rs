@@ -24,7 +24,10 @@ use super::career::{
 use super::cash_products::{
     CashProductSettlementInput, read_cash_product_state, settle_cash_product_by_id_in_tx,
 };
-use super::corporations::settle_corporation_operating_month_in_tx;
+use super::corporations::{
+    CorporationOperatingSettlementContext, settle_corporation_operating_month_in_tx,
+    settle_corporation_tax_year_in_tx,
+};
 use super::employment::{
     EmploymentPayrollSettlementContext, settle_employment_payroll_by_id_in_tx,
     validate_employment_settlement_envelope,
@@ -1081,13 +1084,26 @@ async fn settle_daily_finance_state(
         target_game_day,
     )
     .await?;
-    settle_corporation_operating_month_in_tx(
+    settle_corporation_tax_year_in_tx(
         tx,
         rules.corporation.as_ref(),
         current.save_id,
         current.run_revision,
         target_game_day,
         market.market_date,
+    )
+    .await?;
+    settle_corporation_operating_month_in_tx(
+        tx,
+        rules.finance.as_ref(),
+        crate::career::create_payroll_rules().as_ref(),
+        rules.corporation.as_ref(),
+        CorporationOperatingSettlementContext {
+            save_id: current.save_id,
+            run_revision: current.run_revision,
+            target_game_day,
+            market_date: market.market_date,
+        },
     )
     .await?;
     warn_if_settlement_phase_is_slow(

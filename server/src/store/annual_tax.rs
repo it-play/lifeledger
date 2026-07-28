@@ -20,6 +20,8 @@ use crate::finance::{
 
 const ANNUAL_TAX_DOMAIN: &str = "tax";
 const ANNUAL_TAX_RULE_KEY: &str = "annualFinancialIncomeAssessment";
+const CORPORATION_TAX_DOMAIN: &str = "corporation";
+const CORPORATION_DIVIDEND_RULE_KEY: &str = "residentDividendWithholding";
 const FILING_SETTLEMENT_KIND: &str = "financialIncomeFiling";
 const FILING_SETTLEMENT_SOURCE_KIND: &str = "taxYear";
 const FILING_SETTLEMENT_OCCURRENCE: u32 = 1;
@@ -208,6 +210,16 @@ struct AnnualTaxPolicyRuleRow {
     parameters_json: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PersistedCorporationDividendWithholdingPolicy {
+    income_tax_rate_ppm: i64,
+    local_income_tax_on_income_tax_ppm: i64,
+    rounding: String,
+    schema_version: u8,
+    supported_recipient: String,
+}
+
 pub(super) async fn read_annual_tax_policy(
     tx: &mut Transaction<'_, MySql>,
     policy_set_id: u64,
@@ -235,10 +247,64 @@ pub(super) async fn read_annual_tax_policy(
         rows.len() <= 1,
         "pinned annual-tax policy has overlapping effective rows"
     );
-    rows.into_iter()
+    let mut runtime = rows
+        .into_iter()
         .next()
         .map(|row| parse_annual_tax_policy(&row.parameters_json))
-        .transpose()
+        .transpose()?;
+    let Some(runtime) = runtime.as_mut() else {
+        return Ok(None);
+    };
+    let dividend_rows: Vec<AnnualTaxPolicyRuleRow> = sqlx::query_as(
+        "SELECT CAST(parameters AS CHAR) AS parameters_json
+         FROM policy_rule
+         WHERE policy_set_id = ? AND BINARY domain = BINARY ?
+           AND BINARY rule_key = BINARY ?
+           AND effective_from <= ?
+           AND (effective_to IS NULL OR effective_to >= ?)
+         ORDER BY effective_from DESC
+         LIMIT 2",
+    )
+    .bind(policy_set_id)
+    .bind(CORPORATION_TAX_DOMAIN)
+    .bind(CORPORATION_DIVIDEND_RULE_KEY)
+    .bind(effective_on)
+    .bind(effective_on)
+    .fetch_all(&mut **tx)
+    .await
+    .context("failed to read the pinned corporation-dividend withholding policy")?;
+    ensure!(
+        dividend_rows.len() <= 1,
+        "pinned corporation-dividend policy has overlapping effective rows"
+    );
+    if let Some(row) = dividend_rows.into_iter().next() {
+        let policy = serde_json::from_str::<PersistedCorporationDividendWithholdingPolicy>(
+            &row.parameters_json,
+        )
+        .context("stored corporation-dividend policy is not the strict 5-field schema")?;
+        ensure!(
+            policy.schema_version == 1
+                && policy.rounding == "floorEachTax"
+                && policy.supported_recipient == "residentIndividual",
+            "stored corporation-dividend policy variant is unsupported"
+        );
+        let local_income_tax_rate_ppm = i64::try_from(
+            i128::from(policy.income_tax_rate_ppm)
+                .checked_mul(i128::from(policy.local_income_tax_on_income_tax_ppm))
+                .context("corporation-dividend withholding rate overflowed")?
+                / 1_000_000,
+        )?;
+        runtime.policy.source_rates.push(FinancialIncomeSourceRate {
+            source: FinancialIncomeSource::CorporationDividend,
+            income_tax_rate_ppm: policy.income_tax_rate_ppm,
+            local_income_tax_rate_ppm,
+        });
+        runtime
+            .policy
+            .validate()
+            .context("combined annual-tax and corporation-dividend policy is invalid")?;
+    }
+    Ok(Some(runtime.clone()))
 }
 
 fn parse_annual_tax_policy(parameters_json: &str) -> Result<AnnualTaxRuntimePolicy> {
@@ -1108,6 +1174,7 @@ const fn source_index(source: FinancialIncomeSource) -> usize {
         FinancialIncomeSource::BondCoupon => 2,
         FinancialIncomeSource::LlxDistribution => 3,
         FinancialIncomeSource::IsaEarlyClose => 4,
+        FinancialIncomeSource::CorporationDividend => 5,
     }
 }
 
@@ -2096,10 +2163,12 @@ mod tests {
             assert_eq!(result.len(), 2);
             assert_eq!(result[0].source, FinancialIncomeSource::CmaInterest);
             assert_eq!(result[1].source, FinancialIncomeSource::DepositInterest);
-            assert_eq!(states.len(), 5);
+            assert_eq!(states.len(), 6);
             assert_eq!(states[0].gross_financial_income_krw, 1_000);
             assert_eq!(states[4].source, FinancialIncomeSource::IsaEarlyClose);
             assert_eq!(states[4].gross_financial_income_krw, 0);
+            assert_eq!(states[5].source, FinancialIncomeSource::CorporationDividend);
+            assert_eq!(states[5].gross_financial_income_krw, 0);
         }
 
         #[test]

@@ -9,7 +9,7 @@ use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use futures_core::Stream;
 use serde::{Deserialize, Serialize};
@@ -63,37 +63,40 @@ use crate::state::{
     CharacterStartSnapshot, CmaAccountCloseResponse, CmaAccountCloseSnapshot,
     CmaAccountOpenResponse, CmaAccountOpenSnapshot, CmaAccountSnapshot,
     CorporationAvailabilitySnapshot, CorporationCreateResponse, CorporationDetailResponse,
-    CorporationSnapshot, CorporationStatusSnapshot, CorporationSummarySnapshot,
-    CorporationTemplateSnapshot, CorporationTemplatesResponse, CreditBandSnapshot,
-    CreditReasonSnapshot, CreditResponse, DepositCloseResponse, DepositCloseSnapshot,
-    DepositKindSnapshot, DepositLoanExecutionSnapshot, DepositOpenResponse, DepositOpenSnapshot,
-    DepositProtectionSnapshot, EssentialArrearPaymentResponse,
-    EssentialArrearPaymentResultSnapshot, EssentialArrearSnapshot, FinanceAccountsResponse,
-    FinanceCommandResult, FinanceSnapshot, FinanceTransferResponse, FinanceTransferSnapshot,
-    FinancialAccountSnapshot, FinancialIncomeAssessmentSnapshot, FinancialIncomeSourceSnapshot,
-    FinancialIncomeYearSnapshot, FinancialIncomeYearStatusSnapshot, FinancialInstitutionSnapshot,
-    GameCommandCursorSnapshot, GameLoopError, GameSnapshot, GoldAccountOpenResponse,
-    GoldOrderResponse, GoldWithdrawalResponse, HousingLeaseArrearRepaymentRuleSnapshot,
-    HousingLeaseCapabilitySnapshot, HousingLeaseCurrentResponse, HousingLeaseMoveResponse,
-    HousingLeaseMoveResultSnapshot, HousingLeaseOfferKindSnapshot, HousingLeaseRenewalRuleSnapshot,
-    HousingLeaseRoleSnapshot, HousingLeaseTerminationReviewRuleSnapshot, HousingListingSnapshot,
-    HousingListingsResponse, HousingMovingCostSnapshot, HousingOfferSnapshot,
-    HousingPropertyHoldingsResponse, HousingPropertyTypeSnapshot,
-    HousingPurchaseCapabilitySnapshot, HousingRateStatusSnapshot, HousingRegionKeySnapshot,
-    HousingRegionSnapshot, HousingRentChargeRuleSnapshot, InsolvencyAvailabilitySnapshot,
-    InsolvencyCaseCommandResponse, InsolvencyCaseDetailResponse, InsolvencyCaseStatusSnapshot,
-    InsolvencyCaseSummarySnapshot, InsolvencyClaimPageResponse, InsolvencyClaimSnapshot,
-    InsolvencyEligibilityReasonSnapshot, InsolvencyEligibilityStatusSnapshot,
-    InsolvencyLiquidationPageResponse, InsolvencyLiquidationSnapshot, InsolvencyOverviewResponse,
-    InsolvencyProcedureKindSnapshot, InsolvencySnapshot, InsolvencyTransitionSnapshot,
-    InsolvencyWalletAssetSnapshot, InsuranceCancellationResponse,
-    InsuranceCancellationResultSnapshot, InsuranceCapabilitySnapshot,
-    InsuranceClaimAllocationSnapshot, InsuranceClaimHistoryItemSnapshot, InsuranceClaimResponse,
-    InsuranceClaimResultSnapshot, InsuranceContractSnapshot, InsuranceContractStatusSnapshot,
-    InsuranceContractsResponse, InsuranceEligibilityReasonSnapshot,
-    InsuranceEligibilityStatusSnapshot, InsuranceEnrollmentResponse,
-    InsuranceEnrollmentResultSnapshot, InsuranceProductSnapshot, IsaAccountSnapshot,
-    IsaCloseResponse, IsaCloseSnapshot, JeonseHousingLeaseOfferKindSnapshot,
+    CorporationDividendResponse, CorporationDividendSnapshot, CorporationNextMonthSettingSnapshot,
+    CorporationOperatingMonthPageResponse, CorporationOperatingMonthSnapshot,
+    CorporationOperatingScaleSnapshot, CorporationOperatingSettingSnapshot,
+    CorporationPayrollStatusSnapshot, CorporationSettingsResponse, CorporationSnapshot,
+    CorporationStatusSnapshot, CorporationSummarySnapshot, CorporationTemplateSnapshot,
+    CorporationTemplatesResponse, CreditBandSnapshot, CreditReasonSnapshot, CreditResponse,
+    DepositCloseResponse, DepositCloseSnapshot, DepositKindSnapshot, DepositLoanExecutionSnapshot,
+    DepositOpenResponse, DepositOpenSnapshot, DepositProtectionSnapshot,
+    EssentialArrearPaymentResponse, EssentialArrearPaymentResultSnapshot, EssentialArrearSnapshot,
+    FinanceAccountsResponse, FinanceCommandResult, FinanceSnapshot, FinanceTransferResponse,
+    FinanceTransferSnapshot, FinancialAccountSnapshot, FinancialIncomeAssessmentSnapshot,
+    FinancialIncomeSourceSnapshot, FinancialIncomeYearSnapshot, FinancialIncomeYearStatusSnapshot,
+    FinancialInstitutionSnapshot, GameCommandCursorSnapshot, GameLoopError, GameSnapshot,
+    GoldAccountOpenResponse, GoldOrderResponse, GoldWithdrawalResponse,
+    HousingLeaseArrearRepaymentRuleSnapshot, HousingLeaseCapabilitySnapshot,
+    HousingLeaseCurrentResponse, HousingLeaseMoveResponse, HousingLeaseMoveResultSnapshot,
+    HousingLeaseOfferKindSnapshot, HousingLeaseRenewalRuleSnapshot, HousingLeaseRoleSnapshot,
+    HousingLeaseTerminationReviewRuleSnapshot, HousingListingSnapshot, HousingListingsResponse,
+    HousingMovingCostSnapshot, HousingOfferSnapshot, HousingPropertyHoldingsResponse,
+    HousingPropertyTypeSnapshot, HousingPurchaseCapabilitySnapshot, HousingRateStatusSnapshot,
+    HousingRegionKeySnapshot, HousingRegionSnapshot, HousingRentChargeRuleSnapshot,
+    InsolvencyAvailabilitySnapshot, InsolvencyCaseCommandResponse, InsolvencyCaseDetailResponse,
+    InsolvencyCaseStatusSnapshot, InsolvencyCaseSummarySnapshot, InsolvencyClaimPageResponse,
+    InsolvencyClaimSnapshot, InsolvencyEligibilityReasonSnapshot,
+    InsolvencyEligibilityStatusSnapshot, InsolvencyLiquidationPageResponse,
+    InsolvencyLiquidationSnapshot, InsolvencyOverviewResponse, InsolvencyProcedureKindSnapshot,
+    InsolvencySnapshot, InsolvencyTransitionSnapshot, InsolvencyWalletAssetSnapshot,
+    InsuranceCancellationResponse, InsuranceCancellationResultSnapshot,
+    InsuranceCapabilitySnapshot, InsuranceClaimAllocationSnapshot,
+    InsuranceClaimHistoryItemSnapshot, InsuranceClaimResponse, InsuranceClaimResultSnapshot,
+    InsuranceContractSnapshot, InsuranceContractStatusSnapshot, InsuranceContractsResponse,
+    InsuranceEligibilityReasonSnapshot, InsuranceEligibilityStatusSnapshot,
+    InsuranceEnrollmentResponse, InsuranceEnrollmentResultSnapshot, InsuranceProductSnapshot,
+    IsaAccountSnapshot, IsaCloseResponse, IsaCloseSnapshot, JeonseHousingLeaseOfferKindSnapshot,
     LeaseArrearPaymentResponse, LeaseArrearPaymentResultSnapshot, LeaseArrearSnapshot,
     LeaseDepositLoanAffordabilitySnapshot, LeaseDepositLoanQuoteDecisionSnapshot,
     LeaseDepositLoanQuoteReasonSnapshot, LeaseDepositLoanQuoteResponse,
@@ -167,13 +170,14 @@ use crate::store::{
     FocusCareerCommand, HousingListingsQueryState, InsolvencyActionState, InsuranceQueryState,
     InterviewDecision, LifeBudgetSelectionState, LifeEventsQueryState, LifeFailureCode,
     LoanInstallmentPageCursor, LoanInstallmentPageQuery, ManualAdvanceCommand,
-    OpenMilitarySavingsCommand, OpenTaxAccountCommand, PayEssentialArrearCommand,
-    PayLeaseArrearCommand, PensionWithdrawalCommand, PrepareInsolvencyCaseCommand,
-    PrepayLoanCommand, PropertySaleOrderPageQuery, PropertyTaxEventPageQuery,
-    PublishCareerArtifactCommand, PurchasePropertyCommand, RepricePropertySaleOrderCommand,
-    ResolveLifeEventCommand, StartCareerActivityCommand, StartGameCommand,
-    StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
-    StartingLoanCommand, UpdateLifeBudgetCommand, WithdrawCareerApplicationCommand,
+    OpenMilitarySavingsCommand, OpenTaxAccountCommand, PayCorporationDividendCommand,
+    PayEssentialArrearCommand, PayLeaseArrearCommand, PensionWithdrawalCommand,
+    PrepareInsolvencyCaseCommand, PrepayLoanCommand, PropertySaleOrderPageQuery,
+    PropertyTaxEventPageQuery, PublishCareerArtifactCommand, PurchasePropertyCommand,
+    RepricePropertySaleOrderCommand, ResolveLifeEventCommand, StartCareerActivityCommand,
+    StartGameCommand, StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
+    StartingLoanCommand, UpdateCorporationSettingsCommand, UpdateLifeBudgetCommand,
+    WithdrawCareerApplicationCommand,
 };
 use crate::trading::{
     OrderSide, Portfolio, PortfolioPosition, TradeExecution, TradeFailure, TradeFailureCode,
@@ -244,6 +248,9 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         corporation_templates,
         create_corporation,
         corporation_detail,
+        update_corporation_settings,
+        pay_corporation_dividend,
+        corporation_operating_months,
         housing_listings,
         housing_lease_current,
         housing_property_holdings,
@@ -550,12 +557,24 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         InsolvencyProcedureRequestKind,
         CorporationAvailabilitySnapshot,
         CorporationStatusSnapshot,
+        CorporationNextMonthSettingSnapshot,
+        CorporationOperatingScaleSnapshot,
+        CorporationOperatingSettingSnapshot,
         CorporationTemplateSnapshot,
         CorporationTemplatesResponse,
         CorporationSummarySnapshot,
         CorporationSnapshot,
         CorporationCreateRequest,
         CorporationCreateResponse,
+        CorporationSettingsRequest,
+        CorporationSettingsResponse,
+        CorporationPayoutKindRequest,
+        CorporationPayoutRequest,
+        CorporationDividendSnapshot,
+        CorporationDividendResponse,
+        CorporationPayrollStatusSnapshot,
+        CorporationOperatingMonthSnapshot,
+        CorporationOperatingMonthPageResponse,
         WelfareApplicationRequest,
         WelfareApplicationResultSnapshot,
         WelfareApplicationResponse,
@@ -801,6 +820,18 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/corporations/templates", get(corporation_templates))
         .route("/api/corporations", post(create_corporation))
         .route("/api/corporations/{corporationId}", get(corporation_detail))
+        .route(
+            "/api/corporations/{corporationId}/settings",
+            put(update_corporation_settings),
+        )
+        .route(
+            "/api/corporations/{corporationId}/payouts",
+            post(pay_corporation_dividend),
+        )
+        .route(
+            "/api/corporations/{corporationId}/months",
+            get(corporation_operating_months),
+        )
         .route("/api/housing/listings", get(housing_listings))
         .route("/api/housing/leases/current", get(housing_lease_current))
         .route("/api/housing/leases", post(start_housing_lease))
@@ -3434,6 +3465,62 @@ struct CorporationCreateRequest {
     capital_krw: i64,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CorporationSettingsRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    operating_scale_id: String,
+    #[schema(minimum = 0, maximum = 100000000)]
+    officer_gross_salary_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum CorporationPayoutKindRequest {
+    Dividend,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CorporationPayoutRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    kind: CorporationPayoutKindRequest,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    gross_dividend_krw: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CorporationMonthsQuery {
+    cursor: Option<String>,
+}
+
 fn corporation_create_command(
     request: CorporationCreateRequest,
 ) -> Result<CreateCorporationCommand, LifeFailureCode> {
@@ -3525,6 +3612,142 @@ async fn corporation_detail(
     let corporation_id =
         ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
     match state.corporation_detail(user.id, corporation_id).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/corporations/{corporationId}/settings",
+    params(("corporationId" = String, Path, description = "현재 run 법인 ID", pattern = "^[1-9][0-9]*$")),
+    request_body = CorporationSettingsRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "다음 operating month부터 적용할 운영 설정", body = CorporationSettingsResponse),
+        (status = 400, description = "명령 형식 또는 설정 범위가 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "법인 또는 운영 규모를 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "cursor·멱등성 또는 법인 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "법인 설정 저장 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn update_corporation_settings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(corporation_id): Path<String>,
+    request: Result<Json<CorporationSettingsRequest>, JsonRejection>,
+) -> Result<Json<CorporationSettingsResponse>, LifeRouteError> {
+    let corporation_id =
+        ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    if !(0..=100_000_000).contains(&request.officer_gross_salary_krw) {
+        return Err(LifeFailureCode::InvalidCommand.into());
+    }
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let command = UpdateCorporationSettingsCommand {
+        command_id,
+        cursor,
+        corporation_id,
+        operating_scale_id: ResourceId::parse(&request.operating_scale_id)
+            .map_err(|_| LifeFailureCode::InvalidCommand)?,
+        officer_gross_salary_krw: request.officer_gross_salary_krw,
+    };
+    match state.update_corporation_settings(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/corporations/{corporationId}/payouts",
+    params(("corporationId" = String, Path, description = "현재 run 법인 ID", pattern = "^[1-9][0-9]*$")),
+    request_body = CorporationPayoutRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "결산 이익 범위의 법인 배당 지급 또는 멱등 재조회", body = CorporationDividendResponse),
+        (status = 400, description = "명령 형식 또는 배당액이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run 법인을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "cursor·결산·배당가능이익 또는 법인 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "법인·개인 원장과 금융소득 반영 실패"),
+    )
+)]
+async fn pay_corporation_dividend(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(corporation_id): Path<String>,
+    request: Result<Json<CorporationPayoutRequest>, JsonRejection>,
+) -> Result<Json<CorporationDividendResponse>, LifeRouteError> {
+    let corporation_id =
+        ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    if request.gross_dividend_krw <= 0
+        || request.gross_dividend_krw > MAX_JSON_SAFE_INTEGER as i64
+        || !matches!(request.kind, CorporationPayoutKindRequest::Dividend)
+    {
+        return Err(LifeFailureCode::InvalidCommand.into());
+    }
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    let command = PayCorporationDividendCommand {
+        command_id,
+        cursor,
+        corporation_id,
+        gross_dividend_krw: request.gross_dividend_krw,
+    };
+    match state.pay_corporation_dividend(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/corporations/{corporationId}/months",
+    params(
+        ("corporationId" = String, Path, description = "현재 run 법인 ID", pattern = "^[1-9][0-9]*$"),
+        ("cursor" = Option<String>, Query, description = "서명된 다음 페이지 cursor", max_length = 512)
+    ),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "오름차순 법인 월 손익 최대 20건", body = CorporationOperatingMonthPageResponse),
+        (status = 400, description = "법인 ID 또는 cursor가 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run 법인을 찾을 수 없음", body = LifeFailure),
+        (status = 500, description = "법인 월 history 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn corporation_operating_months(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(corporation_id): Path<String>,
+    query: Result<Query<CorporationMonthsQuery>, QueryRejection>,
+) -> Result<Json<CorporationOperatingMonthPageResponse>, LifeRouteError> {
+    let corporation_id =
+        ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Query(query) = query.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    if query
+        .cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 512 || !cursor.is_ascii())
+    {
+        return Err(LifeFailureCode::InvalidCommand.into());
+    }
+    match state
+        .corporation_operating_months(user.id, corporation_id, query.cursor)
+        .await?
+    {
         LifeCommandResult::Applied(response) => Ok(Json(*response)),
         LifeCommandResult::Rejected(code) => Err(code.into()),
     }
@@ -7070,6 +7293,8 @@ mod tests {
                     "insolvencyDistribution",
                     "insolvencyDischarge",
                     "corporationEstablishment",
+                    "corporationOfficerPayroll",
+                    "corporationDividend",
                     "correction"
                 ]))
             );
@@ -8156,6 +8381,7 @@ mod tests {
                 "/paths/~1api~1corporations~1templates/get",
                 "/paths/~1api~1corporations/post",
                 "/paths/~1api~1corporations~1{corporationId}/get",
+                "/paths/~1api~1corporations~1{corporationId}~1settings/put",
             ] {
                 assert_eq!(
                     document.pointer(&format!("{operation}/security")),

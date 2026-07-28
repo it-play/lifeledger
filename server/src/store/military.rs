@@ -1733,7 +1733,7 @@ async fn settle_military_pay(
                 military_service_id: service.id,
                 period_no: payload.period_no,
             },
-            scheduled_settlement_id: settlement.id,
+            scheduled_settlement_id: Some(settlement.id),
             ledger_transaction_id: Some(ledger_id),
             paid_game_day: context.game_day,
             paid_date: context.market_date,

@@ -13,8 +13,9 @@ use sqlx::{MySql, MySqlPool, Transaction};
 use time::{Date, Month};
 
 use super::corporations::{
-    create_corporation, read_corporation_detail, read_corporation_snapshot_in_tx,
-    read_corporation_templates,
+    create_corporation, pay_corporation_dividend, read_corporation_detail,
+    read_corporation_operating_months, read_corporation_snapshot_in_tx, read_corporation_templates,
+    update_corporation_settings,
 };
 use super::housing::{
     is_retryable_database_error, prepare_current_housing_catalogs,
@@ -53,12 +54,13 @@ use super::properties::{
 };
 use super::types::{
     ActOnInsolvencyCaseCommand, ApplyWelfareProgramCommand, CancelInsuranceContractCommand,
-    CancelPropertySaleOrderCommand, CorporationReadResult, CorporationReceipt,
-    CorporationSummaryState, CorporationTemplatesState, CreateCorporationCommand,
-    CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
-    CreatePropertySaleOrderCommand, CreditOverviewState, CreditReasonState,
-    EnrollInsuranceContractCommand, EssentialArrearPaymentReceipt, EssentialArrearState,
-    ExecuteLoanCommand, FileInsuranceClaimCommand, GameCommandCursor, HousingLeaseCurrentState,
+    CancelPropertySaleOrderCommand, CorporationDividendReceipt, CorporationOperatingMonthPageState,
+    CorporationReadResult, CorporationReceipt, CorporationSettingsReceipt, CorporationSummaryState,
+    CorporationTemplatesState, CreateCorporationCommand, CreateLeaseDepositLoanQuoteCommand,
+    CreateLoanQuoteCommand, CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand,
+    CreditOverviewState, CreditReasonState, EnrollInsuranceContractCommand,
+    EssentialArrearPaymentReceipt, EssentialArrearState, ExecuteLoanCommand,
+    FileInsuranceClaimCommand, GameCommandCursor, HousingLeaseCurrentState,
     HousingLeaseMoveReceipt, HousingListingsQueryState, HousingListingsState,
     HousingPropertyHoldingsState, InsolvencyCaseDetailState, InsolvencyCaseReceipt,
     InsolvencyClaimPageState, InsolvencyLiquidationPageState, InsolvencyReadResult,
@@ -70,12 +72,13 @@ use super::types::{
     LifeSnapshotState, LifeStore, LifeStoreResult, LivingCostMonthItemState, LivingCostMonthState,
     LoanDetailState, LoanExecutionReceipt, LoanInstallmentPageQuery, LoanInstallmentPageState,
     LoanPrepaymentReceipt, LoanProductCatalogState, LoanQuoteReceipt, MortgageQuoteReceipt,
-    PayEssentialArrearCommand, PayLeaseArrearCommand, PrepareInsolvencyCaseCommand,
-    PrepayLoanCommand, PropertyPurchaseReceipt, PropertySaleOrderCancellationReceipt,
-    PropertySaleOrderListingReceipt, PropertySaleOrderPageQuery, PropertySaleOrderPageState,
-    PropertyTaxEventPageQuery, PropertyTaxEventPageState, PurchasePropertyCommand,
-    RealEstateDailyPreparationStore, RepricePropertySaleOrderCommand, ResidenceTenureKind,
-    ResolveLifeEventCommand, StartHousingLeaseCommand, UpdateLifeBudgetCommand,
+    PayCorporationDividendCommand, PayEssentialArrearCommand, PayLeaseArrearCommand,
+    PrepareInsolvencyCaseCommand, PrepayLoanCommand, PropertyPurchaseReceipt,
+    PropertySaleOrderCancellationReceipt, PropertySaleOrderListingReceipt,
+    PropertySaleOrderPageQuery, PropertySaleOrderPageState, PropertyTaxEventPageQuery,
+    PropertyTaxEventPageState, PurchasePropertyCommand, RealEstateDailyPreparationStore,
+    RepricePropertySaleOrderCommand, ResidenceTenureKind, ResolveLifeEventCommand,
+    StartHousingLeaseCommand, UpdateCorporationSettingsCommand, UpdateLifeBudgetCommand,
     UpdateLifeBudgetReceipt, WelfareApplicationReceipt, WelfareProgramsState,
 };
 use super::welfare::{
@@ -394,6 +397,38 @@ impl LifeStore for MySqlLifeStore {
         corporation_id: ResourceId,
     ) -> Result<CorporationReadResult<CorporationSummaryState>> {
         read_corporation_detail(&self.pool, user_id, corporation_id).await
+    }
+
+    async fn update_corporation_settings(
+        &self,
+        user_id: u64,
+        command: &UpdateCorporationSettingsCommand,
+    ) -> Result<LifeStoreResult<CorporationSettingsReceipt>> {
+        update_corporation_settings(&self.pool, user_id, command).await
+    }
+
+    async fn pay_corporation_dividend(
+        &self,
+        user_id: u64,
+        command: &PayCorporationDividendCommand,
+    ) -> Result<LifeStoreResult<CorporationDividendReceipt>> {
+        pay_corporation_dividend(
+            &self.pool,
+            self.finance_rules.as_ref(),
+            self.corporation_rules.as_ref(),
+            user_id,
+            command,
+        )
+        .await
+    }
+
+    async fn corporation_operating_months(
+        &self,
+        user_id: u64,
+        corporation_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<CorporationReadResult<CorporationOperatingMonthPageState>> {
+        read_corporation_operating_months(&self.pool, user_id, corporation_id, cursor).await
     }
 
     async fn insolvency_overview(

@@ -57,17 +57,20 @@ use crate::store::{
     CareerRewardPaymentState, CareerScheduledActionKind, CareerScheduledSettlementKind,
     CareerSpecsState, CareerStore, CareerStoreResult, CashProductStore, CashProductStoreResult,
     CloseIsaAccountCommand, CloseIsaAccountReceipt, CloseMilitarySavingsCommand,
-    ConfirmCareerInterviewCommand, CorporationAvailabilityState, CorporationReadResult,
-    CorporationReceipt, CorporationSnapshotState, CorporationStatusState, CorporationSummaryState,
-    CorporationTemplateState, CorporationTemplatesState, CreateCorporationCommand,
-    CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
-    CreatePropertySaleOrderCommand, CreditOverviewState, CreditReasonState,
-    DeclineCareerInvitationCommand, DeclineCareerOfferCommand, DepositLoanExecutionReceipt,
-    EmploymentContractState, EnrollInsuranceContractCommand, EssentialArrearPaymentReceipt,
-    EssentialArrearState, ExecuteLoanCommand, FileInsuranceClaimCommand, FinanceStore,
-    FinanceStoreResult, FocusCareerCommand, GameCommandCursor, GameCommandRejection,
-    HousingLeaseCurrentState, HousingLeaseMoveReceipt, HousingListingState,
-    HousingListingsQueryState, HousingListingsState, HousingMovingCostState,
+    ConfirmCareerInterviewCommand, CorporationAvailabilityState, CorporationDividendReceipt,
+    CorporationNextMonthSettingState, CorporationOperatingMonthPageState,
+    CorporationOperatingMonthState, CorporationOperatingScaleState,
+    CorporationOperatingSettingState, CorporationReadResult, CorporationReceipt,
+    CorporationSettingsReceipt, CorporationSnapshotState, CorporationStatusState,
+    CorporationSummaryState, CorporationTemplateState, CorporationTemplatesState,
+    CreateCorporationCommand, CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand,
+    CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand, CreditOverviewState,
+    CreditReasonState, DeclineCareerInvitationCommand, DeclineCareerOfferCommand,
+    DepositLoanExecutionReceipt, EmploymentContractState, EnrollInsuranceContractCommand,
+    EssentialArrearPaymentReceipt, EssentialArrearState, ExecuteLoanCommand,
+    FileInsuranceClaimCommand, FinanceStore, FinanceStoreResult, FocusCareerCommand,
+    GameCommandCursor, GameCommandRejection, HousingLeaseCurrentState, HousingLeaseMoveReceipt,
+    HousingListingState, HousingListingsQueryState, HousingListingsState, HousingMovingCostState,
     HousingPropertyHoldingsState, HousingPurchaseCapabilityState, HousingRateStatusState,
     HousingRegionState, InsolvencyAvailabilityState, InsolvencyCaseDetailState,
     InsolvencyCaseReceipt, InsolvencyCaseSummaryState, InsolvencyClaimPageState,
@@ -106,8 +109,8 @@ use crate::store::{
     MortgageExecutionReceipt, MortgageLtvRegionClassState, MortgageQuoteDecisionState,
     MortgageQuoteReasonState, MortgageQuoteReceipt, MortgageStressTreatmentState,
     NextLoanInstallmentState, OpenMilitarySavingsCommand, OpenTaxAccountCommand,
-    OpenTaxAccountReceipt, PayEssentialArrearCommand, PayLeaseArrearCommand,
-    PendingInsuranceClaimState, PendingLifeEventState, PensionAccountState,
+    OpenTaxAccountReceipt, PayCorporationDividendCommand, PayEssentialArrearCommand,
+    PayLeaseArrearCommand, PendingInsuranceClaimState, PendingLifeEventState, PensionAccountState,
     PensionWithdrawalCommand, PensionWithdrawalReceipt, PrepareInsolvencyCaseCommand,
     PrepayLoanCommand, PropertyHoldingPurposeState, PropertyHoldingState,
     PropertyHoldingStatusState, PropertyPurchaseReceipt, PropertySaleExecutionState,
@@ -121,11 +124,11 @@ use crate::store::{
     RepricePropertySaleOrderCommand, ResidenceTenureKind, ResolveLifeEventCommand,
     StartCareerActivityCommand, StartGameCommand, StartGameReceipt, StartHousingLeaseCommand,
     StartMilitaryServiceCommand, StartPensionCommand, StartPensionReceipt, TaxAccountStore,
-    TaxAccountStoreResult, TradeStoreResult, TradingStore, UpdateLifeBudgetCommand,
-    UpdateLifeBudgetReceipt, UserStore, VerifiedIncomeSourceState, WelfareApplicationReceipt,
-    WelfareApplicationStatusState, WelfareApplicationSummaryState, WelfareConditionOutcomeState,
-    WelfareConditionResultState, WelfareEvaluationStatusState, WelfarePaymentState,
-    WelfarePaymentStatusState, WelfareProgramState, WelfareProgramsState,
+    TaxAccountStoreResult, TradeStoreResult, TradingStore, UpdateCorporationSettingsCommand,
+    UpdateLifeBudgetCommand, UpdateLifeBudgetReceipt, UserStore, VerifiedIncomeSourceState,
+    WelfareApplicationReceipt, WelfareApplicationStatusState, WelfareApplicationSummaryState,
+    WelfareConditionOutcomeState, WelfareConditionResultState, WelfareEvaluationStatusState,
+    WelfarePaymentState, WelfarePaymentStatusState, WelfareProgramState, WelfareProgramsState,
     WithdrawCareerApplicationCommand,
 };
 use crate::trading::{
@@ -1839,6 +1842,19 @@ pub enum CorporationStatusSnapshot {
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct CorporationOperatingScaleSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub scale_key: String,
+    pub scale_order: u8,
+    #[schema(minimum = 1, maximum = 3000000)]
+    pub revenue_factor_ppm: u32,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub fixed_cost_krw: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CorporationTemplateSnapshot {
     #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
     pub id: ResourceId,
@@ -1853,6 +1869,55 @@ pub struct CorporationTemplateSnapshot {
     pub variable_cost_ppm: u32,
     #[schema(minimum = 0, maximum = 9007199254740991_i64)]
     pub fixed_monthly_cost_krw: i64,
+    #[schema(max_items = 3)]
+    pub operating_scales: Vec<CorporationOperatingScaleSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationOperatingSettingSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub corporation_id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub operating_scale_id: ResourceId,
+    pub scale_key: String,
+    pub scale_order: u8,
+    #[schema(minimum = 1, maximum = 3000000)]
+    pub revenue_factor_ppm: u32,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub fixed_cost_krw: i64,
+    #[schema(minimum = 1, maximum = 9999)]
+    pub effective_year: u16,
+    #[schema(minimum = 1, maximum = 12)]
+    pub effective_month: u8,
+    #[schema(minimum = 0, maximum = 100000000)]
+    pub officer_gross_salary_krw: i64,
+    pub created_game_day: u32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationNextMonthSettingSnapshot {
+    #[schema(required = true, nullable, value_type = Option<String>, pattern = "^[1-9][0-9]*$")]
+    pub setting_id: Option<ResourceId>,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub operating_scale_id: ResourceId,
+    pub scale_key: String,
+    pub scale_order: u8,
+    #[schema(minimum = 1, maximum = 3000000)]
+    pub revenue_factor_ppm: u32,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub fixed_cost_krw: i64,
+    #[schema(minimum = 1, maximum = 9999)]
+    pub effective_year: u16,
+    #[schema(minimum = 1, maximum = 12)]
+    pub effective_month: u8,
+    #[schema(minimum = 0, maximum = 100000000)]
+    pub officer_gross_salary_krw: i64,
+    #[schema(required = true, nullable)]
+    pub created_game_day: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -1906,11 +1971,14 @@ pub struct CorporationSummarySnapshot {
     #[schema(minimum = 0, maximum = 9007199254740991_i64)]
     pub operating_payable_krw: i64,
     #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub corporate_tax_payable_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
     pub distributable_profit_krw: i64,
     #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
     pub personal_ledger_transaction_id: ResourceId,
     #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
     pub corporation_ledger_transaction_id: ResourceId,
+    pub next_month_setting: CorporationNextMonthSettingSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -1931,6 +1999,78 @@ pub struct CorporationCreateResponse {
     pub wallet_debit_krw: i64,
     pub replayed: bool,
     pub snapshot: GameSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationSettingsResponse {
+    pub result: CorporationOperatingSettingSnapshot,
+    pub replayed: bool,
+    pub snapshot: GameSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationDividendSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub corporation_id: ResourceId,
+    pub tax_year: u16,
+    pub gross_dividend_krw: i64,
+    pub withheld_income_tax_krw: i64,
+    pub withheld_local_income_tax_krw: i64,
+    pub net_dividend_krw: i64,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub corporation_ledger_transaction_id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub personal_ledger_transaction_id: ResourceId,
+    pub paid_game_day: u32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationDividendResponse {
+    pub result: CorporationDividendSnapshot,
+    pub replayed: bool,
+    pub snapshot: GameSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CorporationPayrollStatusSnapshot {
+    NotConfigured,
+    Paid,
+    Unpaid,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationOperatingMonthSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub operating_year: u16,
+    pub operating_month: u8,
+    pub scale_key: String,
+    pub officer_gross_salary_krw: i64,
+    pub revenue_krw: i64,
+    pub operating_expense_krw: i64,
+    pub total_payroll_cost_krw: i64,
+    pub pre_tax_profit_krw: i64,
+    pub payroll_status: CorporationPayrollStatusSnapshot,
+    pub cash_after_krw: i64,
+    pub operating_payable_after_krw: i64,
+    pub retained_earnings_after_krw: i64,
+    pub applied_game_day: u32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationOperatingMonthPageResponse {
+    #[schema(max_items = 20)]
+    pub months: Vec<CorporationOperatingMonthSnapshot>,
+    #[schema(required = true, nullable, max_length = 512)]
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -6179,6 +6319,80 @@ impl AppState {
         {
             CorporationReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
                 to_corporation_summary_snapshot(&state)?,
+            ))),
+            CorporationReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
+    pub async fn update_corporation_settings(
+        self: &Arc<Self>,
+        user_id: u64,
+        command: &UpdateCorporationSettingsCommand,
+    ) -> Result<LifeCommandResult<CorporationSettingsResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        let (receipt, committed) = match self
+            .lives
+            .update_corporation_settings(user_id, command)
+            .await?
+        {
+            LifeStoreResult::Applied { receipt, save } => (receipt, save),
+            LifeStoreResult::Rejected(code) => return Ok(LifeCommandResult::Rejected(code)),
+        };
+        let snapshot = if receipt.replayed {
+            self.reload_life_without_broadcast(user_id, &runtime, &committed)
+                .await?
+        } else {
+            self.reload_and_broadcast_life(user_id, &runtime, &committed)
+                .await?
+        };
+        Ok(LifeCommandResult::Applied(Box::new(
+            to_corporation_settings_response(receipt, snapshot)?,
+        )))
+    }
+
+    pub async fn pay_corporation_dividend(
+        self: &Arc<Self>,
+        user_id: u64,
+        command: &PayCorporationDividendCommand,
+    ) -> Result<LifeCommandResult<CorporationDividendResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        let (receipt, committed) = match self
+            .lives
+            .pay_corporation_dividend(user_id, command)
+            .await?
+        {
+            LifeStoreResult::Applied { receipt, save } => (receipt, save),
+            LifeStoreResult::Rejected(code) => return Ok(LifeCommandResult::Rejected(code)),
+        };
+        let snapshot = if receipt.replayed {
+            self.reload_life_without_broadcast(user_id, &runtime, &committed)
+                .await?
+        } else {
+            self.reload_and_broadcast_life(user_id, &runtime, &committed)
+                .await?
+        };
+        Ok(LifeCommandResult::Applied(Box::new(
+            to_corporation_dividend_response(receipt, snapshot)?,
+        )))
+    }
+
+    pub async fn corporation_operating_months(
+        self: &Arc<Self>,
+        user_id: u64,
+        corporation_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<LifeCommandResult<CorporationOperatingMonthPageResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self
+            .lives
+            .corporation_operating_months(user_id, corporation_id, cursor)
+            .await?
+        {
+            CorporationReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_corporation_operating_month_page_response(state)?,
             ))),
             CorporationReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
         }
@@ -12077,9 +12291,26 @@ fn to_corporation_template_snapshot(
             && state.base_monthly_revenue_krw > 0
             && state.revenue_variation_ppm <= 900_000
             && state.variable_cost_ppm <= 1_000_000
-            && state.fixed_monthly_cost_krw >= 0,
+            && state.fixed_monthly_cost_krw >= 0
+            && state.operating_scales.len() == 3,
         "corporation template is outside the public bounds"
     );
+    let mut previous_scale_order = 0_u8;
+    let operating_scales = state
+        .operating_scales
+        .into_iter()
+        .map(|scale| {
+            ensure!(
+                is_canonical_welfare_identifier(&scale.scale_key)
+                    && scale.scale_order == previous_scale_order.saturating_add(1)
+                    && (1..=3_000_000).contains(&scale.revenue_factor_ppm)
+                    && scale.fixed_cost_krw >= 0,
+                "corporation operating scale is outside the public bounds"
+            );
+            previous_scale_order = scale.scale_order;
+            Ok(to_corporation_operating_scale_snapshot(scale))
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(CorporationTemplateSnapshot {
         id: state.id,
         template_key: state.template_key,
@@ -12089,6 +12320,75 @@ fn to_corporation_template_snapshot(
         revenue_variation_ppm: state.revenue_variation_ppm,
         variable_cost_ppm: state.variable_cost_ppm,
         fixed_monthly_cost_krw: state.fixed_monthly_cost_krw,
+        operating_scales,
+    })
+}
+
+fn to_corporation_operating_scale_snapshot(
+    state: CorporationOperatingScaleState,
+) -> CorporationOperatingScaleSnapshot {
+    CorporationOperatingScaleSnapshot {
+        id: state.id,
+        scale_key: state.scale_key,
+        scale_order: state.scale_order,
+        revenue_factor_ppm: state.revenue_factor_ppm,
+        fixed_cost_krw: state.fixed_cost_krw,
+    }
+}
+
+fn to_corporation_operating_setting_snapshot(
+    state: CorporationOperatingSettingState,
+) -> Result<CorporationOperatingSettingSnapshot> {
+    ensure!(
+        is_canonical_welfare_identifier(&state.scale_key)
+            && (1..=3).contains(&state.scale_order)
+            && (1..=3_000_000).contains(&state.revenue_factor_ppm)
+            && state.fixed_cost_krw >= 0
+            && (1..=9999).contains(&state.effective_year)
+            && (1..=12).contains(&state.effective_month)
+            && (0..=100_000_000).contains(&state.officer_gross_salary_krw),
+        "corporation operating setting is outside the public bounds"
+    );
+    Ok(CorporationOperatingSettingSnapshot {
+        id: state.id,
+        corporation_id: state.corporation_id,
+        operating_scale_id: state.operating_scale_id,
+        scale_key: state.scale_key,
+        scale_order: state.scale_order,
+        revenue_factor_ppm: state.revenue_factor_ppm,
+        fixed_cost_krw: state.fixed_cost_krw,
+        effective_year: state.effective_year,
+        effective_month: state.effective_month,
+        officer_gross_salary_krw: state.officer_gross_salary_krw,
+        created_game_day: state.created_game_day,
+    })
+}
+
+fn to_corporation_next_month_setting_snapshot(
+    state: &CorporationNextMonthSettingState,
+) -> Result<CorporationNextMonthSettingSnapshot> {
+    ensure!(
+        is_canonical_welfare_identifier(&state.scale_key)
+            && (1..=3).contains(&state.scale_order)
+            && (1..=3_000_000).contains(&state.revenue_factor_ppm)
+            && state.fixed_cost_krw >= 0
+            && (1..=9999).contains(&state.effective_year)
+            && (1..=12).contains(&state.effective_month)
+            && (0..=100_000_000).contains(&state.officer_gross_salary_krw)
+            && (state.setting_id.is_some() == state.created_game_day.is_some()),
+        "corporation next-month setting is outside the public bounds"
+    );
+    Ok(CorporationNextMonthSettingSnapshot {
+        setting_id: state.setting_id,
+        operating_scale_id: state.operating_scale_id,
+        scale_key: state.scale_key.clone(),
+        scale_order: state.scale_order,
+        revenue_factor_ppm: state.revenue_factor_ppm,
+        fixed_cost_krw: state.fixed_cost_krw,
+        effective_year: state.effective_year,
+        effective_month: state.effective_month,
+        officer_gross_salary_krw: state.officer_gross_salary_krw,
+        created_game_day: state.created_game_day,
     })
 }
 
@@ -12179,6 +12479,7 @@ fn to_corporation_summary_snapshot(
             && state.cash_krw >= 0
             && state.contributed_capital_krw > 0
             && state.operating_payable_krw >= 0
+            && state.corporate_tax_payable_krw >= 0
             && state.distributable_profit_krw >= 0,
         "corporation summary is inconsistent"
     );
@@ -12201,9 +12502,11 @@ fn to_corporation_summary_snapshot(
         contributed_capital_krw: state.contributed_capital_krw,
         retained_earnings_krw: state.retained_earnings_krw,
         operating_payable_krw: state.operating_payable_krw,
+        corporate_tax_payable_krw: state.corporate_tax_payable_krw,
         distributable_profit_krw: state.distributable_profit_krw,
         personal_ledger_transaction_id: state.personal_ledger_transaction_id,
         corporation_ledger_transaction_id: state.corporation_ledger_transaction_id,
+        next_month_setting: to_corporation_next_month_setting_snapshot(&state.next_month_setting)?,
     })
 }
 
@@ -12246,6 +12549,120 @@ fn to_corporation_create_response(
         wallet_debit_krw: receipt.wallet_debit_krw,
         replayed: receipt.replayed,
         snapshot,
+    })
+}
+
+fn to_corporation_settings_response(
+    receipt: CorporationSettingsReceipt,
+    snapshot: GameSnapshot,
+) -> Result<CorporationSettingsResponse> {
+    ensure!(
+        snapshot
+            .life
+            .corporation
+            .current
+            .as_ref()
+            .is_some_and(|current| current.id == receipt.setting.corporation_id),
+        "corporation setting receipt disagrees with the committed snapshot"
+    );
+    Ok(CorporationSettingsResponse {
+        result: to_corporation_operating_setting_snapshot(receipt.setting)?,
+        replayed: receipt.replayed,
+        snapshot,
+    })
+}
+
+fn to_corporation_dividend_response(
+    receipt: CorporationDividendReceipt,
+    snapshot: GameSnapshot,
+) -> Result<CorporationDividendResponse> {
+    ensure!(
+        receipt.gross_dividend_krw > 0
+            && receipt.net_dividend_krw
+                + receipt.withheld_income_tax_krw
+                + receipt.withheld_local_income_tax_krw
+                == receipt.gross_dividend_krw
+            && snapshot
+                .life
+                .corporation
+                .current
+                .as_ref()
+                .is_some_and(|current| current.id == receipt.corporation_id),
+        "corporation dividend receipt is inconsistent"
+    );
+    Ok(CorporationDividendResponse {
+        result: CorporationDividendSnapshot {
+            id: receipt.id,
+            corporation_id: receipt.corporation_id,
+            tax_year: receipt.tax_year,
+            gross_dividend_krw: receipt.gross_dividend_krw,
+            withheld_income_tax_krw: receipt.withheld_income_tax_krw,
+            withheld_local_income_tax_krw: receipt.withheld_local_income_tax_krw,
+            net_dividend_krw: receipt.net_dividend_krw,
+            corporation_ledger_transaction_id: receipt.corporation_ledger_transaction_id,
+            personal_ledger_transaction_id: receipt.personal_ledger_transaction_id,
+            paid_game_day: receipt.paid_game_day,
+        },
+        replayed: receipt.replayed,
+        snapshot,
+    })
+}
+
+fn to_corporation_operating_month_page_response(
+    state: CorporationOperatingMonthPageState,
+) -> Result<CorporationOperatingMonthPageResponse> {
+    ensure!(
+        state.months.len() <= 20
+            && state.next_cursor.as_ref().is_none_or(|cursor| {
+                !cursor.is_empty() && cursor.len() <= 512 && cursor.is_ascii()
+            }),
+        "corporation month page is outside public bounds"
+    );
+    let mut previous_key = None;
+    let months = state
+        .months
+        .into_iter()
+        .map(|month| {
+            let key = (month.operating_year, month.operating_month, month.id.get());
+            ensure!(
+                (1..=12).contains(&month.operating_month)
+                    && previous_key.is_none_or(|previous| previous < key),
+                "corporation months are not canonically ordered"
+            );
+            previous_key = Some(key);
+            to_corporation_operating_month_snapshot(month)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(CorporationOperatingMonthPageResponse {
+        months,
+        next_cursor: state.next_cursor,
+    })
+}
+
+fn to_corporation_operating_month_snapshot(
+    state: CorporationOperatingMonthState,
+) -> Result<CorporationOperatingMonthSnapshot> {
+    let payroll_status = match state.payroll_status.as_str() {
+        "notConfigured" => CorporationPayrollStatusSnapshot::NotConfigured,
+        "paid" => CorporationPayrollStatusSnapshot::Paid,
+        "unpaid" => CorporationPayrollStatusSnapshot::Unpaid,
+        _ => bail!("corporation month payroll status is invalid"),
+    };
+    Ok(CorporationOperatingMonthSnapshot {
+        id: state.id,
+        operating_year: state.operating_year,
+        operating_month: state.operating_month,
+        scale_key: state.scale_key,
+        officer_gross_salary_krw: state.officer_gross_salary_krw,
+        revenue_krw: state.revenue_krw,
+        operating_expense_krw: state.operating_expense_krw,
+        total_payroll_cost_krw: state.total_payroll_cost_krw,
+        pre_tax_profit_krw: state.pre_tax_profit_krw,
+        payroll_status,
+        cash_after_krw: state.cash_after_krw,
+        operating_payable_after_krw: state.operating_payable_after_krw,
+        retained_earnings_after_krw: state.retained_earnings_after_krw,
+        applied_game_day: state.applied_game_day,
     })
 }
 

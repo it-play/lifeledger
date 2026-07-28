@@ -1843,6 +1843,15 @@ pub enum CorporationStatusState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorporationOperatingScaleState {
+    pub id: ResourceId,
+    pub scale_key: String,
+    pub scale_order: u8,
+    pub revenue_factor_ppm: u32,
+    pub fixed_cost_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CorporationTemplateState {
     pub id: ResourceId,
     pub template_key: String,
@@ -1852,6 +1861,38 @@ pub struct CorporationTemplateState {
     pub revenue_variation_ppm: u32,
     pub variable_cost_ppm: u32,
     pub fixed_monthly_cost_krw: i64,
+    pub operating_scales: Vec<CorporationOperatingScaleState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationOperatingSettingState {
+    pub id: ResourceId,
+    pub corporation_id: ResourceId,
+    pub operating_scale_id: ResourceId,
+    pub scale_key: String,
+    pub scale_order: u8,
+    pub revenue_factor_ppm: u32,
+    pub fixed_cost_krw: i64,
+    pub effective_year: u16,
+    pub effective_month: u8,
+    pub officer_gross_salary_krw: i64,
+    pub created_game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationNextMonthSettingState {
+    pub setting_id: Option<ResourceId>,
+    pub operating_scale_id: ResourceId,
+    pub scale_key: String,
+    pub scale_order: u8,
+    pub revenue_factor_ppm: u32,
+    pub fixed_cost_krw: i64,
+    pub effective_year: u16,
+    pub effective_month: u8,
+    pub officer_gross_salary_krw: i64,
+    pub created_game_day: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1886,9 +1927,11 @@ pub struct CorporationSummaryState {
     pub contributed_capital_krw: i64,
     pub retained_earnings_krw: i64,
     pub operating_payable_krw: i64,
+    pub corporate_tax_payable_krw: i64,
     pub distributable_profit_krw: i64,
     pub personal_ledger_transaction_id: ResourceId,
     pub corporation_ledger_transaction_id: ResourceId,
+    pub next_month_setting: CorporationNextMonthSettingState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1923,6 +1966,72 @@ pub struct CorporationReceipt {
     pub corporation: CorporationSummaryState,
     pub wallet_debit_krw: i64,
     pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateCorporationSettingsCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub corporation_id: ResourceId,
+    pub operating_scale_id: ResourceId,
+    pub officer_gross_salary_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationSettingsReceipt {
+    pub command_id: CommandId,
+    pub setting: CorporationOperatingSettingState,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayCorporationDividendCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub corporation_id: ResourceId,
+    pub gross_dividend_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationDividendReceipt {
+    pub command_id: CommandId,
+    pub id: ResourceId,
+    pub corporation_id: ResourceId,
+    pub tax_year: u16,
+    pub gross_dividend_krw: i64,
+    pub withheld_income_tax_krw: i64,
+    pub withheld_local_income_tax_krw: i64,
+    pub net_dividend_krw: i64,
+    pub corporation_ledger_transaction_id: ResourceId,
+    pub personal_ledger_transaction_id: ResourceId,
+    pub paid_game_day: u32,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorporationOperatingMonthState {
+    pub id: ResourceId,
+    pub operating_year: u16,
+    pub operating_month: u8,
+    pub scale_key: String,
+    pub officer_gross_salary_krw: i64,
+    pub revenue_krw: i64,
+    pub operating_expense_krw: i64,
+    pub total_payroll_cost_krw: i64,
+    pub pre_tax_profit_krw: i64,
+    pub payroll_status: String,
+    pub cash_after_krw: i64,
+    pub operating_payable_after_krw: i64,
+    pub retained_earnings_after_krw: i64,
+    pub applied_game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorporationOperatingMonthPageState {
+    pub months: Vec<CorporationOperatingMonthState>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3822,6 +3931,34 @@ pub trait LifeStore: Send + Sync + 'static {
     ) -> Result<CorporationReadResult<CorporationSummaryState>> {
         let _ = (user_id, corporation_id);
         Err(anyhow::anyhow!("M4-E2 corporation is not wired"))
+    }
+
+    async fn update_corporation_settings(
+        &self,
+        user_id: u64,
+        command: &UpdateCorporationSettingsCommand,
+    ) -> Result<LifeStoreResult<CorporationSettingsReceipt>> {
+        let _ = (user_id, command);
+        Err(anyhow::anyhow!("M4-E2 corporation settings are not wired"))
+    }
+
+    async fn pay_corporation_dividend(
+        &self,
+        user_id: u64,
+        command: &PayCorporationDividendCommand,
+    ) -> Result<LifeStoreResult<CorporationDividendReceipt>> {
+        let _ = (user_id, command);
+        Err(anyhow::anyhow!("M4-E2 corporation dividend is not wired"))
+    }
+
+    async fn corporation_operating_months(
+        &self,
+        user_id: u64,
+        corporation_id: ResourceId,
+        cursor: Option<String>,
+    ) -> Result<CorporationReadResult<CorporationOperatingMonthPageState>> {
+        let _ = (user_id, corporation_id, cursor);
+        Err(anyhow::anyhow!("M4-E2 corporation months are not wired"))
     }
 
     async fn insolvency_overview(

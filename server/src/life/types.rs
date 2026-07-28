@@ -3953,6 +3953,78 @@ pub struct CorporationOperatingMonthPlan {
     pub pre_payroll_profit_krw: i64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CorporationOfficerPayrollInput {
+    pub cash_after_operating_krw: i64,
+    pub gross_salary_krw: i64,
+    pub employee_insurance_total_krw: i64,
+    pub employer_insurance_total_krw: i64,
+    pub withheld_income_tax_krw: i64,
+    pub withheld_local_income_tax_krw: i64,
+    pub net_salary_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationOfficerPayrollPlan {
+    pub paid: bool,
+    pub total_payroll_cost_krw: i64,
+    pub withholding_liability_krw: i64,
+    pub corporation_cash_debit_krw: i64,
+    pub operating_payable_increase_krw: i64,
+    pub personal_wallet_credit_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationTaxBracket {
+    pub maximum_tax_base_krw: Option<i64>,
+    pub rate_ppm: i64,
+    pub progressive_deduction_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CorporationTaxPolicy<'a> {
+    pub national_brackets: &'a [CorporationTaxBracket],
+    pub local_brackets: &'a [CorporationTaxBracket],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CorporationTaxInput<'a> {
+    pub annual_pre_tax_profit_krw: i64,
+    pub policy: CorporationTaxPolicy<'a>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationTaxPlan {
+    pub tax_base_krw: i64,
+    pub corporate_income_tax_krw: i64,
+    pub local_corporate_income_tax_krw: i64,
+    pub total_tax_krw: i64,
+    pub after_tax_profit_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CorporationDividendInput {
+    pub gross_dividend_krw: i64,
+    pub distributable_profit_krw: i64,
+    pub corporation_cash_krw: i64,
+    pub income_tax_rate_ppm: i64,
+    pub local_income_tax_on_income_tax_ppm: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationDividendPlan {
+    pub gross_dividend_krw: i64,
+    pub withheld_income_tax_krw: i64,
+    pub withheld_local_income_tax_krw: i64,
+    pub net_dividend_krw: i64,
+    pub distributable_profit_after_krw: i64,
+    pub corporation_cash_after_krw: i64,
+}
+
 pub trait CorporationMonthEntropy: Send + Sync + 'static {
     fn digest(
         &self,
@@ -3971,6 +4043,21 @@ pub trait CorporationRules: Send + Sync + 'static {
         &self,
         input: CorporationOperatingMonthInput,
     ) -> Result<CorporationOperatingMonthPlan, CorporationError>;
+
+    fn plan_officer_payroll(
+        &self,
+        input: CorporationOfficerPayrollInput,
+    ) -> Result<CorporationOfficerPayrollPlan, CorporationError>;
+
+    fn plan_corporate_tax(
+        &self,
+        input: CorporationTaxInput<'_>,
+    ) -> Result<CorporationTaxPlan, CorporationError>;
+
+    fn plan_dividend(
+        &self,
+        input: CorporationDividendInput,
+    ) -> Result<CorporationDividendPlan, CorporationError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3984,6 +4071,10 @@ pub enum CorporationError {
     InsufficientWalletCash,
     InvalidOperatingMonth,
     InvalidOperatingTerms,
+    InvalidOfficerPayroll,
+    InvalidTaxPolicy,
+    InvalidDividend,
+    InsufficientDividendCapacity,
     EntropyFailure,
     ArithmeticOverflow,
 }

@@ -341,6 +341,8 @@ pub enum LedgerSourceKind {
     InsolvencyDistribution,
     InsolvencyDischarge,
     CorporationEstablishment,
+    CorporationOfficerPayroll,
+    CorporationDividend,
     Correction,
 }
 

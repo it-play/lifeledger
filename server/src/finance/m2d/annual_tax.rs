@@ -76,10 +76,19 @@ pub enum FinancialIncomeSource {
     BondCoupon,
     LlxDistribution,
     IsaEarlyClose,
+    CorporationDividend,
 }
 
 impl FinancialIncomeSource {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
+        Self::CmaInterest,
+        Self::DepositInterest,
+        Self::BondCoupon,
+        Self::LlxDistribution,
+        Self::IsaEarlyClose,
+        Self::CorporationDividend,
+    ];
+    const BASE_REQUIRED: [Self; 5] = [
         Self::CmaInterest,
         Self::DepositInterest,
         Self::BondCoupon,
@@ -94,6 +103,7 @@ impl FinancialIncomeSource {
             Self::BondCoupon => 2,
             Self::LlxDistribution => 3,
             Self::IsaEarlyClose => 4,
+            Self::CorporationDividend => 5,
         }
     }
 }
@@ -639,7 +649,10 @@ fn validate_source_rates(rates: &[FinancialIncomeSourceRate]) -> Result<(), Annu
         }
         seen[index] = true;
     }
-    if seen.into_iter().any(|present| !present) {
+    if FinancialIncomeSource::BASE_REQUIRED
+        .into_iter()
+        .any(|source| !seen[source.index()])
+    {
         return Err(AnnualTaxError::MissingSourceRate);
     }
     Ok(())
@@ -1067,6 +1080,7 @@ mod tests {
                     serde_json::json!("bondCoupon"),
                     serde_json::json!("llxDistribution"),
                     serde_json::json!("isaEarlyClose"),
+                    serde_json::json!("corporationDividend"),
                 ]
             );
         }

@@ -62,6 +62,9 @@ pub(super) enum EmploymentIncomeEventSource {
         military_service_id: u64,
         period_no: u64,
     },
+    CorporationOfficerPayroll {
+        operating_month_id: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -83,7 +86,7 @@ pub(super) struct EmploymentIncomeEventWrite {
     pub(super) run_revision: u32,
     pub(super) employment_policy_set_id: u64,
     pub(super) source: EmploymentIncomeEventSource,
-    pub(super) scheduled_settlement_id: u64,
+    pub(super) scheduled_settlement_id: Option<u64>,
     pub(super) ledger_transaction_id: Option<u64>,
     pub(super) paid_game_day: u32,
     pub(super) paid_date: Date,
@@ -113,40 +116,57 @@ pub(super) async fn record_employment_income_event_in_tx(
         );
     }
 
-    let (source_kind, source_id, occurrence, payroll_record_id, military_service_id) =
-        match write.source {
-            EmploymentIncomeEventSource::EmploymentPayroll {
-                payroll_record_id,
-                period_no,
-            } => (
-                "employmentPayroll",
-                payroll_record_id,
-                period_no,
-                Some(payroll_record_id),
-                None,
-            ),
-            EmploymentIncomeEventSource::MilitaryPay {
-                military_service_id,
-                period_no,
-            } => (
-                "militaryPay",
-                military_service_id,
-                period_no,
-                None,
-                Some(military_service_id),
-            ),
-        };
+    let (
+        source_kind,
+        source_id,
+        occurrence,
+        payroll_record_id,
+        military_service_id,
+        corporation_operating_month_id,
+    ) = match write.source {
+        EmploymentIncomeEventSource::EmploymentPayroll {
+            payroll_record_id,
+            period_no,
+        } => (
+            "employmentPayroll",
+            payroll_record_id,
+            period_no,
+            Some(payroll_record_id),
+            None,
+            None,
+        ),
+        EmploymentIncomeEventSource::MilitaryPay {
+            military_service_id,
+            period_no,
+        } => (
+            "militaryPay",
+            military_service_id,
+            period_no,
+            None,
+            Some(military_service_id),
+            None,
+        ),
+        EmploymentIncomeEventSource::CorporationOfficerPayroll { operating_month_id } => (
+            "corporationOfficerPayroll",
+            operating_month_id,
+            1,
+            None,
+            None,
+            Some(operating_month_id),
+        ),
+    };
     let amounts = write.amounts;
     let insert = sqlx::query(
         "INSERT INTO employment_income_event
              (save_id, run_revision, employment_policy_set_id, source_kind, source_id,
               occurrence, payroll_record_id, military_service_id,
-              scheduled_settlement_id, ledger_transaction_id, paid_game_day, paid_date,
+              corporation_operating_month_id, scheduled_settlement_id,
+              ledger_transaction_id, paid_game_day, paid_date,
               tax_year, gross_employment_income_krw, employee_national_pension_krw,
               employee_health_insurance_krw, employee_long_term_care_krw,
               employee_employment_insurance_krw, employee_insurance_total_krw,
               withheld_income_tax_krw, withheld_local_income_tax_krw, net_pay_krw)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(write.save_id)
     .bind(write.run_revision)
@@ -156,6 +176,7 @@ pub(super) async fn record_employment_income_event_in_tx(
     .bind(occurrence)
     .bind(payroll_record_id)
     .bind(military_service_id)
+    .bind(corporation_operating_month_id)
     .bind(write.scheduled_settlement_id)
     .bind(write.ledger_transaction_id)
     .bind(write.paid_game_day)

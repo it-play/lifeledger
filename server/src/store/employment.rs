@@ -218,6 +218,69 @@ pub(super) struct MilitaryEmploymentPayrollInput {
     pub(super) dependents: u8,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CorporationEmploymentPayrollInput {
+    pub(super) payroll_subject_id: u64,
+    pub(super) employment_policy_set_id: u64,
+    pub(super) payday: Date,
+    pub(super) gross_pay_krw: i64,
+    pub(super) dependents: u8,
+    pub(super) industry: Industry,
+}
+
+pub(super) async fn calculate_corporation_employment_payroll_in_tx(
+    tx: &mut Transaction<'_, MySql>,
+    payroll_rules: &dyn PayrollRules,
+    input: CorporationEmploymentPayrollInput,
+) -> Result<PayrollBreakdown> {
+    let policy = load_payroll_policy(
+        tx,
+        input.employment_policy_set_id,
+        input.payday,
+        input.industry,
+    )
+    .await?;
+    payroll_rules
+        .validate_policy(&policy.policy)
+        .context("corporation officer payroll policy is invalid")?;
+    let payday_month_start = input
+        .payday
+        .replace_day(1)
+        .context("corporation payroll payday month is invalid")?;
+    let previous_month_day = payday_month_start
+        .previous_day()
+        .context("corporation payroll previous month is invalid")?;
+    let synthetic_start = previous_month_day
+        .replace_day(1)
+        .context("corporation payroll period start is invalid")?;
+    let annual_salary_krw = input
+        .gross_pay_krw
+        .checked_mul(12)
+        .context("corporation payroll annualized gross overflowed")?;
+    let breakdown = payroll_rules
+        .calculate_payroll(PayrollCalculationInput {
+            period: PayrollPeriodInput {
+                contract_id: input.payroll_subject_id,
+                period_no: 1,
+                contract_start_date: synthetic_start,
+                annual_salary_krw,
+                payday_day_of_month: input.payday.day(),
+            },
+            dependents: input.dependents,
+            employer_size_band: EmployerSizeBand::Under150,
+            industry: input.industry,
+            wanted_reward_gross_krw: None,
+            policy: &policy.policy,
+        })
+        .context("corporation officer payroll calculation failed")?;
+    ensure!(
+        breakdown.period.payday == input.payday
+            && breakdown.period.gross_pay_krw == input.gross_pay_krw,
+        "corporation payroll changed the pinned gross or payday"
+    );
+    Ok(breakdown)
+}
+
 pub(super) async fn calculate_military_employment_payroll_in_tx(
     tx: &mut Transaction<'_, MySql>,
     payroll_rules: &dyn PayrollRules,
@@ -717,7 +780,7 @@ pub(super) async fn settle_employment_payroll_by_id_in_tx(
                 payroll_record_id,
                 period_no: payload.period_no,
             },
-            scheduled_settlement_id: settlement_id,
+            scheduled_settlement_id: Some(settlement_id),
             ledger_transaction_id: salary_ledger_id,
             paid_game_day: game_day,
             paid_date: payday,
