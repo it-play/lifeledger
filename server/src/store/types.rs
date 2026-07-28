@@ -1825,6 +1825,112 @@ pub struct InsolvencyWalletAssetState {
     pub distributed_krw: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CorporationAvailabilityState {
+    Unavailable,
+    Active,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CorporationStatusState {
+    Draft,
+    Active,
+    Dormant,
+    Insolvent,
+    Dissolved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorporationTemplateState {
+    pub id: ResourceId,
+    pub template_key: String,
+    pub display_name: String,
+    pub template_order: u8,
+    pub base_monthly_revenue_krw: i64,
+    pub revenue_variation_ppm: u32,
+    pub variable_cost_ppm: u32,
+    pub fixed_monthly_cost_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorporationTemplatesState {
+    pub availability: CorporationAvailabilityState,
+    pub component_version_id: Option<ResourceId>,
+    pub registered_office_class: Option<String>,
+    pub minimum_capital_krw: Option<i64>,
+    pub maximum_capital_krw: Option<i64>,
+    pub game_administrative_fee_krw: Option<i64>,
+    pub templates: Vec<CorporationTemplateState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationSummaryState {
+    pub id: ResourceId,
+    pub component_version_id: ResourceId,
+    pub industry_template_id: ResourceId,
+    pub template_key: String,
+    pub template_display_name: String,
+    pub name: String,
+    pub representative_name: String,
+    pub status: CorporationStatusState,
+    pub established_game_day: u32,
+    pub capital_krw: i64,
+    pub registration_license_tax_krw: i64,
+    pub local_education_tax_krw: i64,
+    pub game_administrative_fee_krw: i64,
+    pub total_establishment_fee_krw: i64,
+    pub cash_krw: i64,
+    pub contributed_capital_krw: i64,
+    pub retained_earnings_krw: i64,
+    pub operating_payable_krw: i64,
+    pub distributable_profit_krw: i64,
+    pub personal_ledger_transaction_id: ResourceId,
+    pub corporation_ledger_transaction_id: ResourceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationSnapshotState {
+    pub availability: CorporationAvailabilityState,
+    pub current: Option<CorporationSummaryState>,
+}
+
+impl CorporationSnapshotState {
+    pub const fn unavailable() -> Self {
+        Self {
+            availability: CorporationAvailabilityState::Unavailable,
+            current: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateCorporationCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub industry_template_id: ResourceId,
+    pub name: String,
+    pub capital_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationReceipt {
+    pub command_id: CommandId,
+    pub corporation: CorporationSummaryState,
+    pub wallet_debit_krw: i64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CorporationReadResult<T> {
+    Found(T),
+    Rejected(LifeFailureCode),
+}
+
 impl InsuranceSnapshotState {
     pub fn unavailable() -> Self {
         Self {
@@ -2019,6 +2125,7 @@ pub struct LifeSnapshotState {
     pub active_insurance_contracts: Vec<InsuranceContractState>,
     pub pending_insurance_claims: Vec<PendingInsuranceClaimState>,
     pub insolvency: InsolvencySnapshotState,
+    pub corporation: CorporationSnapshotState,
     pub pending_events: Vec<PendingLifeEventState>,
 }
 
@@ -2050,6 +2157,7 @@ impl LifeSnapshotState {
             active_insurance_contracts: Vec::new(),
             pending_insurance_claims: Vec::new(),
             insolvency: InsolvencySnapshotState::unavailable(),
+            corporation: CorporationSnapshotState::unavailable(),
             pending_events: Vec::new(),
         }
     }
@@ -2392,6 +2500,8 @@ pub enum LifeFailureCode {
     InsolvencyCompositionUnsupported,
     InsolvencyCompositionChanged,
     InsolvencyStateConflict,
+    CorporationResourceNotFound,
+    CorporationStateConflict,
     ClaimNotCovered,
     InsufficientWalletCash,
     RateUnavailable,
@@ -3688,6 +3798,32 @@ pub trait CareerStore: Send + Sync + 'static {
 /// M4 household costs, credit, loans, and cursor-protected commands.
 #[async_trait]
 pub trait LifeStore: Send + Sync + 'static {
+    async fn corporation_templates(
+        &self,
+        user_id: u64,
+    ) -> Result<CorporationReadResult<CorporationTemplatesState>> {
+        let _ = user_id;
+        Err(anyhow::anyhow!("M4-E2 corporation is not wired"))
+    }
+
+    async fn create_corporation(
+        &self,
+        user_id: u64,
+        command: &CreateCorporationCommand,
+    ) -> Result<LifeStoreResult<CorporationReceipt>> {
+        let _ = (user_id, command);
+        Err(anyhow::anyhow!("M4-E2 corporation is not wired"))
+    }
+
+    async fn corporation_detail(
+        &self,
+        user_id: u64,
+        corporation_id: ResourceId,
+    ) -> Result<CorporationReadResult<CorporationSummaryState>> {
+        let _ = (user_id, corporation_id);
+        Err(anyhow::anyhow!("M4-E2 corporation is not wired"))
+    }
+
     async fn insolvency_overview(
         &self,
         user_id: u64,

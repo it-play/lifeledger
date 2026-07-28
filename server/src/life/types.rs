@@ -3853,3 +3853,95 @@ impl Display for InsolvencyError {
 }
 
 impl Error for InsolvencyError {}
+
+pub const CORPORATION_RATIO_SCALE_PPM: i64 = 1_000_000;
+pub const CORPORATION_MAX_PUBLIC_MONEY_KRW: i64 = 9_007_199_254_740_991;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CorporationStatus {
+    Draft,
+    Active,
+    Dormant,
+    Insolvent,
+    Dissolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CorporationRegisteredOfficeClass {
+    StandardRegisteredOffice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationRegistrationPolicy {
+    pub registered_office_class: CorporationRegisteredOfficeClass,
+    pub registration_license_tax_rate_ppm: i64,
+    pub minimum_registration_license_tax_krw: i64,
+    pub local_education_tax_rate_ppm: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationEstablishmentTerms {
+    pub minimum_capital_krw: i64,
+    pub maximum_capital_krw: i64,
+    pub game_administrative_fee_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CorporationEstablishmentInput<'a> {
+    pub name: &'a str,
+    pub capital_krw: i64,
+    pub wallet_cash_krw: i64,
+    pub policy: CorporationRegistrationPolicy,
+    pub terms: CorporationEstablishmentTerms,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationRegistrationCharges {
+    pub registration_license_tax_krw: i64,
+    pub local_education_tax_krw: i64,
+    pub game_administrative_fee_krw: i64,
+    pub total_fee_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationEstablishmentPlan {
+    pub canonical_name: String,
+    pub capital_krw: i64,
+    pub charges: CorporationRegistrationCharges,
+    pub wallet_debit_krw: i64,
+    pub wallet_cash_after_krw: i64,
+    pub corporation_cash_after_krw: i64,
+}
+
+pub trait CorporationRules: Send + Sync + 'static {
+    fn plan_establishment(
+        &self,
+        input: CorporationEstablishmentInput<'_>,
+    ) -> Result<CorporationEstablishmentPlan, CorporationError>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorporationError {
+    UnsupportedRegisteredOffice,
+    InvalidPolicy,
+    InvalidTerms,
+    InvalidName,
+    InvalidCapital,
+    InvalidWalletCash,
+    InsufficientWalletCash,
+    ArithmeticOverflow,
+}
+
+impl Display for CorporationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "corporation error: {self:?}")
+    }
+}
+
+impl Error for CorporationError {}

@@ -57,14 +57,17 @@ use crate::store::{
     CareerRewardPaymentState, CareerScheduledActionKind, CareerScheduledSettlementKind,
     CareerSpecsState, CareerStore, CareerStoreResult, CashProductStore, CashProductStoreResult,
     CloseIsaAccountCommand, CloseIsaAccountReceipt, CloseMilitarySavingsCommand,
-    ConfirmCareerInterviewCommand, CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand,
-    CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand, CreditOverviewState,
-    CreditReasonState, DeclineCareerInvitationCommand, DeclineCareerOfferCommand,
-    DepositLoanExecutionReceipt, EmploymentContractState, EnrollInsuranceContractCommand,
-    EssentialArrearPaymentReceipt, EssentialArrearState, ExecuteLoanCommand,
-    FileInsuranceClaimCommand, FinanceStore, FinanceStoreResult, FocusCareerCommand,
-    GameCommandCursor, GameCommandRejection, HousingLeaseCurrentState, HousingLeaseMoveReceipt,
-    HousingListingState, HousingListingsQueryState, HousingListingsState, HousingMovingCostState,
+    ConfirmCareerInterviewCommand, CorporationAvailabilityState, CorporationReadResult,
+    CorporationReceipt, CorporationSnapshotState, CorporationStatusState, CorporationSummaryState,
+    CorporationTemplateState, CorporationTemplatesState, CreateCorporationCommand,
+    CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
+    CreatePropertySaleOrderCommand, CreditOverviewState, CreditReasonState,
+    DeclineCareerInvitationCommand, DeclineCareerOfferCommand, DepositLoanExecutionReceipt,
+    EmploymentContractState, EnrollInsuranceContractCommand, EssentialArrearPaymentReceipt,
+    EssentialArrearState, ExecuteLoanCommand, FileInsuranceClaimCommand, FinanceStore,
+    FinanceStoreResult, FocusCareerCommand, GameCommandCursor, GameCommandRejection,
+    HousingLeaseCurrentState, HousingLeaseMoveReceipt, HousingListingState,
+    HousingListingsQueryState, HousingListingsState, HousingMovingCostState,
     HousingPropertyHoldingsState, HousingPurchaseCapabilityState, HousingRateStatusState,
     HousingRegionState, InsolvencyAvailabilityState, InsolvencyCaseDetailState,
     InsolvencyCaseReceipt, InsolvencyCaseSummaryState, InsolvencyClaimPageState,
@@ -1817,6 +1820,119 @@ pub struct InsolvencyLiquidationPageResponse {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CorporationAvailabilitySnapshot {
+    Unavailable,
+    Active,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CorporationStatusSnapshot {
+    Draft,
+    Active,
+    Dormant,
+    Insolvent,
+    Dissolved,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationTemplateSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub template_key: String,
+    pub display_name: String,
+    pub template_order: u8,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    pub base_monthly_revenue_krw: i64,
+    #[schema(maximum = 900000)]
+    pub revenue_variation_ppm: u32,
+    #[schema(maximum = 1000000)]
+    pub variable_cost_ppm: u32,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub fixed_monthly_cost_krw: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationTemplatesResponse {
+    pub availability: CorporationAvailabilitySnapshot,
+    #[schema(required = true, nullable, value_type = Option<String>, pattern = "^[1-9][0-9]*$")]
+    pub component_version_id: Option<ResourceId>,
+    #[schema(required = true, nullable)]
+    pub registered_office_class: Option<String>,
+    #[schema(required = true, nullable, minimum = 1, maximum = 9007199254740991_i64)]
+    pub minimum_capital_krw: Option<i64>,
+    #[schema(required = true, nullable, minimum = 1, maximum = 9007199254740991_i64)]
+    pub maximum_capital_krw: Option<i64>,
+    #[schema(required = true, nullable, minimum = 0, maximum = 9007199254740991_i64)]
+    pub game_administrative_fee_krw: Option<i64>,
+    #[schema(max_items = 3)]
+    pub templates: Vec<CorporationTemplateSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationSummarySnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub component_version_id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub industry_template_id: ResourceId,
+    pub template_key: String,
+    pub template_display_name: String,
+    pub name: String,
+    pub representative_name: String,
+    pub status: CorporationStatusSnapshot,
+    pub established_game_day: u32,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub capital_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub registration_license_tax_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub local_education_tax_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub game_administrative_fee_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub total_establishment_fee_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub cash_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub contributed_capital_krw: i64,
+    pub retained_earnings_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub operating_payable_krw: i64,
+    #[schema(minimum = 0, maximum = 9007199254740991_i64)]
+    pub distributable_profit_krw: i64,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub personal_ledger_transaction_id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub corporation_ledger_transaction_id: ResourceId,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationSnapshot {
+    pub availability: CorporationAvailabilitySnapshot,
+    #[schema(required = true, nullable)]
+    pub current: Option<CorporationSummarySnapshot>,
+}
+
+pub type CorporationDetailResponse = CorporationSummarySnapshot;
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorporationCreateResponse {
+    pub result: CorporationSummarySnapshot,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    pub wallet_debit_krw: i64,
+    pub replayed: bool,
+    pub snapshot: GameSnapshot,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LifeSnapshot {
@@ -1866,6 +1982,7 @@ pub struct LifeSnapshot {
     #[schema(max_items = 8)]
     pub pending_events: Vec<PendingLifeEventSnapshot>,
     pub insolvency: InsolvencySnapshot,
+    pub corporation: CorporationSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -6008,6 +6125,62 @@ impl AppState {
                 to_insolvency_snapshot(&state)?,
             ))),
             InsolvencyReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
+    pub async fn corporation_templates(
+        self: &Arc<Self>,
+        user_id: u64,
+    ) -> Result<LifeCommandResult<CorporationTemplatesResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self.lives.corporation_templates(user_id).await? {
+            CorporationReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_corporation_templates_response(state)?,
+            ))),
+            CorporationReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
+    pub async fn create_corporation(
+        self: &Arc<Self>,
+        user_id: u64,
+        command: &CreateCorporationCommand,
+    ) -> Result<LifeCommandResult<CorporationCreateResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        let (receipt, committed) = match self.lives.create_corporation(user_id, command).await? {
+            LifeStoreResult::Applied { receipt, save } => (receipt, save),
+            LifeStoreResult::Rejected(code) => return Ok(LifeCommandResult::Rejected(code)),
+        };
+        let snapshot = if receipt.replayed {
+            self.reload_life_without_broadcast(user_id, &runtime, &committed)
+                .await?
+        } else {
+            self.reload_and_broadcast_life(user_id, &runtime, &committed)
+                .await?
+        };
+        Ok(LifeCommandResult::Applied(Box::new(
+            to_corporation_create_response(receipt, snapshot)?,
+        )))
+    }
+
+    pub async fn corporation_detail(
+        self: &Arc<Self>,
+        user_id: u64,
+        corporation_id: ResourceId,
+    ) -> Result<LifeCommandResult<CorporationDetailResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self
+            .lives
+            .corporation_detail(user_id, corporation_id)
+            .await?
+        {
+            CorporationReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_corporation_summary_snapshot(&state)?,
+            ))),
+            CorporationReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
         }
     }
 
@@ -11872,6 +12045,210 @@ fn to_insolvency_liquidation_page_response(
     })
 }
 
+const fn to_corporation_availability_snapshot(
+    value: CorporationAvailabilityState,
+) -> CorporationAvailabilitySnapshot {
+    match value {
+        CorporationAvailabilityState::Unavailable => CorporationAvailabilitySnapshot::Unavailable,
+        CorporationAvailabilityState::Active => CorporationAvailabilitySnapshot::Active,
+    }
+}
+
+const fn to_corporation_status_snapshot(
+    value: CorporationStatusState,
+) -> CorporationStatusSnapshot {
+    match value {
+        CorporationStatusState::Draft => CorporationStatusSnapshot::Draft,
+        CorporationStatusState::Active => CorporationStatusSnapshot::Active,
+        CorporationStatusState::Dormant => CorporationStatusSnapshot::Dormant,
+        CorporationStatusState::Insolvent => CorporationStatusSnapshot::Insolvent,
+        CorporationStatusState::Dissolved => CorporationStatusSnapshot::Dissolved,
+    }
+}
+
+fn to_corporation_template_snapshot(
+    state: CorporationTemplateState,
+) -> Result<CorporationTemplateSnapshot> {
+    ensure!(
+        is_canonical_welfare_identifier(&state.template_key)
+            && !state.display_name.trim().is_empty()
+            && state.display_name.len() <= 40
+            && (1..=3).contains(&state.template_order)
+            && state.base_monthly_revenue_krw > 0
+            && state.revenue_variation_ppm <= 900_000
+            && state.variable_cost_ppm <= 1_000_000
+            && state.fixed_monthly_cost_krw >= 0,
+        "corporation template is outside the public bounds"
+    );
+    Ok(CorporationTemplateSnapshot {
+        id: state.id,
+        template_key: state.template_key,
+        display_name: state.display_name,
+        template_order: state.template_order,
+        base_monthly_revenue_krw: state.base_monthly_revenue_krw,
+        revenue_variation_ppm: state.revenue_variation_ppm,
+        variable_cost_ppm: state.variable_cost_ppm,
+        fixed_monthly_cost_krw: state.fixed_monthly_cost_krw,
+    })
+}
+
+fn to_corporation_templates_response(
+    state: CorporationTemplatesState,
+) -> Result<CorporationTemplatesResponse> {
+    match state.availability {
+        CorporationAvailabilityState::Unavailable => {
+            ensure!(
+                state.component_version_id.is_none()
+                    && state.registered_office_class.is_none()
+                    && state.minimum_capital_krw.is_none()
+                    && state.maximum_capital_krw.is_none()
+                    && state.game_administrative_fee_krw.is_none()
+                    && state.templates.is_empty(),
+                "unavailable corporation catalog exposed configuration"
+            );
+        }
+        CorporationAvailabilityState::Active => {
+            let minimum_capital = state
+                .minimum_capital_krw
+                .context("active corporation catalog has no minimum capital")?;
+            let maximum_capital = state
+                .maximum_capital_krw
+                .context("active corporation catalog has no maximum capital")?;
+            ensure!(
+                state.component_version_id.is_some()
+                    && state.registered_office_class.as_deref() == Some("standardRegisteredOffice")
+                    && minimum_capital > 0
+                    && minimum_capital <= maximum_capital
+                    && state
+                        .game_administrative_fee_krw
+                        .is_some_and(|fee| fee >= 0)
+                    && state.templates.len() == 3,
+                "active corporation catalog is incomplete"
+            );
+        }
+    }
+    let mut previous_order = 0_u8;
+    let mut template_ids = std::collections::HashSet::new();
+    let mut template_keys = std::collections::HashSet::new();
+    let templates = state
+        .templates
+        .into_iter()
+        .map(|template| {
+            ensure!(
+                template.template_order == previous_order.saturating_add(1)
+                    && template_ids.insert(template.id)
+                    && template_keys.insert(template.template_key.clone()),
+                "corporation templates are not canonically ordered and unique"
+            );
+            previous_order = template.template_order;
+            to_corporation_template_snapshot(template)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(CorporationTemplatesResponse {
+        availability: to_corporation_availability_snapshot(state.availability),
+        component_version_id: state.component_version_id,
+        registered_office_class: state.registered_office_class,
+        minimum_capital_krw: state.minimum_capital_krw,
+        maximum_capital_krw: state.maximum_capital_krw,
+        game_administrative_fee_krw: state.game_administrative_fee_krw,
+        templates,
+    })
+}
+
+fn to_corporation_summary_snapshot(
+    state: &CorporationSummaryState,
+) -> Result<CorporationSummarySnapshot> {
+    let total_fee = state
+        .registration_license_tax_krw
+        .checked_add(state.local_education_tax_krw)
+        .and_then(|amount| amount.checked_add(state.game_administrative_fee_krw))
+        .context("corporation establishment fee overflowed")?;
+    ensure!(
+        is_canonical_welfare_identifier(&state.template_key)
+            && !state.template_display_name.trim().is_empty()
+            && state.template_display_name.len() <= 40
+            && state.name == state.name.trim()
+            && (2..=40).contains(&state.name.chars().count())
+            && !state.representative_name.trim().is_empty()
+            && state.representative_name.len() <= 40
+            && state.capital_krw > 0
+            && state.registration_license_tax_krw >= 0
+            && state.local_education_tax_krw >= 0
+            && state.game_administrative_fee_krw >= 0
+            && total_fee == state.total_establishment_fee_krw
+            && state.cash_krw >= 0
+            && state.contributed_capital_krw > 0
+            && state.operating_payable_krw >= 0
+            && state.distributable_profit_krw >= 0,
+        "corporation summary is inconsistent"
+    );
+    Ok(CorporationSummarySnapshot {
+        id: state.id,
+        component_version_id: state.component_version_id,
+        industry_template_id: state.industry_template_id,
+        template_key: state.template_key.clone(),
+        template_display_name: state.template_display_name.clone(),
+        name: state.name.clone(),
+        representative_name: state.representative_name.clone(),
+        status: to_corporation_status_snapshot(state.status),
+        established_game_day: state.established_game_day,
+        capital_krw: state.capital_krw,
+        registration_license_tax_krw: state.registration_license_tax_krw,
+        local_education_tax_krw: state.local_education_tax_krw,
+        game_administrative_fee_krw: state.game_administrative_fee_krw,
+        total_establishment_fee_krw: state.total_establishment_fee_krw,
+        cash_krw: state.cash_krw,
+        contributed_capital_krw: state.contributed_capital_krw,
+        retained_earnings_krw: state.retained_earnings_krw,
+        operating_payable_krw: state.operating_payable_krw,
+        distributable_profit_krw: state.distributable_profit_krw,
+        personal_ledger_transaction_id: state.personal_ledger_transaction_id,
+        corporation_ledger_transaction_id: state.corporation_ledger_transaction_id,
+    })
+}
+
+fn to_corporation_snapshot(state: &CorporationSnapshotState) -> Result<CorporationSnapshot> {
+    ensure!(
+        state.availability == CorporationAvailabilityState::Active || state.current.is_none(),
+        "unavailable corporation component exposed a corporation"
+    );
+    Ok(CorporationSnapshot {
+        availability: to_corporation_availability_snapshot(state.availability),
+        current: state
+            .current
+            .as_ref()
+            .map(to_corporation_summary_snapshot)
+            .transpose()?,
+    })
+}
+
+fn to_corporation_create_response(
+    receipt: CorporationReceipt,
+    snapshot: GameSnapshot,
+) -> Result<CorporationCreateResponse> {
+    let expected_debit = receipt
+        .corporation
+        .capital_krw
+        .checked_add(receipt.corporation.total_establishment_fee_krw)
+        .context("corporation wallet debit overflowed")?;
+    ensure!(
+        receipt.wallet_debit_krw == expected_debit
+            && snapshot
+                .life
+                .corporation
+                .current
+                .as_ref()
+                .is_some_and(|current| current.id == receipt.corporation.id),
+        "corporation receipt disagrees with the committed snapshot"
+    );
+    Ok(CorporationCreateResponse {
+        result: to_corporation_summary_snapshot(&receipt.corporation)?,
+        wallet_debit_krw: receipt.wallet_debit_krw,
+        replayed: receipt.replayed,
+        snapshot,
+    })
+}
+
 fn to_life_snapshot(state: &LifeSnapshotState, game_day: u32) -> Result<LifeSnapshot> {
     ensure!(
         state.active_welfare_applications.len() <= 8,
@@ -12099,6 +12476,7 @@ fn to_life_snapshot(state: &LifeSnapshotState, game_day: u32) -> Result<LifeSnap
         pending_insurance_claims,
         pending_events,
         insolvency: to_insolvency_snapshot(&state.insolvency)?,
+        corporation: to_corporation_snapshot(&state.corporation)?,
     })
 }
 

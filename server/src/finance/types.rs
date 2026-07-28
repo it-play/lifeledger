@@ -224,6 +224,8 @@ pub enum LedgerAccountCode {
     InsuranceClaimRecovery,
     InsolvencyDischargedDebt,
     InsolvencyDischargeGain,
+    CorporationInvestmentAsset,
+    CorporationRegistrationExpense,
 }
 
 impl LedgerAccountCode {
@@ -274,7 +276,9 @@ impl LedgerAccountCode {
             | Self::InsurancePremiumExpense
             | Self::InsuranceClaimRecovery
             | Self::InsolvencyDischargedDebt
-            | Self::InsolvencyDischargeGain => PostingAccountRequirement::Forbidden,
+            | Self::InsolvencyDischargeGain
+            | Self::CorporationInvestmentAsset
+            | Self::CorporationRegistrationExpense => PostingAccountRequirement::Forbidden,
             Self::PensionTaxExcludedContribution | Self::PensionCreditedContribution => {
                 PostingAccountRequirement::Required
             }
@@ -336,6 +340,7 @@ pub enum LedgerSourceKind {
     InsuranceClaimPayment,
     InsolvencyDistribution,
     InsolvencyDischarge,
+    CorporationEstablishment,
     Correction,
 }
 

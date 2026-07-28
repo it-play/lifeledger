@@ -61,7 +61,10 @@ use crate::state::{
     CareerSnapshot, CareerSpecsResponse, CashContractSnapshot, CashProductCatalogResponse,
     CashProductCommandResult, CashProductVersionSnapshot, CharacterStartResponse,
     CharacterStartSnapshot, CmaAccountCloseResponse, CmaAccountCloseSnapshot,
-    CmaAccountOpenResponse, CmaAccountOpenSnapshot, CmaAccountSnapshot, CreditBandSnapshot,
+    CmaAccountOpenResponse, CmaAccountOpenSnapshot, CmaAccountSnapshot,
+    CorporationAvailabilitySnapshot, CorporationCreateResponse, CorporationDetailResponse,
+    CorporationSnapshot, CorporationStatusSnapshot, CorporationSummarySnapshot,
+    CorporationTemplateSnapshot, CorporationTemplatesResponse, CreditBandSnapshot,
     CreditReasonSnapshot, CreditResponse, DepositCloseResponse, DepositCloseSnapshot,
     DepositKindSnapshot, DepositLoanExecutionSnapshot, DepositOpenResponse, DepositOpenSnapshot,
     DepositProtectionSnapshot, EssentialArrearPaymentResponse,
@@ -157,18 +160,19 @@ use crate::store::{
     ApplyCareerCommand, ApplyWelfareProgramCommand, CancelCareerActivityCommand,
     CancelInsuranceContractCommand, CancelPropertySaleOrderCommand, CareerArtifactPageQuery,
     CareerJobsPageQuery, CareerPageQuery, CareerPlatform, CloseIsaAccountCommand,
-    CloseMilitarySavingsCommand, ConfirmCareerInterviewCommand, CreateLeaseDepositLoanQuoteCommand,
-    CreateLoanQuoteCommand, CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand,
-    DeclineCareerInvitationCommand, DeclineCareerOfferCommand, EnrollInsuranceContractCommand,
-    ExecuteLoanCommand, FileInsuranceClaimCommand, FocusCareerCommand, HousingListingsQueryState,
-    InsolvencyActionState, InsuranceQueryState, InterviewDecision, LifeBudgetSelectionState,
-    LifeEventsQueryState, LifeFailureCode, LoanInstallmentPageCursor, LoanInstallmentPageQuery,
-    ManualAdvanceCommand, OpenMilitarySavingsCommand, OpenTaxAccountCommand,
-    PayEssentialArrearCommand, PayLeaseArrearCommand, PensionWithdrawalCommand,
-    PrepareInsolvencyCaseCommand, PrepayLoanCommand, PropertySaleOrderPageQuery,
-    PropertyTaxEventPageQuery, PublishCareerArtifactCommand, PurchasePropertyCommand,
-    RepricePropertySaleOrderCommand, ResolveLifeEventCommand, StartCareerActivityCommand,
-    StartGameCommand, StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
+    CloseMilitarySavingsCommand, ConfirmCareerInterviewCommand, CreateCorporationCommand,
+    CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
+    CreatePropertySaleOrderCommand, DeclineCareerInvitationCommand, DeclineCareerOfferCommand,
+    EnrollInsuranceContractCommand, ExecuteLoanCommand, FileInsuranceClaimCommand,
+    FocusCareerCommand, HousingListingsQueryState, InsolvencyActionState, InsuranceQueryState,
+    InterviewDecision, LifeBudgetSelectionState, LifeEventsQueryState, LifeFailureCode,
+    LoanInstallmentPageCursor, LoanInstallmentPageQuery, ManualAdvanceCommand,
+    OpenMilitarySavingsCommand, OpenTaxAccountCommand, PayEssentialArrearCommand,
+    PayLeaseArrearCommand, PensionWithdrawalCommand, PrepareInsolvencyCaseCommand,
+    PrepayLoanCommand, PropertySaleOrderPageQuery, PropertyTaxEventPageQuery,
+    PublishCareerArtifactCommand, PurchasePropertyCommand, RepricePropertySaleOrderCommand,
+    ResolveLifeEventCommand, StartCareerActivityCommand, StartGameCommand,
+    StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
     StartingLoanCommand, UpdateLifeBudgetCommand, WithdrawCareerApplicationCommand,
 };
 use crate::trading::{
@@ -237,6 +241,9 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         insolvency_case_detail,
         insolvency_claims,
         insolvency_liquidations,
+        corporation_templates,
+        create_corporation,
+        corporation_detail,
         housing_listings,
         housing_lease_current,
         housing_property_holdings,
@@ -541,6 +548,14 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         InsolvencyCaseActionRequest,
         InsolvencyActionRequestKind,
         InsolvencyProcedureRequestKind,
+        CorporationAvailabilitySnapshot,
+        CorporationStatusSnapshot,
+        CorporationTemplateSnapshot,
+        CorporationTemplatesResponse,
+        CorporationSummarySnapshot,
+        CorporationSnapshot,
+        CorporationCreateRequest,
+        CorporationCreateResponse,
         WelfareApplicationRequest,
         WelfareApplicationResultSnapshot,
         WelfareApplicationResponse,
@@ -783,6 +798,9 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/insolvency/{caseId}/liquidations",
             get(insolvency_liquidations),
         )
+        .route("/api/corporations/templates", get(corporation_templates))
+        .route("/api/corporations", post(create_corporation))
+        .route("/api/corporations/{corporationId}", get(corporation_detail))
         .route("/api/housing/listings", get(housing_listings))
         .route("/api/housing/leases/current", get(housing_lease_current))
         .route("/api/housing/leases", post(start_housing_lease))
@@ -2891,6 +2909,8 @@ enum LifeFailureCodeSnapshot {
     InsolvencyCompositionUnsupported,
     InsolvencyCompositionChanged,
     InsolvencyStateConflict,
+    CorporationResourceNotFound,
+    CorporationStateConflict,
     ClaimNotCovered,
     Ineligible,
     ValuationUnavailable,
@@ -2924,6 +2944,8 @@ impl From<LifeFailureCode> for LifeFailureCodeSnapshot {
             }
             LifeFailureCode::InsolvencyCompositionChanged => Self::InsolvencyCompositionChanged,
             LifeFailureCode::InsolvencyStateConflict => Self::InsolvencyStateConflict,
+            LifeFailureCode::CorporationResourceNotFound => Self::CorporationResourceNotFound,
+            LifeFailureCode::CorporationStateConflict => Self::CorporationStateConflict,
             LifeFailureCode::ClaimNotCovered => Self::ClaimNotCovered,
             LifeFailureCode::Ineligible => Self::Ineligible,
             LifeFailureCode::ValuationUnavailable => Self::ValuationUnavailable,
@@ -2962,7 +2984,8 @@ impl axum::response::IntoResponse for LifeRouteError {
             | LifeFailureCode::WelfareResourceNotFound
             | LifeFailureCode::EventNotFound
             | LifeFailureCode::InsuranceResourceNotFound
-            | LifeFailureCode::InsolvencyResourceNotFound => StatusCode::NOT_FOUND,
+            | LifeFailureCode::InsolvencyResourceNotFound
+            | LifeFailureCode::CorporationResourceNotFound => StatusCode::NOT_FOUND,
             LifeFailureCode::InsolvencyCompositionUnsupported => StatusCode::UNPROCESSABLE_ENTITY,
             _ => StatusCode::CONFLICT,
         };
@@ -3011,6 +3034,12 @@ const fn life_failure_message(code: LifeFailureCode) -> &'static str {
         }
         LifeFailureCode::InsolvencyStateConflict => {
             "현재 cursor 또는 도산 사건 상태에서 이 요청을 처리할 수 없습니다"
+        }
+        LifeFailureCode::CorporationResourceNotFound => {
+            "현재 run의 법인 또는 업종 템플릿을 찾을 수 없습니다"
+        }
+        LifeFailureCode::CorporationStateConflict => {
+            "현재 cursor, 법인 또는 도산 상태에서 이 요청을 처리할 수 없습니다"
         }
         LifeFailureCode::ClaimNotCovered => {
             "이 청구는 보장되지 않거나 지급 기한 또는 상태가 유효하지 않습니다"
@@ -3373,6 +3402,129 @@ async fn file_insurance_claim(
         claim_id,
     };
     match state.file_insurance_claim(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CorporationCreateRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(
+        value_type = String,
+        min_length = 1,
+        max_length = 20,
+        pattern = "^[1-9][0-9]*$"
+    )]
+    industry_template_id: String,
+    #[schema(min_length = 2, max_length = 40)]
+    name: String,
+    #[schema(minimum = 1, maximum = 9007199254740991_i64)]
+    capital_krw: i64,
+}
+
+fn corporation_create_command(
+    request: CorporationCreateRequest,
+) -> Result<CreateCorporationCommand, LifeFailureCode> {
+    if request.capital_krw <= 0 || request.capital_krw > MAX_JSON_SAFE_INTEGER as i64 {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let (command_id, cursor) = life_command_parts(
+        request.command_id,
+        request.expected_run_revision,
+        request.expected_state_revision,
+        request.expected_game_day,
+    )?;
+    Ok(CreateCorporationCommand {
+        command_id,
+        cursor,
+        industry_template_id: ResourceId::parse(&request.industry_template_id)
+            .map_err(|_| LifeFailureCode::InvalidCommand)?,
+        name: request.name,
+        capital_krw: request.capital_krw,
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/corporations/templates",
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run에 고정된 법인 설립 조건과 업종 템플릿", body = CorporationTemplatesResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "캐릭터 또는 현재 run이 필요함", body = LifeFailure),
+        (status = 500, description = "법인 템플릿 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn corporation_templates(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<CorporationTemplatesResponse>, LifeRouteError> {
+    match state.corporation_templates(user.id).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/corporations",
+    request_body = CorporationCreateRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "법인 설립 결과 또는 멱등 재조회", body = CorporationCreateResponse),
+        (status = 400, description = "법인 설립 body 형식 또는 값이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 업종 템플릿을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "현금, cursor, 기존 법인 또는 도산 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "법인 설립 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn create_corporation(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<CorporationCreateRequest>, JsonRejection>,
+) -> Result<Json<CorporationCreateResponse>, LifeRouteError> {
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = corporation_create_command(request)?;
+    match state.create_corporation(user.id, &command).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/corporations/{corporationId}",
+    params(("corporationId" = String, Path, description = "현재 run 법인 ID", pattern = "^[1-9][0-9]*$")),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "현재 run 법인 상세", body = CorporationDetailResponse),
+        (status = 400, description = "법인 ID 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 법인을 찾을 수 없음", body = LifeFailure),
+        (status = 500, description = "법인 상세 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn corporation_detail(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(corporation_id): Path<String>,
+) -> Result<Json<CorporationDetailResponse>, LifeRouteError> {
+    let corporation_id =
+        ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    match state.corporation_detail(user.id, corporation_id).await? {
         LifeCommandResult::Applied(response) => Ok(Json(*response)),
         LifeCommandResult::Rejected(code) => Err(code.into()),
     }
@@ -6917,6 +7069,7 @@ mod tests {
                     "insuranceClaimPayment",
                     "insolvencyDistribution",
                     "insolvencyDischarge",
+                    "corporationEstablishment",
                     "correction"
                 ]))
             );
@@ -6971,7 +7124,9 @@ mod tests {
                     "insurancePremiumExpense",
                     "insuranceClaimRecovery",
                     "insolvencyDischargedDebt",
-                    "insolvencyDischargeGain"
+                    "insolvencyDischargeGain",
+                    "corporationInvestmentAsset",
+                    "corporationRegistrationExpense"
                 ]))
             );
         }
@@ -7998,6 +8153,9 @@ mod tests {
                 "/paths/~1api~1insolvency~1{caseId}/get",
                 "/paths/~1api~1insolvency~1{caseId}~1claims/get",
                 "/paths/~1api~1insolvency~1{caseId}~1liquidations/get",
+                "/paths/~1api~1corporations~1templates/get",
+                "/paths/~1api~1corporations/post",
+                "/paths/~1api~1corporations~1{corporationId}/get",
             ] {
                 assert_eq!(
                     document.pointer(&format!("{operation}/security")),
@@ -8040,6 +8198,8 @@ mod tests {
                     "insolvencyCompositionUnsupported",
                     "insolvencyCompositionChanged",
                     "insolvencyStateConflict",
+                    "corporationResourceNotFound",
+                    "corporationStateConflict",
                     "claimNotCovered",
                     "ineligible",
                     "valuationUnavailable",

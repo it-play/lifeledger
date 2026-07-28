@@ -1,5 +1,6 @@
 //! Pure life-simulation rules for living costs and later M4 slices.
 
+mod corporation;
 mod credit;
 mod insolvency;
 mod insurance;
@@ -13,6 +14,7 @@ mod real_estate;
 mod types;
 mod welfare;
 
+pub use corporation::create_corporation_rules;
 pub use credit::create_credit_rules;
 pub use insolvency::{create_insolvency_rules, create_insolvency_rules_with_loan_rules};
 pub use insurance::{

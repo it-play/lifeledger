@@ -12,6 +12,10 @@ use sha2::{Digest, Sha256};
 use sqlx::{MySql, MySqlPool, Transaction};
 use time::{Date, Month};
 
+use super::corporations::{
+    create_corporation, read_corporation_detail, read_corporation_snapshot_in_tx,
+    read_corporation_templates,
+};
 use super::housing::{
     is_retryable_database_error, prepare_current_housing_catalogs,
     prepare_property_daily_for_target, read_housing_listings,
@@ -49,15 +53,17 @@ use super::properties::{
 };
 use super::types::{
     ActOnInsolvencyCaseCommand, ApplyWelfareProgramCommand, CancelInsuranceContractCommand,
-    CancelPropertySaleOrderCommand, CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand,
-    CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand, CreditOverviewState,
-    CreditReasonState, EnrollInsuranceContractCommand, EssentialArrearPaymentReceipt,
-    EssentialArrearState, ExecuteLoanCommand, FileInsuranceClaimCommand, GameCommandCursor,
-    HousingLeaseCurrentState, HousingLeaseMoveReceipt, HousingListingsQueryState,
-    HousingListingsState, HousingPropertyHoldingsState, InsolvencyCaseDetailState,
-    InsolvencyCaseReceipt, InsolvencyClaimPageState, InsolvencyLiquidationPageState,
-    InsolvencyReadResult, InsolvencySnapshotState, InsuranceCancellationReceipt,
-    InsuranceClaimReceipt, InsuranceEnrollmentReceipt, InsuranceQueryState, InsuranceReadResult,
+    CancelPropertySaleOrderCommand, CorporationReadResult, CorporationReceipt,
+    CorporationSummaryState, CorporationTemplatesState, CreateCorporationCommand,
+    CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
+    CreatePropertySaleOrderCommand, CreditOverviewState, CreditReasonState,
+    EnrollInsuranceContractCommand, EssentialArrearPaymentReceipt, EssentialArrearState,
+    ExecuteLoanCommand, FileInsuranceClaimCommand, GameCommandCursor, HousingLeaseCurrentState,
+    HousingLeaseMoveReceipt, HousingListingsQueryState, HousingListingsState,
+    HousingPropertyHoldingsState, InsolvencyCaseDetailState, InsolvencyCaseReceipt,
+    InsolvencyClaimPageState, InsolvencyLiquidationPageState, InsolvencyReadResult,
+    InsolvencySnapshotState, InsuranceCancellationReceipt, InsuranceClaimReceipt,
+    InsuranceEnrollmentReceipt, InsuranceQueryState, InsuranceReadResult,
     LeaseArrearPaymentReceipt, LeaseDepositLoanQuoteReceipt, LifeBudgetBandState,
     LifeBudgetSelectionState, LifeBudgetState, LifeEventChoiceReceipt, LifeEventsQueryState,
     LifeEventsReadResult, LifeFailureCode, LifeHouseholdState, LifeRateStatus, LifeResidenceState,
@@ -81,13 +87,13 @@ use crate::finance::{
     ScheduledSettlement, SettlementKind, SettlementSourceKind,
 };
 use crate::life::{
-    CurrentLivingCostCharge, EssentialArrearBalance, InsolvencyRules, InsuranceRules,
-    LifeEventRules, LivingCostAllocationInput, LivingCostCategory,
+    CorporationRules, CurrentLivingCostCharge, EssentialArrearBalance, InsolvencyRules,
+    InsuranceRules, LifeEventRules, LivingCostAllocationInput, LivingCostCategory,
     LivingCostCategoryCalculationInput, LivingCostMonthCalculationInput, LivingCostProration,
     LivingCostRules, PropertyRules, PropertyTaxRules, RealEstateRules, WelfareRules, YearMonth,
-    create_insolvency_rules, create_insurance_rules, create_life_event_rules,
-    create_living_cost_rules, create_property_rules, create_property_tax_rules,
-    create_real_estate_rules, create_welfare_rules,
+    create_corporation_rules, create_insolvency_rules, create_insurance_rules,
+    create_life_event_rules, create_living_cost_rules, create_property_rules,
+    create_property_tax_rules, create_real_estate_rules, create_welfare_rules,
 };
 
 const COMMAND_KIND_UPDATE_BUDGET: &str = "updateLifeBudget";
@@ -110,6 +116,7 @@ pub struct MySqlLifeStore {
     life_event_rules: Arc<dyn LifeEventRules>,
     insurance_rules: Arc<dyn InsuranceRules>,
     insolvency_rules: Arc<dyn InsolvencyRules>,
+    corporation_rules: Arc<dyn CorporationRules>,
     welfare_rules: Arc<dyn WelfareRules>,
 }
 
@@ -126,6 +133,7 @@ pub fn create_mysql_life_store(
         life_event_rules: create_life_event_rules(),
         insurance_rules: create_insurance_rules(),
         insolvency_rules: create_insolvency_rules(),
+        corporation_rules: create_corporation_rules(),
         welfare_rules: create_welfare_rules(),
     }
 }
@@ -358,6 +366,36 @@ struct ArrearPaymentApplication {
 
 #[async_trait]
 impl LifeStore for MySqlLifeStore {
+    async fn corporation_templates(
+        &self,
+        user_id: u64,
+    ) -> Result<CorporationReadResult<CorporationTemplatesState>> {
+        read_corporation_templates(&self.pool, user_id).await
+    }
+
+    async fn create_corporation(
+        &self,
+        user_id: u64,
+        command: &CreateCorporationCommand,
+    ) -> Result<LifeStoreResult<CorporationReceipt>> {
+        create_corporation(
+            &self.pool,
+            self.finance_rules.as_ref(),
+            self.corporation_rules.as_ref(),
+            user_id,
+            command,
+        )
+        .await
+    }
+
+    async fn corporation_detail(
+        &self,
+        user_id: u64,
+        corporation_id: ResourceId,
+    ) -> Result<CorporationReadResult<CorporationSummaryState>> {
+        read_corporation_detail(&self.pool, user_id, corporation_id).await
+    }
+
     async fn insolvency_overview(
         &self,
         user_id: u64,
@@ -2685,6 +2723,7 @@ pub(super) async fn read_life_snapshot_in_tx(
         read_insurance_snapshot_in_tx(tx, create_insurance_rules().as_ref(), save_id).await?;
     let insolvency =
         read_insolvency_snapshot_in_tx(tx, create_insolvency_rules().as_ref(), save_id).await?;
+    let corporation = read_corporation_snapshot_in_tx(tx, save_id).await?;
     Ok(LifeSnapshotState {
         rate_status: rate_status(&scope),
         household: Some(household),
@@ -2712,6 +2751,7 @@ pub(super) async fn read_life_snapshot_in_tx(
         active_insurance_contracts: insurance.active_contracts,
         pending_insurance_claims: insurance.pending_claims,
         insolvency,
+        corporation,
     })
 }
 

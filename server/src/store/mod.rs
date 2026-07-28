@@ -3,6 +3,7 @@
 mod annual_tax;
 mod career;
 mod cash_products;
+mod corporations;
 mod employment;
 mod employment_income;
 mod employment_tax;
@@ -50,6 +51,9 @@ pub use types::{
     CareerScheduledActionKind, CareerScheduledSettlementKind, CareerSpecsState, CareerStore,
     CareerStoreResult, CashProductStore, CashProductStoreResult, CloseIsaAccountCommand,
     CloseIsaAccountReceipt, CloseMilitarySavingsCommand, ConfirmCareerInterviewCommand,
+    CorporationAvailabilityState, CorporationReadResult, CorporationReceipt,
+    CorporationSnapshotState, CorporationStatusState, CorporationSummaryState,
+    CorporationTemplateState, CorporationTemplatesState, CreateCorporationCommand,
     CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
     CreatePropertySaleOrderCommand, CreditOverviewState, CreditReasonState,
     DeclineCareerInvitationCommand, DeclineCareerOfferCommand, DepositLoanExecutionReceipt,
