@@ -256,6 +256,12 @@ function givenSnapshot(runRevision: number, stateRevision: number, gameDay: numb
       activeInsuranceContracts: [],
       pendingInsuranceClaims: [],
       pendingEvents: [],
+      insolvency: {
+        availability: 'unavailable',
+        eligibility: 'unavailable',
+        reasons: ['componentUnavailable'],
+        currentCase: null,
+      },
     },
   };
 }

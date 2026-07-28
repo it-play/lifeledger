@@ -165,6 +165,7 @@ const QUOTE_DECISION_LABEL: Record<LoanQuoteDecisionCode, string> = {
 };
 
 const QUOTE_REASON_LABEL: Record<LoanQuoteDecisionReason, string> = {
+  insolvencyRebuilding: '도산 후 신용 회복 기간',
   activeDefault: '채무불이행 계약',
   activeDelinquency: '연체 계약',
   activeRestructuring: '채무조정 계약',

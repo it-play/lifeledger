@@ -2,6 +2,7 @@ import { type AuthApi, createAuthApi } from './api/auth-api.js';
 import { createCareerApi } from './api/career-api.js';
 import { createGameApi } from './api/game-api.js';
 import { createHousingApi } from './api/housing-api.js';
+import { createInsolvencyApi } from './api/insolvency-api.js';
 import { createInsuranceApi } from './api/insurance-api.js';
 import { createLifeApi } from './api/life-api.js';
 import { createLifeEventApi } from './api/life-event-api.js';
@@ -17,6 +18,7 @@ import { createLifeView } from './app/screens/life.js';
 import { createLoansView } from './app/screens/loans.js';
 import { createLoginView } from './app/screens/login.js';
 import { createNotFoundView } from './app/screens/not-found.js';
+import { createRecoveryView } from './app/screens/recovery.js';
 import { createWelfareView } from './app/screens/welfare.js';
 import { type AppState, initialState, paths } from './app/state.js';
 import { createConsoleLogger, createDisposableBag, type Logger } from './lib/core/index.js';
@@ -53,6 +55,7 @@ function bootstrap(): void {
   const auth = createAuthApi({ http });
   const careerApi = createCareerApi({ http });
   const housingApi = createHousingApi({ http });
+  const insolvencyApi = createInsolvencyApi({ http });
   const insuranceApi = createInsuranceApi({ http });
   const lifeEventApi = createLifeEventApi({ http });
   const lifeApi = createLifeApi({ http });
@@ -163,6 +166,15 @@ function bootstrap(): void {
           snapshots,
           api: welfareApi,
           toasts,
+          createCommandId: () => globalThis.crypto.randomUUID(),
+        }),
+      },
+      {
+        pattern: '/recovery',
+        handler: createRecoveryView({
+          store,
+          snapshots,
+          api: insolvencyApi,
           createCommandId: () => globalThis.crypto.randomUUID(),
         }),
       },

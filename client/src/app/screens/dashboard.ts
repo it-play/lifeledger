@@ -1232,6 +1232,11 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           el(
             'p',
             {},
+            el('a', { href: '/recovery', dataset: { link: '' } }, '채무 청산과 신용 회복'),
+          ),
+          el(
+            'p',
+            {},
             el('a', { href: '/events-insurance', dataset: { link: '' } }, '생애 사건과 보험'),
           ),
           el(

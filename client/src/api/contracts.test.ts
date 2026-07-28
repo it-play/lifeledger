@@ -3061,6 +3061,12 @@ describe('생활비 M4-A protocol 계약', () => {
         activeInsuranceContracts: [],
         pendingInsuranceClaims: [],
         pendingEvents: [],
+        insolvency: {
+          availability: 'unavailable',
+          eligibility: 'unavailable',
+          reasons: ['componentUnavailable'],
+          currentCase: null,
+        },
       });
 
       expect(result.success).toBe(true);
@@ -3106,6 +3112,12 @@ describe('생활비 M4-A protocol 계약', () => {
         activeInsuranceContracts: [],
         pendingInsuranceClaims: [],
         pendingEvents: [],
+        insolvency: {
+          availability: 'unavailable',
+          eligibility: 'unavailable',
+          reasons: ['componentUnavailable'],
+          currentCase: null,
+        },
       });
 
       expect(result.success).toBe(false);
@@ -4192,6 +4204,12 @@ function givenOwnerLifeSnapshot() {
     activeInsuranceContracts: [],
     pendingInsuranceClaims: [],
     pendingEvents: [],
+    insolvency: {
+      availability: 'unavailable',
+      eligibility: 'unavailable',
+      reasons: ['componentUnavailable'],
+      currentCase: null,
+    },
   };
 }
 
@@ -4273,6 +4291,12 @@ function givenJeonseLifeSnapshot() {
     activeInsuranceContracts: [],
     pendingInsuranceClaims: [],
     pendingEvents: [],
+    insolvency: {
+      availability: 'unavailable',
+      eligibility: 'unavailable',
+      reasons: ['componentUnavailable'],
+      currentCase: null,
+    },
   };
 }
 

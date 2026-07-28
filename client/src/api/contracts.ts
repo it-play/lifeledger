@@ -3282,6 +3282,149 @@ function refinePendingLifeEvents(
   }
 }
 
+export const InsolvencyAvailabilitySchema = z.enum(['unavailable', 'cashOnlyLiquidation']);
+
+export const InsolvencyEligibilityStatusSchema = z.enum([
+  'eligible',
+  'ineligible',
+  'compositionUnsupported',
+  'unavailable',
+]);
+
+export const InsolvencyEligibilityReasonSchema = z.enum([
+  'policyUnavailable',
+  'componentUnavailable',
+  'invalidWalletCash',
+  'noSupportedDefaultedDebt',
+  'debtNotGreaterThanCash',
+  'unsupportedLoanComposition',
+  'unsupportedAssetComposition',
+  'unsupportedNonLoanObligation',
+  'existingNonTerminalCase',
+]);
+
+export const InsolvencyProcedureKindSchema = z.literal('cashOnlyLiquidation');
+
+export const InsolvencyCaseStatusSchema = z.enum([
+  'prepared',
+  'filed',
+  'liquidation',
+  'discharged',
+  'rebuilding',
+  'withdrawn',
+  'recovered',
+]);
+
+export const InsolvencyCaseSummarySchema = z
+  .object({
+    id: ResourceIdSchema,
+    procedureKind: InsolvencyProcedureKindSchema,
+    status: InsolvencyCaseStatusSchema,
+    preparedGameDay: z.number().int().safe().nonnegative(),
+    submittedGameDay: z.number().int().safe().nonnegative().nullable(),
+    walletCashKrw: NonnegativeKrwSchema,
+    protectedCashKrw: NonnegativeKrwSchema,
+    distributedKrw: NonnegativeKrwSchema,
+    dischargedKrw: NonnegativeKrwSchema,
+    creditRestrictionEndExclusive: z.number().int().safe().positive().nullable(),
+  })
+  .strict();
+
+export const InsolvencySnapshotSchema = z
+  .object({
+    availability: InsolvencyAvailabilitySchema,
+    eligibility: InsolvencyEligibilityStatusSchema,
+    reasons: z.array(InsolvencyEligibilityReasonSchema).max(16),
+    currentCase: InsolvencyCaseSummarySchema.nullable(),
+  })
+  .strict();
+
+export const InsolvencyOverviewResponseSchema = InsolvencySnapshotSchema;
+
+export const InsolvencyPageQuerySchema = z
+  .object({
+    cursor: z
+      .string()
+      .min(1)
+      .max(512)
+      .refine((value) => /^[\x20-\x7e]+$/.test(value), 'cursor must be printable ASCII')
+      .optional(),
+  })
+  .strict();
+
+export const InsolvencyTransitionSchema = z
+  .object({
+    sequence: z.number().int().min(1).max(16),
+    fromStatus: InsolvencyCaseStatusSchema.nullable(),
+    toStatus: InsolvencyCaseStatusSchema,
+    gameDay: z.number().int().safe().nonnegative(),
+  })
+  .strict();
+
+export const InsolvencyCaseDetailResponseSchema = z
+  .object({
+    summary: InsolvencyCaseSummarySchema,
+    policySetId: ResourceIdSchema,
+    lifeCatalogSetId: ResourceIdSchema,
+    insolvencyComponentVersionId: ResourceIdSchema,
+    compositionSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    automaticProtectedKrw: NonnegativeKrwSchema,
+    additionalProtectedKrw: NonnegativeKrwSchema,
+    liquidatableKrw: NonnegativeKrwSchema,
+    totalClaimKrw: PositiveKrwSchema,
+    claimCount: z.number().int().min(1).max(8),
+    transitions: z.array(InsolvencyTransitionSchema).min(1).max(16),
+  })
+  .strict();
+
+export const InsolvencyClaimSchema = z
+  .object({
+    id: ResourceIdSchema,
+    loanContractId: ResourceIdSchema,
+    principalKrw: NonnegativeKrwSchema,
+    interestKrw: NonnegativeKrwSchema,
+    feeKrw: NonnegativeKrwSchema,
+    allowedKrw: PositiveKrwSchema,
+    distributedKrw: NonnegativeKrwSchema,
+    dischargedKrw: NonnegativeKrwSchema,
+  })
+  .strict();
+
+export const InsolvencyClaimPageResponseSchema = z
+  .object({
+    claims: z.array(InsolvencyClaimSchema).max(20),
+    nextCursor: z.string().min(1).max(512).nullable(),
+  })
+  .strict();
+
+export const InsolvencyWalletAssetSchema = z
+  .object({
+    originalAmountKrw: NonnegativeKrwSchema,
+    protectedAmountKrw: NonnegativeKrwSchema,
+    liquidatableKrw: NonnegativeKrwSchema,
+    distributedKrw: NonnegativeKrwSchema,
+  })
+  .strict();
+
+export const InsolvencyLiquidationSchema = z
+  .object({
+    id: ResourceIdSchema,
+    claimId: ResourceIdSchema,
+    amountKrw: PositiveKrwSchema,
+    loanPaymentId: ResourceIdSchema,
+    ledgerTransactionId: ResourceIdSchema,
+    appliedGameDay: z.number().int().safe().nonnegative(),
+  })
+  .strict();
+
+export const InsolvencyLiquidationPageResponseSchema = z
+  .object({
+    walletAsset: InsolvencyWalletAssetSchema.nullable(),
+    distributions: z.array(InsolvencyLiquidationSchema).max(20),
+    nextCursor: z.string().min(1).max(512).nullable(),
+  })
+  .strict();
+
 export const LifeSnapshotSchema = z
   .object({
     ...LifeSummaryFields,
@@ -3305,6 +3448,7 @@ export const LifeSnapshotSchema = z
     activeInsuranceContracts: z.array(InsuranceContractSchema).max(8),
     pendingInsuranceClaims: z.array(PendingInsuranceClaimSchema).max(8),
     pendingEvents: z.array(PendingLifeEventSchema).max(8),
+    insolvency: InsolvencySnapshotSchema,
   })
   .strict()
   .superRefine((life, context) => {
@@ -3617,6 +3761,22 @@ export const InsuranceClaimRequestSchema = z
   })
   .strict();
 
+export const InsolvencyCasePrepareRequestSchema = z
+  .object({
+    ...LifeCommandCursorFields,
+    procedureKind: InsolvencyProcedureKindSchema,
+  })
+  .strict();
+
+export const InsolvencyActionSchema = z.enum(['submit', 'withdraw']);
+
+export const InsolvencyCaseActionRequestSchema = z
+  .object({
+    ...LifeCommandCursorFields,
+    action: InsolvencyActionSchema,
+  })
+  .strict();
+
 export const InsuranceEnrollmentResultSchema = z
   .object({
     contractId: ResourceIdSchema,
@@ -3679,6 +3839,14 @@ export const InsuranceCancellationResponseSchema = z
 export const InsuranceClaimResponseSchema = z
   .object({
     result: InsuranceClaimResultSchema,
+    replayed: z.boolean(),
+    snapshot: GameSnapshotSchema,
+  })
+  .strict();
+
+export const InsolvencyCaseCommandResponseSchema = z
+  .object({
+    result: InsolvencyCaseSummarySchema,
     replayed: z.boolean(),
     snapshot: GameSnapshotSchema,
   })
@@ -3760,6 +3928,10 @@ export const LifeFailureCodeSchema = z.enum([
   'eventNotFound',
   'eventExpired',
   'insuranceResourceNotFound',
+  'insolvencyResourceNotFound',
+  'insolvencyCompositionUnsupported',
+  'insolvencyCompositionChanged',
+  'insolvencyStateConflict',
   'claimNotCovered',
   'ineligible',
   'valuationUnavailable',
@@ -3859,6 +4031,7 @@ export const LoanQuoteDecisionCodeSchema = z.enum([
 ]);
 
 export const LoanQuoteDecisionReasonSchema = z.enum([
+  'insolvencyRebuilding',
   'activeDefault',
   'activeDelinquency',
   'activeRestructuring',
@@ -4013,6 +4186,7 @@ function loanQuoteDecisionMatchesReasons(quote: LoanQuoteResultValue): boolean {
       return onlyReason === quote.decisionCode;
     case 'creditRestricted': {
       const restrictedReasons = new Set([
+        'insolvencyRebuilding',
         'activeDefault',
         'activeDelinquency',
         'activeRestructuring',
@@ -5067,6 +5241,7 @@ export const HousingLeaseDepositLoanDecisionCodeSchema = z.enum([
 ]);
 
 export const HousingLeaseDepositLoanDecisionReasonSchema = z.enum([
+  'insolvencyRebuilding',
   'activeDefault',
   'activeDelinquency',
   'activeRestructuring',
@@ -5216,6 +5391,7 @@ function refineHousingLeaseDepositLoanDecision(
 
   const onlyReason = quote.decisionReasons.length === 1 ? quote.decisionReasons[0] : undefined;
   const creditReasons = new Set([
+    'insolvencyRebuilding',
     'activeDefault',
     'activeDelinquency',
     'activeRestructuring',
@@ -5610,6 +5786,7 @@ export const HousingMortgageQuoteDecisionCodeSchema = z.enum([
 ]);
 
 export const HousingMortgageQuoteDecisionReasonSchema = z.enum([
+  'insolvencyRebuilding',
   'activeDefault',
   'activeDelinquency',
   'activeRestructuring',
@@ -5799,6 +5976,7 @@ function refineHousingMortgageQuoteDecision(
   }
   const onlyReason = quote.decisionReasons.length === 1 ? quote.decisionReasons[0] : undefined;
   const creditReasons = new Set([
+    'insolvencyRebuilding',
     'activeDefault',
     'activeDelinquency',
     'activeRestructuring',
@@ -9443,6 +9621,24 @@ export type PendingLifeEvent = z.infer<typeof PendingLifeEventSchema>;
 export type LifeEventHistoryItem = z.infer<typeof LifeEventHistoryItemSchema>;
 export type LifeEventsResponse = z.infer<typeof LifeEventsResponseSchema>;
 export type LifeEventsQuery = z.infer<typeof LifeEventsQuerySchema>;
+export type InsolvencyAvailability = z.infer<typeof InsolvencyAvailabilitySchema>;
+export type InsolvencyEligibilityStatus = z.infer<typeof InsolvencyEligibilityStatusSchema>;
+export type InsolvencyEligibilityReason = z.infer<typeof InsolvencyEligibilityReasonSchema>;
+export type InsolvencyProcedureKind = z.infer<typeof InsolvencyProcedureKindSchema>;
+export type InsolvencyCaseStatus = z.infer<typeof InsolvencyCaseStatusSchema>;
+export type InsolvencyCaseSummary = z.infer<typeof InsolvencyCaseSummarySchema>;
+export type InsolvencySnapshot = z.infer<typeof InsolvencySnapshotSchema>;
+export type InsolvencyOverviewResponse = z.infer<typeof InsolvencyOverviewResponseSchema>;
+export type InsolvencyPageQuery = z.infer<typeof InsolvencyPageQuerySchema>;
+export type InsolvencyTransition = z.infer<typeof InsolvencyTransitionSchema>;
+export type InsolvencyCaseDetailResponse = z.infer<typeof InsolvencyCaseDetailResponseSchema>;
+export type InsolvencyClaim = z.infer<typeof InsolvencyClaimSchema>;
+export type InsolvencyClaimPageResponse = z.infer<typeof InsolvencyClaimPageResponseSchema>;
+export type InsolvencyWalletAsset = z.infer<typeof InsolvencyWalletAssetSchema>;
+export type InsolvencyLiquidation = z.infer<typeof InsolvencyLiquidationSchema>;
+export type InsolvencyLiquidationPageResponse = z.infer<
+  typeof InsolvencyLiquidationPageResponseSchema
+>;
 export type LifeSnapshot = z.infer<typeof LifeSnapshotSchema>;
 export type LifeBudgetResponse = z.infer<typeof LifeBudgetResponseSchema>;
 export type GameSnapshot = z.infer<typeof GameSnapshotSchema>;
@@ -9460,12 +9656,16 @@ export type LifeEventChoiceResponse = z.infer<typeof LifeEventChoiceResponseSche
 export type InsuranceEnrollmentRequest = z.infer<typeof InsuranceEnrollmentRequestSchema>;
 export type InsuranceCancellationRequest = z.infer<typeof InsuranceCancellationRequestSchema>;
 export type InsuranceClaimRequest = z.infer<typeof InsuranceClaimRequestSchema>;
+export type InsolvencyCasePrepareRequest = z.infer<typeof InsolvencyCasePrepareRequestSchema>;
+export type InsolvencyAction = z.infer<typeof InsolvencyActionSchema>;
+export type InsolvencyCaseActionRequest = z.infer<typeof InsolvencyCaseActionRequestSchema>;
 export type InsuranceEnrollmentResult = z.infer<typeof InsuranceEnrollmentResultSchema>;
 export type InsuranceCancellationResult = z.infer<typeof InsuranceCancellationResultSchema>;
 export type InsuranceClaimResult = z.infer<typeof InsuranceClaimResultSchema>;
 export type InsuranceEnrollmentResponse = z.infer<typeof InsuranceEnrollmentResponseSchema>;
 export type InsuranceCancellationResponse = z.infer<typeof InsuranceCancellationResponseSchema>;
 export type InsuranceClaimResponse = z.infer<typeof InsuranceClaimResponseSchema>;
+export type InsolvencyCaseCommandResponse = z.infer<typeof InsolvencyCaseCommandResponseSchema>;
 export type InsuranceFailureCode = z.infer<typeof InsuranceFailureCodeSchema>;
 export type InsuranceFailure = z.infer<typeof InsuranceFailureSchema>;
 export type LifeFailureCode = z.infer<typeof LifeFailureCodeSchema>;

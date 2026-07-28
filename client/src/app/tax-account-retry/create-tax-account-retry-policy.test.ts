@@ -279,6 +279,12 @@ function givenSnapshot(stateRevision: number): GameSnapshot {
       activeInsuranceContracts: [],
       pendingInsuranceClaims: [],
       pendingEvents: [],
+      insolvency: {
+        availability: 'unavailable',
+        eligibility: 'unavailable',
+        reasons: ['componentUnavailable'],
+        currentCase: null,
+      },
     },
   };
 }

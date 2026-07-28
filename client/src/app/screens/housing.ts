@@ -2764,6 +2764,8 @@ function mortgageDecisionReasonText(
   reason: HousingMortgageQuoteResult['decisionReasons'][number],
 ): string {
   switch (reason) {
+    case 'insolvencyRebuilding':
+      return '도산 후 신용 회복 기간';
     case 'activeDefault':
       return '활성 채무불이행';
     case 'activeDelinquency':
@@ -2838,6 +2840,8 @@ function depositLoanDecisionReasonText(
   reason: HousingLeaseDepositLoanQuoteResult['decisionReasons'][number],
 ): string {
   switch (reason) {
+    case 'insolvencyRebuilding':
+      return '도산 후 신용 회복 기간';
     case 'activeDefault':
       return '활성 채무불이행';
     case 'activeDelinquency':
