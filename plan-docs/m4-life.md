@@ -2616,6 +2616,14 @@ sealed manifest에 가진다. E2a는 이 값을 공개 catalog와 설립 provena
 `HMAC-SHA256(worldSeed, "lifeledger.corporation.month.v1" · corporationId · yearMonth · stream)`으로
 고정하고 실행 순서나 process 재시작을 입력으로 쓰지 않는다.
 
+canonical entropy message는 UTF-8
+`lifeledger.corporation.month.v1\0{corporationId}\0{YYYY-MM}\0{stream}`이고 정수는 leading zero 없는
+10진수, 월만 두 자리다. HMAC key인 world seed는 unsigned 64-bit big-endian 8 byte다. digest 앞 8 byte를
+unsigned big-endian으로 읽어
+`offset = word mod (2 × revenueVariationPpm + 1) - revenueVariationPpm`,
+`shockPpm = 1,000,000 + offset`으로 만든다. variation은 0~900,000ppm이라 shock는 항상 양수다.
+이 mapping이나 message를 바꾸면 component version을 올린다.
+
 `revenue = floor(baseRevenue × scaleRevenuePpm × shockPpm / 1,000,000²)`,
 `variableCost = floor(revenue × variableCostPpm / 1,000,000)`,
 `operatingExpense = variableCost + fixedMonthlyCost + scaleFixedCost`다. 중간값은 checked i128, 최종 원화는
@@ -2624,12 +2632,36 @@ i64 JSON-safe 범위다. 매출과 비용은 별도 법인 원장에 기록하�
 사용하고 나머지를 `operatingPayable`로 기록해 `insolvent`로 전이한다. M4에서는 외부 자금 수혈이나 법인대출로
 이를 해소하지 않는다.
 
+설립 직후 기본 설정은 해당 업종의 `standard` scale과 월 대표 gross salary 0원이다. 매출은 외부 고객에게
+즉시 회수된 것으로 보아 법인 cash와 `operatingRevenue`를 함께 늘리고, variable·base fixed·scale fixed
+비용은 그 현금에서 지급한다. 비용 부족분만 `operatingPayable`로 남긴다. 월 row는 entropy word·shock,
+적용 setting/scale, 산식 입력과 결과, 세 원장 ID를 immutable하게 복제한다. 같은 월을 다시 준비하면 기존
+row를 검증해 재사용하고 새 매출이나 비용을 만들지 않는다.
+
 운영규모와 월 대표 gross salary는 typed setting command로 다음 operating month부터 적용한다. 급여는 M3의
 고정 payroll calculator와 현재 employment policy를 재사용하되 `employment_contract`를 만들지 않는다.
 법인에는 officer payroll expense·withholding liability·cash, 개인에는
 `corporationOfficerPayroll` 근로소득 event와 기존 근로소득/원천징수 account를 같은 correlation으로 기록한다.
 같은 월 payroll은 정확히 한 번이며 법인 현금 부족 시 일부 급여로 낮추지 않고 해당 월 급여 전체를
 `operatingPayable`로 남긴다.
+
+`PUT /api/corporations/{id}/settings`는 공통 command/cursor와 `operatingScaleId ·
+officerGrossSalaryKrw`만 받는다. salary는 0~100,000,000원이고 effective year/month는 서버가 현재
+simulation date와 이미 materialize된 월을 보고 다음 operating month로 정한다. 같은 effective month의 아직
+적용되지 않은 setting은 새 command로 교체할 수 있지만 적용된 setting과 과거 월은 바꿀 수 없다. replay,
+변조, stale cursor와 다른 run resource는 §9.2와 같은 경계를 쓴다.
+
+월 1일에는 매출·영업비용을 먼저 반영한 뒤 그 월의 gross salary를 자동 정산한다. calculator 입력은
+`under150`, 업종 template의 명시적 M3 industry mapping, 부양가족 수, 해당 날짜의 pinned employment policy다.
+v1 mapping은 `softwareService→itSoftware`, `onlineRetail→retailService`,
+`contentStudio→retailService`로 고정하고 월 row에 적용 값을 복제한다. mapping을 바꾸면 component version을
+올린다.
+법인 총 급여비용은 gross와 employer insurance의 합이고, 현금 충분 조건도 이 총액을 기준으로 한다. 충분하면
+법인 cash는 net pay만 감소하고 employee tax·employee/employer insurance는
+`withholdingTaxLiability`로 남으며, 개인 wallet·근로소득 event·개인 원장을 같은 transaction에서 만든다.
+부족하면 개인 지급·근로소득 event·개인 원장은 만들지 않고 총 급여비용 전액을 `operatingPayable`로 인식한
+뒤 법인을 `insolvent`로 전이한다. E2에서는 이 미지급 급여의 후속 상환을 열지 않는다. 따라서
+`POST /api/corporations/{id}/payouts`의 `officerPayroll` variant는 제거하고 E2c의 `dividend`만 제공한다.
 
 ### 9.4 E2c 법인세·배당과 공개 계약
 
