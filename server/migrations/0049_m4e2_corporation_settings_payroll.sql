@@ -177,6 +177,10 @@ BEFORE DELETE ON corporation_setting_command_receipt
 FOR EACH ROW SIGNAL SQLSTATE '45000'
 SET MESSAGE_TEXT = 'corporation setting receipts are immutable';
 
+ALTER TABLE corporation_operating_month
+    ADD UNIQUE KEY uk_corporation_operating_month_save_run_id
+        (save_id, run_revision, id);
+
 ALTER TABLE employment_income_event
     MODIFY scheduled_settlement_id BIGINT UNSIGNED NULL,
     ADD COLUMN corporation_operating_month_id BIGINT UNSIGNED NULL
@@ -309,6 +313,8 @@ ALTER TABLE corporation_operating_month
     ADD CONSTRAINT fk_corporation_operating_month_income_event
         FOREIGN KEY (save_id, run_revision, employment_income_event_id)
         REFERENCES employment_income_event (save_id, run_revision, id);
+
+DROP TRIGGER tr_corporation_operating_month_apply_only;
 
 UPDATE corporation_operating_month
 SET pre_tax_profit_krw = pre_payroll_profit_krw,
@@ -873,7 +879,6 @@ SET NEW.transition_no = IF(
     NULL
 );
 
-DROP TRIGGER tr_corporation_operating_month_apply_only;
 CREATE TRIGGER tr_corporation_operating_month_apply_only
 BEFORE UPDATE ON corporation_operating_month
 FOR EACH ROW
