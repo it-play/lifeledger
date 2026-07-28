@@ -3919,11 +3919,58 @@ pub struct CorporationEstablishmentPlan {
     pub corporation_cash_after_krw: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationOperatingScaleTerms {
+    pub revenue_factor_ppm: i64,
+    pub fixed_cost_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CorporationOperatingMonthInput {
+    pub world_seed: u64,
+    pub corporation_id: ResourceId,
+    pub operating_year: i32,
+    pub operating_month: u8,
+    pub stream: u32,
+    pub base_monthly_revenue_krw: i64,
+    pub revenue_variation_ppm: i64,
+    pub variable_cost_ppm: i64,
+    pub fixed_monthly_cost_krw: i64,
+    pub scale: CorporationOperatingScaleTerms,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorporationOperatingMonthPlan {
+    pub entropy_word: u64,
+    pub shock_ppm: i64,
+    pub revenue_krw: i64,
+    pub variable_cost_krw: i64,
+    pub base_fixed_cost_krw: i64,
+    pub scale_fixed_cost_krw: i64,
+    pub operating_expense_krw: i64,
+    pub pre_payroll_profit_krw: i64,
+}
+
+pub trait CorporationMonthEntropy: Send + Sync + 'static {
+    fn digest(
+        &self,
+        world_seed: u64,
+        canonical_message: &[u8],
+    ) -> Result<[u8; 32], CorporationError>;
+}
+
 pub trait CorporationRules: Send + Sync + 'static {
     fn plan_establishment(
         &self,
         input: CorporationEstablishmentInput<'_>,
     ) -> Result<CorporationEstablishmentPlan, CorporationError>;
+
+    fn plan_operating_month(
+        &self,
+        input: CorporationOperatingMonthInput,
+    ) -> Result<CorporationOperatingMonthPlan, CorporationError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3935,6 +3982,9 @@ pub enum CorporationError {
     InvalidCapital,
     InvalidWalletCash,
     InsufficientWalletCash,
+    InvalidOperatingMonth,
+    InvalidOperatingTerms,
+    EntropyFailure,
     ArithmeticOverflow,
 }
 

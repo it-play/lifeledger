@@ -14,7 +14,7 @@ mod real_estate;
 mod types;
 mod welfare;
 
-pub use corporation::create_corporation_rules;
+pub use corporation::{create_corporation_rules, create_corporation_rules_with_entropy};
 pub use credit::create_credit_rules;
 pub use insolvency::{create_insolvency_rules, create_insolvency_rules_with_loan_rules};
 pub use insurance::{

@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, MySql, MySqlPool, Transaction};
+use time::Date;
 
 use super::housing::is_retryable_database_error;
 use super::mysql::{
@@ -23,6 +24,7 @@ use crate::finance::{
 };
 use crate::life::{
     CorporationError, CorporationEstablishmentInput, CorporationEstablishmentTerms,
+    CorporationOperatingMonthInput, CorporationOperatingMonthPlan, CorporationOperatingScaleTerms,
     CorporationRegisteredOfficeClass, CorporationRegistrationPolicy, CorporationRules,
 };
 
@@ -98,6 +100,26 @@ struct ReceiptRow {
     command_kind: String,
     payload_sha256: String,
     result_json: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct OperatingCorporationRow {
+    id: u64,
+    corporation_component_version_id: u64,
+    industry_template_id: u64,
+    template_key: String,
+    established_date: Date,
+    world_seed: u64,
+    cash_krw: i64,
+    operating_payable_krw: i64,
+    retained_earnings_krw: i64,
+    base_monthly_revenue_krw: i64,
+    revenue_variation_ppm: u32,
+    variable_cost_ppm: u32,
+    fixed_monthly_cost_krw: i64,
+    operating_scale_id: u64,
+    scale_revenue_factor_ppm: u32,
+    scale_fixed_cost_krw: i64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -176,6 +198,387 @@ pub(super) async fn read_corporation_snapshot_in_tx(
         availability: CorporationAvailabilityState::Active,
         current,
     })
+}
+
+pub(super) async fn settle_corporation_operating_month_in_tx(
+    tx: &mut Transaction<'_, MySql>,
+    corporation_rules: &dyn CorporationRules,
+    save_id: u64,
+    run_revision: u32,
+    target_game_day: u32,
+    market_date: Date,
+) -> Result<()> {
+    if market_date.day() != 1 {
+        return Ok(());
+    }
+    let corporation: Option<OperatingCorporationRow> = sqlx::query_as(
+        "SELECT corporation_row.id,
+                corporation_row.corporation_component_version_id,
+                corporation_row.industry_template_id, template.template_key,
+                DATE_ADD(world.start_date, INTERVAL corporation_row.established_game_day DAY)
+                    AS established_date,
+                world.seed AS world_seed, corporation_row.cash_krw,
+                corporation_row.operating_payable_krw,
+                corporation_row.retained_earnings_krw,
+                template.base_monthly_revenue_krw, template.revenue_variation_ppm,
+                template.variable_cost_ppm, template.fixed_monthly_cost_krw,
+                scale.id AS operating_scale_id,
+                scale.revenue_factor_ppm AS scale_revenue_factor_ppm,
+                scale.fixed_cost_krw AS scale_fixed_cost_krw
+         FROM corporation AS corporation_row
+         INNER JOIN save ON save.id = corporation_row.save_id
+         INNER JOIN market_world AS world ON world.id = save.market_world_id
+         INNER JOIN corporation_industry_template AS template
+           ON template.life_component_version_id
+                = corporation_row.corporation_component_version_id
+          AND template.id = corporation_row.industry_template_id
+         INNER JOIN corporation_operating_scale AS scale
+           ON scale.life_component_version_id
+                = corporation_row.corporation_component_version_id
+          AND scale.industry_template_id = corporation_row.industry_template_id
+          AND scale.scale_key = 'standard'
+         WHERE corporation_row.save_id = ? AND corporation_row.run_revision = ?
+           AND corporation_row.status = 'active'
+         FOR UPDATE",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(corporation) = corporation else {
+        return Ok(());
+    };
+    if (
+        corporation.established_date.year(),
+        corporation.established_date.month(),
+    ) >= (market_date.year(), market_date.month())
+    {
+        return Ok(());
+    }
+    let operating_year = market_date.year();
+    let operating_month = u8::from(market_date.month());
+    let existing_status: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM corporation_operating_month
+         WHERE save_id = ? AND run_revision = ? AND corporation_id = ?
+           AND operating_year = ? AND operating_month = ?",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(corporation.id)
+    .bind(operating_year)
+    .bind(operating_month)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(status) = existing_status {
+        ensure!(
+            status == "applied",
+            "corporation operating month is incomplete"
+        );
+        return Ok(());
+    }
+
+    let plan = corporation_rules
+        .plan_operating_month(CorporationOperatingMonthInput {
+            world_seed: corporation.world_seed,
+            corporation_id: ResourceId::from_u64(corporation.id),
+            operating_year,
+            operating_month,
+            stream: 0,
+            base_monthly_revenue_krw: corporation.base_monthly_revenue_krw,
+            revenue_variation_ppm: i64::from(corporation.revenue_variation_ppm),
+            variable_cost_ppm: i64::from(corporation.variable_cost_ppm),
+            fixed_monthly_cost_krw: corporation.fixed_monthly_cost_krw,
+            scale: CorporationOperatingScaleTerms {
+                revenue_factor_ppm: i64::from(corporation.scale_revenue_factor_ppm),
+                fixed_cost_krw: corporation.scale_fixed_cost_krw,
+            },
+        })
+        .context("corporation operating month calculation failed")?;
+    let cash_available_krw = corporation
+        .cash_krw
+        .checked_add(plan.revenue_krw)
+        .context("corporation operating cash overflowed")?;
+    let operating_cost_cash_paid_krw = cash_available_krw.min(plan.operating_expense_krw);
+    let operating_cost_payable_krw = plan
+        .operating_expense_krw
+        .checked_sub(operating_cost_cash_paid_krw)
+        .context("corporation operating payable underflowed")?;
+    let cash_after_krw = cash_available_krw
+        .checked_sub(operating_cost_cash_paid_krw)
+        .context("corporation operating cash underflowed")?;
+    let operating_payable_after_krw = corporation
+        .operating_payable_krw
+        .checked_add(operating_cost_payable_krw)
+        .context("corporation operating payable overflowed")?;
+    let retained_earnings_after_krw = corporation
+        .retained_earnings_krw
+        .checked_add(plan.pre_payroll_profit_krw)
+        .context("corporation retained earnings overflowed")?;
+    ensure!(
+        cash_after_krw <= crate::life::CORPORATION_MAX_PUBLIC_MONEY_KRW
+            && operating_payable_after_krw <= crate::life::CORPORATION_MAX_PUBLIC_MONEY_KRW
+            && retained_earnings_after_krw.abs() <= crate::life::CORPORATION_MAX_PUBLIC_MONEY_KRW,
+        "corporation operating result exceeds the public money range"
+    );
+    let employment_industry = employment_industry(&corporation.template_key)?;
+
+    let inserted = sqlx::query(
+        "INSERT INTO corporation_operating_month
+             (save_id, run_revision, corporation_id,
+              corporation_component_version_id, industry_template_id, operating_scale_id,
+              operating_year, operating_month, entropy_stream, entropy_word, shock_ppm,
+              employment_industry, base_monthly_revenue_krw, revenue_variation_ppm,
+              variable_cost_ppm, base_fixed_cost_krw, scale_revenue_factor_ppm,
+              scale_fixed_cost_krw, officer_gross_salary_krw,
+              revenue_krw, variable_cost_krw, operating_expense_krw,
+              pre_payroll_profit_krw, cash_before_krw, operating_cost_cash_paid_krw,
+              operating_cost_payable_krw, cash_after_krw,
+              operating_payable_before_krw, operating_payable_after_krw,
+              retained_earnings_before_krw, retained_earnings_after_krw,
+              applied_game_day, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0,
+                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing')",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(corporation.id)
+    .bind(corporation.corporation_component_version_id)
+    .bind(corporation.industry_template_id)
+    .bind(corporation.operating_scale_id)
+    .bind(operating_year)
+    .bind(operating_month)
+    .bind(plan.entropy_word)
+    .bind(plan.shock_ppm)
+    .bind(employment_industry)
+    .bind(corporation.base_monthly_revenue_krw)
+    .bind(corporation.revenue_variation_ppm)
+    .bind(corporation.variable_cost_ppm)
+    .bind(plan.base_fixed_cost_krw)
+    .bind(corporation.scale_revenue_factor_ppm)
+    .bind(plan.scale_fixed_cost_krw)
+    .bind(plan.revenue_krw)
+    .bind(plan.variable_cost_krw)
+    .bind(plan.operating_expense_krw)
+    .bind(plan.pre_payroll_profit_krw)
+    .bind(corporation.cash_krw)
+    .bind(operating_cost_cash_paid_krw)
+    .bind(operating_cost_payable_krw)
+    .bind(cash_after_krw)
+    .bind(corporation.operating_payable_krw)
+    .bind(operating_payable_after_krw)
+    .bind(corporation.retained_earnings_krw)
+    .bind(retained_earnings_after_krw)
+    .bind(target_game_day)
+    .execute(&mut **tx)
+    .await?;
+    let operating_month_id = inserted.last_insert_id();
+    let revenue_ledger_transaction_id = write_monthly_revenue_ledger(
+        tx,
+        save_id,
+        run_revision,
+        corporation.id,
+        operating_month_id,
+        target_game_day,
+        &plan,
+    )
+    .await?;
+    let expense_ledger_transaction_id = write_monthly_expense_ledger(
+        tx,
+        save_id,
+        run_revision,
+        corporation.id,
+        operating_month_id,
+        target_game_day,
+        &plan,
+        operating_cost_cash_paid_krw,
+        operating_cost_payable_krw,
+    )
+    .await?;
+    let next_status = if operating_cost_payable_krw > 0 {
+        "insolvent"
+    } else {
+        "active"
+    };
+    let updated = sqlx::query(
+        "UPDATE corporation
+         SET cash_krw = ?, operating_payable_krw = ?, retained_earnings_krw = ?, status = ?
+         WHERE id = ? AND save_id = ? AND run_revision = ? AND status = 'active'
+           AND cash_krw = ? AND operating_payable_krw = ? AND retained_earnings_krw = ?",
+    )
+    .bind(cash_after_krw)
+    .bind(operating_payable_after_krw)
+    .bind(retained_earnings_after_krw)
+    .bind(next_status)
+    .bind(corporation.id)
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(corporation.cash_krw)
+    .bind(corporation.operating_payable_krw)
+    .bind(corporation.retained_earnings_krw)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        updated.rows_affected() == 1,
+        "corporation operating state changed"
+    );
+    if operating_cost_payable_krw > 0 {
+        sqlx::query(
+            "INSERT INTO corporation_transition
+                 (save_id, run_revision, corporation_id, transition_no,
+                  from_status, to_status, command_id, transition_game_day, transition_reason)
+             VALUES (?, ?, ?, 3, 'active', 'insolvent', NULL, ?, 'operatingCashShortfall')",
+        )
+        .bind(save_id)
+        .bind(run_revision)
+        .bind(corporation.id)
+        .bind(target_game_day)
+        .execute(&mut **tx)
+        .await?;
+    }
+    let applied = sqlx::query(
+        "UPDATE corporation_operating_month
+         SET revenue_ledger_transaction_id = ?, expense_ledger_transaction_id = ?,
+             status = 'applied', applied_at = CURRENT_TIMESTAMP(3)
+         WHERE id = ? AND status = 'preparing'",
+    )
+    .bind(revenue_ledger_transaction_id)
+    .bind(expense_ledger_transaction_id)
+    .bind(operating_month_id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        applied.rows_affected() == 1,
+        "corporation operating month was not applied"
+    );
+    Ok(())
+}
+
+fn employment_industry(template_key: &str) -> Result<&'static str> {
+    match template_key {
+        "softwareService" => Ok("itSoftware"),
+        "onlineRetail" | "contentStudio" => Ok("retailService"),
+        _ => bail!("unknown corporation employment industry mapping"),
+    }
+}
+
+async fn write_monthly_revenue_ledger(
+    tx: &mut Transaction<'_, MySql>,
+    save_id: u64,
+    run_revision: u32,
+    corporation_id: u64,
+    operating_month_id: u64,
+    game_day: u32,
+    plan: &CorporationOperatingMonthPlan,
+) -> Result<u64> {
+    write_monthly_corporation_ledger(
+        tx,
+        save_id,
+        run_revision,
+        corporation_id,
+        operating_month_id,
+        game_day,
+        "monthlyRevenue",
+        "월 법인 매출",
+        &[
+            ("corporationCash", plan.revenue_krw),
+            ("operatingRevenue", -plan.revenue_krw),
+        ],
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn write_monthly_expense_ledger(
+    tx: &mut Transaction<'_, MySql>,
+    save_id: u64,
+    run_revision: u32,
+    corporation_id: u64,
+    operating_month_id: u64,
+    game_day: u32,
+    plan: &CorporationOperatingMonthPlan,
+    operating_cost_cash_paid_krw: i64,
+    operating_cost_payable_krw: i64,
+) -> Result<u64> {
+    let fixed_cost_krw = plan
+        .base_fixed_cost_krw
+        .checked_add(plan.scale_fixed_cost_krw)
+        .context("corporation fixed cost overflowed")?;
+    let mut postings = vec![
+        ("variableCostExpense", plan.variable_cost_krw),
+        ("fixedCostExpense", fixed_cost_krw),
+        ("corporationCash", -operating_cost_cash_paid_krw),
+    ];
+    if operating_cost_payable_krw > 0 {
+        postings.push(("operatingPayable", -operating_cost_payable_krw));
+    }
+    write_monthly_corporation_ledger(
+        tx,
+        save_id,
+        run_revision,
+        corporation_id,
+        operating_month_id,
+        game_day,
+        "monthlyExpense",
+        "월 법인 영업비용",
+        &postings,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn write_monthly_corporation_ledger(
+    tx: &mut Transaction<'_, MySql>,
+    save_id: u64,
+    run_revision: u32,
+    corporation_id: u64,
+    operating_month_id: u64,
+    game_day: u32,
+    transaction_kind: &str,
+    description: &str,
+    postings: &[(&str, i64)],
+) -> Result<u64> {
+    ensure!(
+        postings
+            .iter()
+            .try_fold(0_i64, |sum, (_, amount)| sum.checked_add(*amount))
+            == Some(0),
+        "corporation monthly ledger is not balanced"
+    );
+    let inserted = sqlx::query(
+        "INSERT INTO corporation_ledger_transaction
+             (save_id, run_revision, corporation_id, game_day,
+              transaction_kind, correlation_id, operating_month_id, description)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(corporation_id)
+    .bind(game_day)
+    .bind(transaction_kind)
+    .bind(operating_month_id)
+    .bind(description)
+    .execute(&mut **tx)
+    .await?;
+    let ledger_transaction_id = inserted.last_insert_id();
+    for (index, (account_code, amount_krw)) in postings.iter().enumerate() {
+        let posting_order = u16::try_from(index + 1).context("too many corporation postings")?;
+        sqlx::query(
+            "INSERT INTO corporation_ledger_posting
+                 (save_id, run_revision, corporation_id,
+                  corporation_ledger_transaction_id, posting_order, account_code, amount_krw)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(save_id)
+        .bind(run_revision)
+        .bind(corporation_id)
+        .bind(ledger_transaction_id)
+        .bind(posting_order)
+        .bind(account_code)
+        .bind(amount_krw)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(ledger_transaction_id)
 }
 
 pub(super) async fn create_corporation(

@@ -24,6 +24,7 @@ use super::career::{
 use super::cash_products::{
     CashProductSettlementInput, read_cash_product_state, settle_cash_product_by_id_in_tx,
 };
+use super::corporations::settle_corporation_operating_month_in_tx;
 use super::employment::{
     EmploymentPayrollSettlementContext, settle_employment_payroll_by_id_in_tx,
     validate_employment_settlement_envelope,
@@ -139,6 +140,7 @@ pub struct MySqlSaveStore {
     property_rules: Arc<dyn PropertyRules>,
     property_tax_rules: Arc<dyn PropertyTaxRules>,
     welfare_rules: Arc<dyn WelfareRules>,
+    corporation_rules: Arc<dyn crate::life::CorporationRules>,
 }
 
 struct DailySettlementRules {
@@ -148,6 +150,7 @@ struct DailySettlementRules {
     welfare: Arc<dyn WelfareRules>,
     property: Arc<dyn PropertyRules>,
     property_tax: Arc<dyn PropertyTaxRules>,
+    corporation: Arc<dyn crate::life::CorporationRules>,
 }
 
 pub fn create_mysql_save_store(
@@ -162,6 +165,7 @@ pub fn create_mysql_save_store(
         property_rules: create_property_rules(),
         property_tax_rules: create_property_tax_rules(),
         welfare_rules: create_welfare_rules(),
+        corporation_rules: crate::life::create_corporation_rules(),
     }
 }
 
@@ -653,6 +657,7 @@ impl SaveStore for MySqlSaveStore {
                 welfare: Arc::clone(&self.welfare_rules),
                 property: Arc::clone(&self.property_rules),
                 property_tax: Arc::clone(&self.property_tax_rules),
+                corporation: Arc::clone(&self.corporation_rules),
             },
             &current,
             target_game_day,
@@ -793,6 +798,7 @@ impl SaveStore for MySqlSaveStore {
                 welfare: Arc::clone(&self.welfare_rules),
                 property: Arc::clone(&self.property_rules),
                 property_tax: Arc::clone(&self.property_tax_rules),
+                corporation: Arc::clone(&self.corporation_rules),
             },
             &current,
             target_game_day,
@@ -1073,6 +1079,15 @@ async fn settle_daily_finance_state(
         rules.insurance.as_ref(),
         current.save_id,
         target_game_day,
+    )
+    .await?;
+    settle_corporation_operating_month_in_tx(
+        tx,
+        rules.corporation.as_ref(),
+        current.save_id,
+        current.run_revision,
+        target_game_day,
+        market.market_date,
     )
     .await?;
     warn_if_settlement_phase_is_slow(
