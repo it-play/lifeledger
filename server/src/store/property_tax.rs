@@ -30,7 +30,6 @@ use crate::life::{
 const MAX_PROPERTY_TAX_HISTORY_PAGE_SIZE: u8 = 20;
 const PROPERTY_TAX_SETTLEMENT_PAYLOAD_VERSION: u8 = 1;
 const C4_REAL_ESTATE_VERSION_KEY: &str = "dev-unranked-m4-real-estate-sale-tax-2026-v6";
-const C4_PROPERTY_POLICY_KEY: &str = "dev-unranked-kr-individual-property-2026-v3";
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PropertyTaxRunContext {
@@ -534,8 +533,17 @@ async fn is_c4_property_tax_run(
     tx: &mut Transaction<'_, MySql>,
     context: PropertyTaxRunContext,
 ) -> Result<bool> {
-    let scope: Option<(String, String, bool, bool)> = sqlx::query_as(
-        "SELECT model.version_key, policy.policy_key,
+    let scope: Option<(String, bool, bool, bool)> = sqlx::query_as(
+        "SELECT model.version_key,
+                EXISTS(
+                    SELECT 1
+                    FROM property_acquisition_tax_policy_profile AS acquisition
+                    INNER JOIN property_annual_tax_policy_profile AS annual
+                      ON annual.policy_set_id = acquisition.policy_set_id
+                    INNER JOIN property_capital_gains_tax_policy_profile AS capital
+                      ON capital.policy_set_id = acquisition.policy_set_id
+                    WHERE acquisition.policy_set_id = policy.id
+                ) AS has_property_tax_policy,
                 model.sealed_at IS NOT NULL, policy.sealed_at IS NOT NULL
          FROM run_rule_bundle AS bundle
          INNER JOIN real_estate_model_version AS model
@@ -550,13 +558,12 @@ async fn is_c4_property_tax_run(
     .bind(context.policy_set_id)
     .fetch_optional(&mut **tx)
     .await?;
-    let Some((model_key, policy_key, model_sealed, policy_sealed)) = scope else {
+    let Some((model_key, has_property_tax_policy, model_sealed, policy_sealed)) = scope else {
         return Ok(false);
     };
     let c4_model = model_key == C4_REAL_ESTATE_VERSION_KEY;
-    let c4_policy = policy_key == C4_PROPERTY_POLICY_KEY;
     ensure!(
-        c4_model == c4_policy,
+        c4_model == has_property_tax_policy,
         "property-tax model and policy versions are not paired"
     );
     if !c4_model {
