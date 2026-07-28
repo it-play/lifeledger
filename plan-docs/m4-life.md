@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-E2a와 E2b 월 영업 정산 production 인수 완료, 다음 기능은 운영 설정·대표 급여, 시각 스타일링 보류
+- 상태: M4-E2b·E2c와 `/corporation` 기능 화면 로컬 구현 완료, production migration 49·50 인수 대기, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,10 +22,14 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-현재 구현 checkpoint는 `main`의 `db90aa4`이며 development production DB는 migration `48/48`, 실패 0이다.
-M4-E1의 전체 인수는 §13.16~§13.18, M4-E2a와 E2b의 현재 범위는 §13.19에 기록했다. 별도 MySQL, 격리
-schema, recovery dump는 만들지 않았고 `main`의 `server/**` push → 원격 image build → 새 server의
-`sqlx::migrate!()` → health 순서로 production DB를 전진시켰다. 접속은
+production 기준 checkpoint는 `main`의 `db90aa4`이며 DB는 migration `48/48`, 실패 0이다. 그 위 로컬
+worktree에는 migration `0049` 운영 설정·대표 급여, `0050` 법인세·배당·월 history, strict server/client
+계약과 스타일 없는 `/corporation` 기능 화면까지 구현되어 있다. 아직 이 두 migration과 새 binary를
+production에 적용했다고 기록하지 않는다. M4-E1의 전체 인수는 §13.16~§13.18, 기존 E2a·월 영업 정산
+인수는 §13.19, 현재 로컬 구현과 검증은 §13.20에 기록한다.
+
+별도 MySQL, 격리 schema, recovery dump는 만들지 않는다. `main`의 `server/**` push → 원격 image build →
+새 server 시작 시 `sqlx::migrate!()` → health 순서로 development production DB를 직접 전진시킨다. 접속은
 `ssh snowykte0426@59.28.34.117`, service host port는 `10105`, public base는
 `https://kimtaeeun.site/lifeledger`다. 비밀번호·session token은 문서나 repository에 남기지 않는다.
 
@@ -37,24 +41,34 @@ operating payable은 0원이며 법인은 `active`다. E1의 user 4/save 118 fix
 
 다음 재개 순서는 고정한다.
 
-1. 이 문서 §9.3, §10.1, §10.2, §11, §13.19와
+1. 이 문서 §9.3, §9.4, §10.1, §10.2, §11, §12, §13.19, §13.20과
    [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다. 현재 schema와 runtime은
-   [`0048_m4e2_corporation_monthly_operations.sql`](../server/migrations/0048_m4e2_corporation_monthly_operations.sql),
+   [`0049_m4e2_corporation_settings_payroll.sql`](../server/migrations/0049_m4e2_corporation_settings_payroll.sql),
+   [`0050_m4e2_corporation_tax_dividend.sql`](../server/migrations/0050_m4e2_corporation_tax_dividend.sql),
    [`life/corporation.rs`](../server/src/life/corporation.rs),
    [`store/corporations.rs`](../server/src/store/corporations.rs),
-   [`store/mysql.rs`](../server/src/store/mysql.rs)에 있다.
-2. 다음 수직 슬라이스는 §9.3의 **운영규모·대표 급여 설정과 대표 급여 월초 정산**이다. migration `0049`에서
-   append-only setting history, command identity/receipt, 적용 월 provenance, 월 row의 payroll 결과와 법인·개인
-   원장 reference를 함께 설계한다. catalog 응답에는 현재 template의 scale ID·key·계수도 공개한다.
-3. `PUT /api/corporations/{id}/settings`는 strict cursor command로 만들고 다음 미materialize 월부터 적용한다.
-   설정만 먼저 저장해 non-zero salary가 실행되지 않는 중간 production 상태를 만들지 않는다. 같은 rollout에서
-   [`store/employment.rs`](../server/src/store/employment.rs)의 M3 payroll calculator와
-   [`store/employment_income.rs`](../server/src/store/employment_income.rs)의 근로소득 event를 재사용해
-   법인 원장·개인 wallet·개인 원장·원천징수를 한 transaction으로 연결한다.
-4. fixture 3882에서 2026-09 적용 설정을 만든 뒤 9월 1일까지 public `/api/advance`로 진행해 exact-once 급여,
-   command replay/변조/stale cursor, 충분·부족 현금 경계와 재시작 hash를 인수한다. 그 뒤 §9.4 E2c 법인세·배당,
-   마지막으로 M4-F의 스타일 없는 기능 화면·30년 검증으로 이동한다. pure core/service 규칙에만 표적 BDD를
-   추가하고 단계마다 전체 회귀를 반복하지 않는다.
+   [`store/mysql.rs`](../server/src/store/mysql.rs),
+   [`corporation-api.ts`](../client/src/api/corporation-api.ts),
+   [`corporation.ts`](../client/src/app/screens/corporation.ts)에 있다.
+2. `git-commit` 스킬로 현재 변경을 논리 단위로 commit하고 `main`에 push한다. server 경로가 포함되므로
+   [deploy workflow](../.github/workflows/deploy-server.yml)가 자동 실행된다. 이 workflow는 **server만**
+   배포한다. client production 정적 파일 배포를 했다고 단정하지 말고 별도 delivery 경로를 확인하기 전에는
+   `/corporation`을 로컬 build 완료로만 기록한다.
+3. CD가 끝나면 GitHub 실행 성공 표시만 믿지 않는다. SSH에서 `docker compose ps`, server 시작 로그의 MySQL
+   연결·migration·listen, `_sqlx_migrations`의 `49/50` 성공과 checksum, 내부
+   `http://127.0.0.1:10105/api/health`, public `/api/health`, migration 실패·warning/error, 다른 열린 InnoDB
+   transaction 0건을 확인한다. 실패하면 적용 완료 statement와 실제 schema를 먼저 읽고 forward-only로
+   원인을 수정하며 dump나 별도 DB를 만들지 않는다.
+4. fixture user 5/save 3882/run 1/corporation 1/day 212에서 public API로 2026-09 적용 설정을 저장한다. 설정
+   replay·payload 변조·stale cursor를 확인한 뒤 2026-09-01까지 진행해 비영(非零) 대표 급여, 개인 wallet,
+   `employment_income_event`, 개인·법인 원장, 원천징수와 월 row가 한 번만 반영되는지 검증한다. 이어
+   2027-01-01까지 진행해 2026 세전손익·국세·지방세·법인세 미지급·배당가능이익을 독립 계산과 대조하고,
+   배당 command의 실수령·두 원천징수·M2 `corporationDividend` 금융소득·두 원장·replay를 확인한다.
+   `/api/corporations/{id}/months`는 20건 상한, signed cursor, 다른 run 비노출을 확인하고 재시작 전후 state,
+   법인 detail, month history hash가 같아야 한다.
+5. 위 인수가 끝나면 §13.20을 실제 ID·금액·CD run·checksum·hash로 갱신하고 E2 완료를 선언한다. 그 다음
+   재개점은 M4-F의 client production delivery 확인과 §13.2의 고정 30년 시나리오다. 스타일링은 30년 기능
+   검증 뒤까지 계속 보류하며 순수 core/service 외 DOM·network 테스트는 추가하지 않는다.
 
 재개 전에 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와 migration은
 [database-schema](../.agents/skills/database-schema/SKILL.md)·
@@ -2580,6 +2594,11 @@ E2는 기능을 세 수직 슬라이스로 닫는다.
 - 2026-01-01 이후 개시 사업연도의 영리법인세는 과세표준 2억원 이하 10%, 2억 초과 200억원 이하 20%,
   200억 초과 3,000억원 이하 22%, 3,000억원 초과 25%와 해당 누진공제를 policy bracket으로 저장한다.
   근거는 [국세청 법인세 세율](https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7746&mi=2449)이다.
+- 법인지방소득세 표준세율은 같은 과세표준 구간에 각각 1%, 2%, 2.2%, 2.5%와 누진공제
+  0원, 2,000,000원, 39,800,000원, 655,800,000원을 별도 policy projection으로 저장한다. 근거는
+  2026-07-01 시행 [지방세법 제103조의20](https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1029490341)이다.
+  조례에 따른 표준세율의 50% 범위 가감, 연결납세와 사업장별 안분은 M4에서 지원하지 않는다. 해당 구성을
+  표준세율로 조용히 계산하지 않고 후속 typed model 전까지 `policyUnsupported`로 막는다.
 - 일반 배당소득 원천징수 소득세는 14%, 지방소득세는 그 소득세의 10%로 저장한다. 법인 배당은 M2의
   `corporationDividend` 금융소득 event를 만들고 연간 금융소득 합산 권위가 다시 소비한다. 근거는
   [국세청 원천징수 세율](https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7703&mi=2292)이다.
@@ -2678,12 +2697,31 @@ v1 mapping은 `softwareService→itSoftware`, `onlineRetail→retailService`,
 
 12월 결산법인으로 고정해 사업연도 종료 때 월별 세전손익을 합산한다. 결손금 공제·세액공제·중간예납은 M5
 범위이며 v1은 해당 연도 음수 과세표준을 0으로, 양수는 §9.1 bracket에 넣는다. 산출 법인세와 법인지방소득세를
-구분하고 지급 전까지 법인 tax payable로 보존한다. 구현할 수 없는 과세 구성을 0원으로 성공시키지 않는다.
+구분하고 결산일에 `corporateTaxExpense · corporateTaxPayable`로 전액 인식한다. M4는 법인세 납부 command와
+납기·가산세를 열지 않으므로 현금은 결산 때 차감하지 않고 tax payable을 M5의 후속 납부 기능까지 보존한다.
+세후 누적이익과 배당가능이익은 미납 여부와 무관하게 산출세액 전액을 차감한다. 세금 미납만으로 법인을
+`insolvent`로 전이하지 않으며, 구현할 수 없는 과세 구성을 0원으로 성공시키지 않는다.
 
 배당 command는 결산 완료된 누적 세후이익에서 과거 배당과 누적 결손을 차감한 `distributableProfitKrw`와
 법인 cash 중 작은 범위만 허용한다. gross 배당, 14% 소득세, 그 세액의 10% 지방소득세와 net을 서버가 계산해
 법인 원장, 개인 원장, M2 금융소득 event를 한 transaction에 기록한다. 원 단위는 각 세액에서 내림하고
 `gross = net + incomeTax + localIncomeTax`를 유지한다.
+
+`POST /api/corporations/{id}/payouts` request는 공통 command/cursor에
+`kind=dividend · grossDividendKrw`만 더한 strict object다. 양수 gross만 받고 세율·net·개인이나 법인 ID는
+받지 않는다. fingerprint는 `lifeledger.life.payCorporationDividend.v1`이고 path corporation ID, cursor, kind,
+gross를 포함한다. 성공 result는 `id · corporationId · taxYear · grossDividendKrw · withheldIncomeTaxKrw ·
+withheldLocalIncomeTaxKrw · netDividendKrw · corporationLedgerTransactionId ·
+personalLedgerTransactionId · paidGameDay`이며 `{ result, replayed, snapshot }`으로 감싼다. 같은 payload replay는
+원장·금융소득 합계를 다시 만들지 않고 저장 result와 최신 snapshot을 반환한다. 같은 ID의 다른 payload는
+`idempotencyConflict`, 결산 전·비active 법인·초과 gross·stale cursor는 `corporationStateConflict`다.
+
+`GET /api/corporations/{id}/months`는 query `cursor`만 허용한다. row는
+`id · operatingYear · operatingMonth · scaleKey · officerGrossSalaryKrw · revenueKrw ·
+operatingExpenseKrw · totalPayrollCostKrw · preTaxProfitKrw · payrollStatus · cashAfterKrw ·
+operatingPayableAfterKrw · retainedEarningsAfterKrw · appliedGameDay`만 공개한다. 최대 20건과 `nextCursor|null`을
+반환하고 cursor는 user/save/run/corporation과 마지막 `(year,month,id)`를 서명한다. 다른 scope나 변조된
+cursor는 400 `invalidCommand`이며 월 row·세금 bracket·원장 posting을 snapshot에 중복하지 않는다.
 
 공개 API는 다음으로 고정한다.
 
@@ -2693,7 +2731,7 @@ v1 mapping은 `softwareService→itSoftware`, `onlineRetail→retailService`,
 | `POST /api/corporations` | E2a 설립·출자·등록비 command |
 | `GET /api/corporations/{id}` | 상태, 현금·자본·이익·미지급·다음 월 설정 |
 | `PUT /api/corporations/{id}/settings` | 다음 operating month 운영규모·대표 gross salary |
-| `POST /api/corporations/{id}/payouts` | typed `officerPayroll|dividend` 지급/replay |
+| `POST /api/corporations/{id}/payouts` | E2c의 typed `dividend` 지급/replay |
 | `GET /api/corporations/{id}/months` | `(year,month,id)` 오름차순 signed cursor, page max 20 |
 
 `GameSnapshot.life.corporation`은 availability, current corporation summary 1건 또는 null만 담는다. template
@@ -3464,6 +3502,39 @@ M4-E2a 법인 설립·분리 원장과 E2b 중 결정론적 월 매출·영업�
 따라서 M4-E2a는 완료다. E2b는 default standard/대표 급여 0원인 월 영업 정산까지만 완료이며, 정확한 다음
 재개점은 §1.1의 migration `0049` 운영 설정·대표 급여 수직 슬라이스다. 이 경계를 닫기 전 E2b 전체 완료나
 M4-E2 완료로 표시하지 않는다.
+
+### 13.20 M4-E2b·E2c와 법인 기능 화면 로컬 구현 기록 (2026-07-29)
+
+§9.3·§9.4와 §12의 법인 남은 기능을 구현했다. 이 절은 **production 인수 전 로컬 checkpoint**다.
+production은 여전히 migration `48/48`이며, 아래 migration이나 새 API가 운영에 적용됐다고 단정하지 않는다.
+
+- `0049_m4e2_corporation_settings_payroll.sql`은 template별 세 운영규모, append-only 다음 달 setting과
+  command receipt, 월 payroll provenance를 추가한다. `PUT /api/corporations/{id}/settings`는 strict
+  cursor·멱등성으로 아직 materialize되지 않은 다음 operating month만 바꾼다. 월초 정산은 M3 payroll과
+  근로소득 event writer를 재사용하되 민간 고용계약을 만들지 않고, 충분한 현금일 때 개인 wallet·개인 원장·
+  법인 원장·원천징수를 같은 transaction에 반영한다. 부족하면 개인 급여/소득 event를 만들지 않고 법인
+  미지급금과 `insolvent` 전이로 닫는다.
+- `0050_m4e2_corporation_tax_dividend.sql`은 국세·법인지방소득세 4구간을 source-backed immutable projection으로
+  저장하고 연 1월 1일 직전 연도 결산, 법인세 비용·미지급, 배당가능이익을 추가한다. 배당은 최근 applied
+  결산을 요구하고 gross 범위, 법인 현금, 14% 소득세와 그 세액의 10% 지방세를 원 단위 내림한다. 법인·개인
+  원장, 개인 wallet, M2 `corporationDividend` 금융소득 accrual과 stored receipt가 한 transaction이다.
+  M4에서는 법인세 현금 납부, 연결납세, 사업장 안분과 조례 가감세율을 지원하지 않는다.
+- 공개 계약은 template scale, snapshot의 `corporateTaxPayableKrw`·`nextMonthSetting`, 설정 command,
+  dividend-only payout, 최대 20건의 오름차순 month history와 domain-bound base64url cursor를 포함한다.
+  모든 route는 session user→current save/run→corporation scope를 다시 확인하고 SQL 값은 bind한다.
+- client는 zod 경계와 `CorporationApi`를 추가하고 `/corporation`에서 설립, 다음 달 scale·대표 급여,
+  배당과 월 history를 조작한다. DOM은 mount에서 한 번 만들고 template/scale/month 고정 slot만 갱신한다.
+  outcome이 확정된 domain 실패에서만 command ID를 버리고, 통신 결과가 불명확한 같은 입력 재시도는 기존
+  ID를 재사용한다. 대시보드에 route 링크를 추가했으며 사용자 정의 CSS와 DOM·network 테스트는 추가하지
+  않았다. repository의 자동 CD는 server 경로만 배포하므로 client production delivery는 별도 확인 대상이다.
+- 로컬 gate는 법인 pure BDD 11건, client contract 204건, `cargo check`, server clippy `-D warnings`·fmt,
+  client typecheck·lint·production build와 `git diff --check`를 통과했다. webpack의 기존 단일 bundle 크기
+  권고만 남았고 기능 실패는 아니다. 전체 1천여 Rust/수백 client 회귀는 구현 병목을 피하려 반복하지 않았다.
+- 보안 점검은 hardcoded secret·password·token 추가 없음, 새 API의 session 인증, current-run 소유권 비노출,
+  strict body/query와 bound SQL, checked money 산술, command/automatic correlation 분리를 확인했다.
+
+production 적용·인수와 그 뒤 30년 검증의 정확한 순서는 §1.1에 고정했다. 인수 결과가 채워지기 전에는
+M4-E2 완료, migration `50/50`, `/corporation` production 제공 또는 M4-F 완료를 선언하지 않는다.
 
 ## 14. M4 완료 조건
 
