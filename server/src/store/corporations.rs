@@ -155,8 +155,8 @@ struct CorporationRow {
     next_scale_order: u8,
     next_revenue_factor_ppm: u32,
     next_fixed_cost_krw: i64,
-    next_effective_year: u16,
-    next_effective_month: u8,
+    next_effective_year: i64,
+    next_effective_month: i64,
     next_officer_gross_salary_krw: i64,
     next_setting_created_game_day: Option<u32>,
 }
@@ -3201,8 +3201,10 @@ fn corporation_summary(row: &CorporationRow) -> Result<CorporationSummaryState> 
             scale_order: row.next_scale_order,
             revenue_factor_ppm: row.next_revenue_factor_ppm,
             fixed_cost_krw: row.next_fixed_cost_krw,
-            effective_year: row.next_effective_year,
-            effective_month: row.next_effective_month,
+            effective_year: u16::try_from(row.next_effective_year)
+                .context("next corporation setting year is out of range")?,
+            effective_month: u8::try_from(row.next_effective_month)
+                .context("next corporation setting month is out of range")?,
             officer_gross_salary_krw: row.next_officer_gross_salary_krw,
             created_game_day: row.next_setting_created_game_day,
         },
