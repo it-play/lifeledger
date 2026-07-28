@@ -5,7 +5,7 @@
 
 - 최초 작성: 2026-07-25
 - 최근 갱신: 2026-07-29
-- 상태: M4-E2b·E2c와 법인 기능 화면 로컬 구현 완료, production migration 49·50 인수 대기, 시각 스타일링 보류
+- 상태: M4-E2 server production 인수 완료, client production 전달과 M4-F 30년 검증 대기, 시각 스타일링 보류
 
 ---
 
@@ -543,11 +543,13 @@ SSE만 그 채널을 구독한다. 전역 채널에서 `save_id`로 사후 필�
 
 ## 12. 로드맵
 
-현재 production 완료 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3·M4-E1·M4-E2a와
-M4-E2b 월 영업 정산까지**다. 로컬에는 E2b 운영 설정·대표 급여, E2c 법인세·배당·월 history와 M4-F의
-스타일 없는 `/corporation` 조작 화면까지 구현되어 있으며 production migration `49·50` 인수 전에는 E2
-완료로 표시하지 않는다. 기존 월드 v1·v2·v3와 그 월드에 고정된 런은
-보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를 사용한다. M3는 style 없는 기능 화면,
+현재 production server 완료 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3·M4-E1·M4-E2
+전체**다. production DB는 migration `51/51`, 실패 0이며 E2의 운영 설정·대표 급여, 법인세·배당·월
+history를 실제 public API로 인수했다. 스타일 없는 `/corporation`은 로컬 production build까지 완료했지만
+현재 repository의 workflow는 server만 전달하므로 client production 제공으로 표시하지 않는다. 다음
+재개는 client 정적 delivery 경로 확인과 고정 30년 시나리오이며 그 전에는 M4 전체 완료로 표시하지 않는다.
+기존 월드 v1·v2·v3와 그 월드에 고정된 런은 보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를
+사용한다. M3는 style 없는 기능 화면,
 fresh MySQL 8 전진 마이그레이션과 실제 HTTP 스모크까지 완료했다. M3-C는 지급일 귀속 월 급여,
 4대보험·원천징수·원장, 1월 1일 annual coordinator, 2월 정산, 연금 세액공제 allocation과 M2 금융소득
 combined coordinator를 실제 employed·pension·combined 런으로 검증했다. M3-D는 복무 시작부터 전역까지
@@ -606,15 +608,13 @@ prepare/replay·composition 변경·withdraw·submit·배분·면책, strict API
 vendoring하고 연결마다 `TCP_NODELAY`를 설정해 우회했다. production 30일 진행은 366.319867초에서
 2.191241초로 줄었고 각 하루가 정확히 한 번씩 commit됐다. case 2는 day 1,855까지 `rebuilding`, exclusive
 경계 day 1,856에서 transition 한 번으로 `recovered`가 되었으며 서버 재시작 전후 다섯 API hash가 같았다.
-M4-E1의 전체 운영 인수 결과는 [M4 생애](./m4-life.md) §13.18에 기록했다. M4-E2a는 immutable 법인
-catalog/policy와 설립 command, 개인 지갑·
-개인 원장·분리 법인 원장을 한 transaction으로 연결했다. M4-E2b의 첫 slice는 HMAC-SHA256으로 결정되는 월
-매출·변동비·고정비를 월 1일 pipeline에서 exact-once materialize하고 cash·미지급금·retained earnings와
-법인 원장에 반영한다. production migration `48/48`, 첫 2026-08 월 row와 두 균형 원장, advance replay,
-container 재시작 불변을 확인했다. 그 위 로컬 구현은 append-only 설정/receipt, M3 payroll·근로소득 재사용,
-연 결산 법인세, 배당 원천징수와 M2 금융소득 연결, bounded month cursor와 server-authoritative client
-화면까지 닫았다. 정확한 production 인수 순서와 다음 재개점은 [M4 생애](./m4-life.md) §1.1·§13.20을 따른다.
-시각 스타일링은 M4-F 30년 검증 뒤로 계속 보류한다.
+M4-E1의 전체 운영 인수 결과는 [M4 생애](./m4-life.md) §13.18에 기록했다. M4-E2는 immutable 법인
+catalog/policy와 설립, 결정론적 월 손익, append-only 운영 설정·대표 급여, 연 결산 법인세, 배당 원천징수와
+M2 금융소득, bounded month history까지 server transaction으로 연결했다. production migration `51/51`,
+2026-08~2027-01 월 row, 대표 급여, 2026 결산, 배당·replay, 균형 원장과 재시작 불변을 실제 public HTTP와
+DB projection으로 확인했다. 상세 금액·CD run·checksum·hash는 [M4 생애](./m4-life.md) §13.21, 정확한 다음
+재개점은 같은 문서 §1.1을 따른다. client production 전달과 고정 30년 검증 전까지 M4 완료를 선언하지 않고
+시각 스타일링도 계속 보류한다.
 
 | 마일스톤 | 범위 | 완료 기준 |
 |---------|------|-----------|

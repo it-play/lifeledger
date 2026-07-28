@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-E2b·E2c와 `/corporation` 기능 화면 로컬 구현 완료, production migration 49·50 인수 대기, 시각 스타일링 보류
+- 상태: M4-E2 production 인수 완료, `/corporation` client production 전달과 M4-F 30년 검증 대기, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,53 +22,50 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-production 기준 checkpoint는 `main`의 `db90aa4`이며 DB는 migration `48/48`, 실패 0이다. 그 위 로컬
-worktree에는 migration `0049` 운영 설정·대표 급여, `0050` 법인세·배당·월 history, strict server/client
-계약과 스타일 없는 `/corporation` 기능 화면까지 구현되어 있다. 아직 이 두 migration과 새 binary를
-production에 적용했다고 기록하지 않는다. M4-E1의 전체 인수는 §13.16~§13.18, 기존 E2a·월 영업 정산
-인수는 §13.19, 현재 로컬 구현과 검증은 §13.20에 기록한다.
+production server checkpoint는 `c79db45` binary이고 DB는 migration `51/51`, 실패 0이다. 운영 설정·대표
+급여, 연 결산·법인세, 배당·M2 금융소득, bounded 월 history까지 development production DB와 public API에서
+인수했다. 전체 결과는 §13.21, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
+스타일 없는 `/corporation`은 client production build까지 통과했지만 repository의 CD는 server만 배포하므로
+production 정적 파일에 전달됐다고 기록하지 않는다.
 
-별도 MySQL, 격리 schema, recovery dump는 만들지 않는다. `main`의 `server/**` push → 원격 image build →
-새 server 시작 시 `sqlx::migrate!()` → health 순서로 development production DB를 직접 전진시킨다. 접속은
-`ssh snowykte0426@59.28.34.117`, service host port는 `10105`, public base는
+별도 MySQL, 격리 schema, recovery dump는 만들지 않는다. server 변경은 `main`의 `server/**` push → 원격
+image build → 새 server 시작 시 `sqlx::migrate!()` → health 순서로 development production DB를 직접
+전진시킨다. 접속은 `ssh snowykte0426@59.28.34.117`, service host port는 `10105`, public base는
 `https://kimtaeeun.site/lifeledger`다. 비밀번호·session token은 문서나 repository에 남기지 않는다.
 
-M4-E2 production fixture는 user 5, save 3882, run revision 1, corporation 1이다. `softwareService` 법인은
-day 181에 설립됐고 첫 operating month인 2026-08을 실제 일일 pipeline으로 materialize해 현재 day 212/state
-revision 213이다. 개인 cash는 801,318원, 법인 cash는 3,549,093원, retained earnings는 2,549,093원,
-operating payable은 0원이며 법인은 `active`다. E1의 user 4/save 118 fixture와 append-only 이력도 그대로
-보존한다. 인수 session은 삭제했고 열린 외부 InnoDB transaction은 0건이다.
+M4-E2 production fixture는 user 5, save 3882, run revision 1, corporation 1이다. 최종 cursor는 day 365/state
+revision 368이다. 개인 cash는 1,748,830원, 법인 cash는 7,187,537원, retained earnings는 4,313,173원,
+operating payable은 0원, corporate tax payable은 706,164원, distributable profit은 4,713,519원이며 법인은
+`active`다. 2026년 세전이익 6,419,683원의 결산과 1,000,000원 gross 배당까지 완료했다. E1의 user 4/save
+118 fixture와 append-only 이력은 보존했다. 인수용 session 13은 삭제했고 열린 외부 InnoDB transaction은
+0건이다.
 
 다음 재개 순서는 고정한다.
 
-1. 이 문서 §9.3, §9.4, §10.1, §10.2, §11, §12, §13.19, §13.20과
-   [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다. 현재 schema와 runtime은
-   [`0049_m4e2_corporation_settings_payroll.sql`](../server/migrations/0049_m4e2_corporation_settings_payroll.sql),
+1. [`AGENTS.md`](../AGENTS.md), 이 문서 §12, §13.1, §13.2, §13.19~§13.21, §14와
+   [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다. E2 기능을 다시 수정할 때만 §9.3,
+   §9.4와 [`store/corporations.rs`](../server/src/store/corporations.rs),
    [`0050_m4e2_corporation_tax_dividend.sql`](../server/migrations/0050_m4e2_corporation_tax_dividend.sql),
-   [`life/corporation.rs`](../server/src/life/corporation.rs),
-   [`store/corporations.rs`](../server/src/store/corporations.rs),
-   [`store/mysql.rs`](../server/src/store/mysql.rs),
+   [`0051_m4e2_corporation_payroll_source_width.sql`](../server/migrations/0051_m4e2_corporation_payroll_source_width.sql)을
+   함께 읽는다.
+2. M4-F의 **첫 작업은 client production 전달 경로 확인**이다. 현재 유일한 workflow인
+   [`deploy-server.yml`](../.github/workflows/deploy-server.yml)과
+   [`server/deploy/deployspec.yml`](../server/deploy/deployspec.yml)은 server 묶음만 전달한다.
+   [`webpack.config.prod.js`](../client/webpack.config.prod.js),
    [`corporation-api.ts`](../client/src/api/corporation-api.ts),
-   [`corporation.ts`](../client/src/app/screens/corporation.ts)에 있다.
-2. `git-commit` 스킬로 현재 변경을 논리 단위로 commit하고 `main`에 push한다. server 경로가 포함되므로
-   [deploy workflow](../.github/workflows/deploy-server.yml)가 자동 실행된다. 이 workflow는 **server만**
-   배포한다. client production 정적 파일 배포를 했다고 단정하지 말고 별도 delivery 경로를 확인하기 전에는
-   `/corporation`을 로컬 build 완료로만 기록한다.
-3. CD가 끝나면 GitHub 실행 성공 표시만 믿지 않는다. SSH에서 `docker compose ps`, server 시작 로그의 MySQL
-   연결·migration·listen, `_sqlx_migrations`의 `49/50` 성공과 checksum, 내부
-   `http://127.0.0.1:10105/api/health`, public `/api/health`, migration 실패·warning/error, 다른 열린 InnoDB
-   transaction 0건을 확인한다. 실패하면 적용 완료 statement와 실제 schema를 먼저 읽고 forward-only로
-   원인을 수정하며 dump나 별도 DB를 만들지 않는다.
-4. fixture user 5/save 3882/run 1/corporation 1/day 212에서 public API로 2026-09 적용 설정을 저장한다. 설정
-   replay·payload 변조·stale cursor를 확인한 뒤 2026-09-01까지 진행해 비영(非零) 대표 급여, 개인 wallet,
-   `employment_income_event`, 개인·법인 원장, 원천징수와 월 row가 한 번만 반영되는지 검증한다. 이어
-   2027-01-01까지 진행해 2026 세전손익·국세·지방세·법인세 미지급·배당가능이익을 독립 계산과 대조하고,
-   배당 command의 실수령·두 원천징수·M2 `corporationDividend` 금융소득·두 원장·replay를 확인한다.
-   `/api/corporations/{id}/months`는 20건 상한, signed cursor, 다른 run 비노출을 확인하고 재시작 전후 state,
-   법인 detail, month history hash가 같아야 한다.
-5. 위 인수가 끝나면 §13.20을 실제 ID·금액·CD run·checksum·hash로 갱신하고 E2 완료를 선언한다. 그 다음
-   재개점은 M4-F의 client production delivery 확인과 §13.2의 고정 30년 시나리오다. 스타일링은 30년 기능
-   검증 뒤까지 계속 보류하며 순수 core/service 외 DOM·network 테스트는 추가하지 않는다.
+   [`corporation.ts`](../client/src/app/screens/corporation.ts)를 기준으로 기존 정적 호스팅 위치·nginx delivery를
+   먼저 확인한다. 경로가 없으면 delivery 설계를 이 문서에 먼저 추가한 뒤 최소 build/deploy 연결을 구현한다.
+3. client가 실제로 전달된 뒤 public `/corporation`에서 설립·설정·월 history·배당을 한 번 조작한다. client가
+   세금·급여·시간을 재계산하지 않고 server snapshot만 표시하는지 확인하며, DOM·routing·network test를
+   새로 만들지 않는다. 기능 실패가 드러날 때만 해당 pure core/service 또는 protocol 범위를 고친다.
+4. 이어 §13.2의 고정 30년 시나리오를 development production DB에서 실행한다. 정상·연체·도산·재기와 법인
+   경로를 작은 step·30일 step으로 끝까지 진행해 최종 cursor, 원장 합계, debt/net-worth projection,
+   corporation 월·세금·배당, orphan과 재시작 hash를 비교한다. 사용자 지시에 따라 별도 DB·dump는 만들지
+   않고 PII 없는 인수 fixture와 임시 session만 사용한 뒤 정확한 ID로 삭제한다.
+5. 30년 시나리오가 닫힌 뒤에만 M4 완료를 선언하고 시각 스타일링으로 이동한다. month history가 20건을
+   넘는 이 단계에서 실제 signed next cursor의 다음 페이지·변조 400·다른 run 비노출도 함께 닫는다.
+   구현 우선 원칙에 따라 전체 회귀를 반복하지 않고, 변경된 순수 규칙·service와 typecheck/build 등 필요한
+   gate만 실행한다.
 
 재개 전에 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와 migration은
 [database-schema](../.agents/skills/database-schema/SKILL.md)·
@@ -2884,11 +2881,12 @@ DOM은 mount에서 한 번 만들고 hooks와 store path 구독으로 텍스트�
 hash·계약 상태·순자산을 byte-for-byte 비교하고, 후자는 파산률·주거 선택·보험 가입 같은 플레이테스트
 지표를 보고할 뿐 임의의 현실 범위를 자동 정답으로 단정하지 않는다.
 
-### 13.2 실제 MySQL 8 스모크
+### 13.2 development production MySQL 8 스모크
 
-PII 없는 격리 MySQL 8에서 다음을 검증한다.
+사용자 지시에 따라 별도 MySQL·격리 schema·recovery dump를 만들지 않고 development production MySQL 8에
+PII 없는 인수 fixture를 추가해 다음을 검증한다. fixture용 session은 종료 때 정확한 ID로 삭제한다.
 
-- 빈 DB와 M3 완료 DB에서 forward migration, 기존 M0~M3 런·원장·시장 경로 보존
+- 실제 populated DB의 forward migration과 기존 M0~M3 런·원장·시장 경로 보존
 - sealed policy/catalog/model의 update/delete 거절과 run bundle pin
 - aggregate debt·순자산과 loan/lease/property/ledger 재대조
 - 같은 세이브의 진행·조기상환·매수·이사·사건 선택·도산 action 경쟁이 전역 잠금 순서로 수렴하는지
@@ -3536,6 +3534,66 @@ production은 여전히 migration `48/48`이며, 아래 migration이나 새 API�
 production 적용·인수와 그 뒤 30년 검증의 정확한 순서는 §1.1에 고정했다. 인수 결과가 채워지기 전에는
 M4-E2 완료, migration `50/50`, `/corporation` production 제공 또는 M4-F 완료를 선언하지 않는다.
 
+### 13.21 M4-E2b·E2c development production 인수 완료 (2026-07-29)
+
+§13.20의 server 기능을 별도 MySQL·격리 schema·recovery dump 없이 development production DB에 직접
+전진 적용하고 public API로 인수했다. server 쪽 M4-E2는 완료다. `/corporation` client 정적 파일의
+production 전달은 이 인수 범위가 아니며 §1.1의 다음 재개점으로 남긴다.
+
+- 최초 배포 [`30404409899`](https://github.com/it-play/lifeledger/actions/runs/30404409899)는 migration 49의
+  composite foreign key가 참조할 `(save_id, run_revision, id)` unique key가 없어 실패했다. 이미 적용된 DDL을
+  되돌리지 않고 해당 unique key를 추가했다. 과거 immutable trigger를 먼저 제거하지 않아 backfill이 막힌
+  두 번째 원인도 실제 적용 지점에서 확인해 trigger 제거 → backfill → 나머지 DDL 순서로 forward repair했다.
+  migration 49 checksum을 repository와 일치시킨 뒤 `ff935f3`과
+  [`30405637675`](https://github.com/it-play/lifeledger/actions/runs/30405637675)에서 정상화했다.
+- 배포 뒤 `/api/state`의 MySQL 예약 별칭 `current_date`, `YEAR/MONTH`의 `BIGINT` 반환과 Rust 정수 decode를
+  각각 `1324668`/실행 [`30406226868`](https://github.com/it-play/lifeledger/actions/runs/30406226868),
+  `ca7aba4`/실행 [`30406669512`](https://github.com/it-play/lifeledger/actions/runs/30406669512)에서 고쳤다.
+  대표 급여 첫 지급에서는 canonical source `corporationOfficerPayroll` 25자를 기존 `VARCHAR(24)`가 담지
+  못했다. migration 51로 32자까지 확장한 `b81947d`와
+  [`30407339801`](https://github.com/it-play/lifeledger/actions/runs/30407339801)이 성공했다. 마지막 1월 1일
+  결산 실패는 MySQL `SUM(BIGINT)`이 `DECIMAL`을 반환하는데 `i64`로 직접 읽은 것이 원인이었다.
+  `CAST(... AS SIGNED)`로 기존 store 패턴에 맞춘 `c79db45`와
+  [`30407511745`](https://github.com/it-play/lifeledger/actions/runs/30407511745)이 최종 성공했다.
+- production은 migration `51/51`, 실패 0이다. 49 checksum은
+  `38bbada3c5ae066cb4281e14c39f6e7f85d05530e15dcb99edd6c35629561cad01c19464cb8c4750dd11b6367ff0c631`,
+  50은 `1109268428bf0b3cbc495253a710cd5977178bad452fa860bb6337c5e97b4e81c59f3637cf1fca791da1112343360902`,
+  51은 `931de3c947fb3562c5073d32e9a60d9a61cdbd66126bc8e39d4da7f3e46e416664f75b5b21b722f5b2cd461d38041f94`다.
+  populated table의 migration 50과 51 DDL은 각각 약 329초와 234초 걸렸지만 최종 `success=1`이고 lock wait와
+  열린 외부 transaction은 없었다.
+- user 5/save 3882/run 1/corporation 1의 day 212/state 213에서 standard scale 6과 대표 gross 급여
+  1,000,000원을 2026-09부터 적용했다. 설정 command는 state 214로 한 번만 전진했고 exact replay는 같은
+  결과, 같은 ID의 payload 변조는 409 `idempotencyConflict`였다. 2026-09 month 3은 gross 1,000,000원,
+  근로자 보험 97,170원, 사업주 보험 105,670원, 원천징수 0원, net 902,830원, 총 payroll cost 1,105,670원이다.
+  법인 payroll ledger 9, 개인 ledger 101, `employment_income_event` 1이 한 번씩 연결됐고 각 원장 합은 0이다.
+- 2026-08~12 applied 월의 세전이익 합은 6,419,683원이다. day 365/state 367의 2026 결산 row 1은 과세표준
+  6,419,683원, 법인세 641,968원, 법인지방소득세 64,196원, 합계 706,164원, 결산 직후 retained earnings와
+  distributable profit 5,713,519원이다. 독립 ppm 계산과 일치했고 corporate-tax ledger 19의 두 posting 합은
+  0이다. 같은 1일 advance replay는 cursor와 결산 row를 늘리지 않았다. 같은 날 2027-01 월 영업도 별도
+  exact-once 단계로 반영돼 배당 직전 법인 현금 8,033,537원, retained earnings 5,313,173원이었다.
+- 배당 row 1은 gross 1,000,000원, 소득세 140,000원, 지방소득세 14,000원, net 846,000원이다. 법인 ledger
+  23과 개인 ledger 114는 각각 세 posting·합계 0이고, M2 `financial_income_source_year`의 2027
+  `corporationDividend`에 같은 gross·두 원천징수가 누적됐다. exact replay는 state 368/day 365를 유지했고
+  같은 command ID의 금액 변조는 409였다. 최종 개인 cash 1,748,830원, 법인 cash 7,187,537원, retained
+  earnings 4,313,173원, tax payable 706,164원, distributable profit 4,713,519원이다.
+- month history는 2026-08~2027-01 오름차순 6건과 `nextCursor=null`을 반환했고 잘못된 cursor는 400이었다.
+  실제 20건 경계의 signed next cursor는 현재 fixture에 6건만 있어 만들지 않았으며 §1.1의 30년 시나리오에서
+  검증한다. server 재시작 전후 state SHA-256은
+  `537aaa8323814c967cfc08eeef312e7efe0be1913d12d8089edefbb9288830f4`, corporation detail은
+  `3f66554fc17a3ac071ca2bfa192f35bb8114762e6f7e57734a335656d8ed09b0`, month history는
+  `e98bb56c301bb653de660d4ce3b18e098c6b83efa8398c9705a86b59c32fef19`로 각각 같았다.
+- 최종 container는 healthy이고 시작 로그에서 MySQL 연결·migration 적용·listen을 확인했다. 내부와 public
+  health는 HTTP 200, 새 container warning/error 0건, 열린 외부 InnoDB transaction 0건이다. 인수용 session
+  13은 user 5와 일치함을 확인한 뒤 정확히 한 행 삭제했고 token 변수를 폐기했다. repository나 문서에
+  password·token을 남기지 않았다.
+- 실패 수정마다 `cargo check`, fmt와 `git diff --check`만 필요한 범위로 실행했다. 순수 법인 규칙 BDD는
+  §13.20의 11건을 그대로 소비했고 SQL 반환형·열 길이 수정 때문에 전체 회귀나 DOM·network test를 다시
+  돌리지 않았다. 구현 우선 원칙에서 기능 인수를 먼저 닫고 실제 실패만 표적 수정했다.
+
+따라서 server 기준 M4-E2a·E2b·E2c는 완료다. 다음 작업은 새 법인 기능 추가나 시각 스타일링이 아니라
+§1.1의 client production 전달 확인과 §13.2 고정 30년 기능 검증이다. 30년 검증 전에는 M4 전체 완료나
+스타일링 시작을 선언하지 않는다.
+
 ## 14. M4 완료 조건
 
 1. M3에서 취업한 캐릭터의 가구·지역·CPI 기반 생활비가 급여와 같은 원장에서 매월 정산된다.
@@ -3547,7 +3605,7 @@ M4-E2 완료, migration `50/50`, `/corporation` production 제공 또는 M4-F �
 7. 개인 자금과 분리된 단순 법인을 설립해 월 손익, 대표 급여, 배당을 처리한다.
 8. 스타일 없는 기능 화면에서 위 흐름을 조작할 수 있다.
 9. 정상·연체·파산·재기 경로를 포함한 고정 30년 시나리오가 원장 불일치나 음수 현금 없이 끝난다.
-10. 단위/protocol 테스트, 서버·클라이언트 검사와 실제 MySQL 8 격리 스모크가 통과한다.
+10. 단위/protocol 테스트, 서버·클라이언트 검사와 development production MySQL 8 스모크가 통과한다.
 
 ## 15. 플레이테스트 전까지 의도적으로 남기는 조정값
 
