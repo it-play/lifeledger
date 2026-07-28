@@ -3086,18 +3086,15 @@ validation을 수행하며, 새 binary 시작 시 `sqlx::migrate!()`가 외부 �
   `spec_evidence` update를 막은 상태에서 `0023`이 `credited_experience_days`를 backfill하고 있었으며,
   empty fresh DB에서는 대상 행이 없어 숨었던 문제였다. `eac0b92`는 backfill 직전에 해당 trigger만 내리고
   즉시 같은 immutable trigger를 복원한다.
-- 실패 직후 DB를 mode 600의
-  `/Users/snowykte0426/Downloads/lifeledger-pre-migration23-repair-20260728.sql`로 보존했다. 크기는
-  1,079,164 bytes, SHA-256은
-  `df71584ee8d6c4009cea2e34c879d9d59df24ed97e739c715b1414855a949440`이다. 그 복제본에서 수정된 `0023`
-  tail과 `0024→0040`, health를 먼저 통과시킨 뒤 같은 복구를 production에 적용했다. 이 dump를 MySQL
-  client로 복원할 때 trigger 행 끝의 `; */;;`는 `LC_ALL=C sed`로 ` */;;`로 정규화해야 한다. 사용자·
-  save·character 각 1건과 기존 경력 증빙을 보존했고 `0023` checksum도 새 source와 일치시켰다.
+- 실패 직후 production DB의 mode 600 논리 dump를 만들어 복제본에서 수정된 `0023` tail과
+  `0024→0040`, health를 먼저 통과시킨 뒤 같은 복구를 production에 적용했다. 사용자·save·character
+  각 1건과 기존 경력 증빙을 보존했고 `0023` checksum도 새 source와 일치시켰다. 최종 운영 검증 뒤 이
+  복구용 dump도 삭제해 별도 복구 artifact는 남아 있지 않다.
 - 최종 실행 [`30314779686`](https://github.com/it-play/lifeledger/actions/runs/30314779686)은 6분 4초 만에
   성공했다. production은 migration `40/40`, 실패 0건,
   container restart 0·healthy이며 `172.19.0.6`에서 MySQL container network로 직접 연결됐다. 내부
   `http://127.0.0.1:10105/api/health`와 외부 `https://kimtaeeun.site/lifeledger/api/health`가 모두 HTTP
-  200을 반환했다. 두 probe container·DB와 전송한 임시 SQL은 삭제했다.
+  200을 반환했다. 두 probe container·DB, 전송한 임시 SQL과 복구용 dump는 삭제했다.
 
 ## 14. M4 완료 조건
 
