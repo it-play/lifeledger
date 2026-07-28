@@ -22,9 +22,10 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-production server checkpoint는 `c79db45` binary이고 DB는 migration `51/51`, 실패 0이다. client checkpoint
-`2a4dea1`은 Vercel deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 `Ready`이며 canonical origin
-`https://lifeledger-ruby.vercel.app`이 이 deployment를 가리킨다. `/corporation`은 HTTP 200, 생성 HTML의
+production server checkpoint는 `c79db45` binary이고 DB는 migration `51/51`, 실패 0이다. client code
+checkpoint `2a4dea1`은 Vercel deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 처음 `Ready`가 됐다. canonical
+origin `https://lifeledger-ruby.vercel.app`은 이후 문서-only push를 포함한 최신 `main` production deployment를
+추적하므로 특정 deployment ID에 고정하지 않는다. `/corporation`은 HTTP 200, 생성 HTML의
 `js/app.js`는 정확히 한 개, same-origin `/api/health`는 200, 비인증 `/api/state`는 401이다. 운영 설정·대표
 급여, 연 결산·법인세, 배당·M2 금융소득, bounded 월 history까지 development production DB와 public API에서
 인수했다. 전체 결과는 §13.21~§13.22, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
@@ -3604,9 +3605,9 @@ client production 전달을 닫고 §13.2의 기존 user 5 법인 fixture로 30�
 - production HTML은 template의 기존 script와 `HtmlWebpackPlugin` 자동 주입이 겹쳐 `js/app.js`를 두 번
   실행하고 있었다. 설계·배포 경계를 먼저 문서화한 `5d3edf1` 뒤 `2a4dea1`에서 plugin `inject`를 껐다.
   client typecheck·lint·production build를 통과했고 생성 HTML의 app script가 한 개임을 확인했다. Vercel은
-  GitHub `main`의 `2a4dea1`을 deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 build해 `Ready`가 됐고
-  canonical alias 세 개 중 `https://lifeledger-ruby.vercel.app`이 이 deployment를 가리킨다. build warning은
-  기존 654 KiB 단일 bundle 크기 권고뿐이다.
+  GitHub `main`의 `2a4dea1`을 deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 build해 `Ready`로 만들었다.
+  canonical alias `https://lifeledger-ruby.vercel.app`은 최신 `main` production을 추적하며 문서-only push도
+  같은 client artifact를 재배포할 수 있다. build warning은 기존 654 KiB 단일 bundle 크기 권고뿐이다.
 - canonical `/corporation`과 `/api/health`는 각각 HTTP 200, 비인증 `/api/state`는 401이었다. 브라우저에서는
   LifeLedger 로그인 화면과 DataGSM·Google 버튼까지 확인했다. 사용자의 OAuth session을 대신 만들거나 계정
   로그인을 진행하지 않았다. 대신 같은 Vercel origin의 인증 API로 화면과 동일한 설정 command를 실행해
