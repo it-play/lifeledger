@@ -1519,7 +1519,7 @@ fn scope_query(predicate: &str, lock: bool) -> String {
          INNER JOIN policy_set AS policy ON policy.id = save.policy_set_id
          INNER JOIN market_world AS world ON world.id = save.market_world_id
          LEFT JOIN market_daily AS daily
-           ON daily.market_world_id = save.market_world_id AND daily.game_day = save.game_day
+           ON daily.world_id = save.market_world_id AND daily.game_day = save.game_day
          LEFT JOIN run_rule_bundle AS bundle
            ON bundle.save_id = save.id AND bundle.run_revision = save.run_revision
          LEFT JOIN life_catalog_set AS catalog ON catalog.id = bundle.life_catalog_set_id
