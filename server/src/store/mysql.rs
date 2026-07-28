@@ -11,6 +11,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::MySqlPool;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::annual_tax::{
     AnnualTaxRunContext, apply_annual_tax_filing, plan_annual_tax_filing,
@@ -694,6 +695,7 @@ impl SaveStore for MySqlSaveStore {
         command: &ManualAdvanceCommand,
         market: &MarketDay,
     ) -> Result<AdvanceCommandStepResult> {
+        let mut phase_started = Instant::now();
         let fingerprint = advance_command_fingerprint(command);
         let identity = CommandIdentitySpec {
             command_id: &command.command_id,
@@ -774,7 +776,14 @@ impl SaveStore for MySqlSaveStore {
             tx.commit().await?;
             return Ok(AdvanceCommandStepResult::Stale(Box::new(current)));
         }
+        warn_if_settlement_phase_is_slow(
+            save_id,
+            target_game_day,
+            "commandValidation",
+            phase_started.elapsed(),
+        );
 
+        phase_started = Instant::now();
         settle_daily_finance_state(
             &mut tx,
             DailySettlementRules {
@@ -790,7 +799,14 @@ impl SaveStore for MySqlSaveStore {
             market,
         )
         .await?;
+        warn_if_settlement_phase_is_slow(
+            save_id,
+            target_game_day,
+            "dailySettlement",
+            phase_started.elapsed(),
+        );
 
+        phase_started = Instant::now();
         if identity_state == CommandIdentityState::Missing {
             write_command_identity(&mut tx, save_id, &identity).await?;
         }
@@ -867,7 +883,21 @@ impl SaveStore for MySqlSaveStore {
             GameCommandCursor::from(&save) == after_cursor,
             "committed advance step cursor disagrees with the save"
         );
+        warn_if_settlement_phase_is_slow(
+            save_id,
+            target_game_day,
+            "stateProjection",
+            phase_started.elapsed(),
+        );
+
+        phase_started = Instant::now();
         tx.commit().await?;
+        warn_if_settlement_phase_is_slow(
+            save_id,
+            target_game_day,
+            "transactionCommit",
+            phase_started.elapsed(),
+        );
 
         Ok(AdvanceCommandStepResult::Advanced {
             save: Box::new(save),
@@ -950,6 +980,7 @@ async fn settle_daily_finance_state(
     target_game_day: u32,
     market: &MarketDay,
 ) -> Result<()> {
+    let mut phase_started = Instant::now();
     let annual_tax_context = AnnualTaxRunContext {
         save_id: current.save_id,
         run_revision: current.run_revision,
@@ -970,7 +1001,14 @@ async fn settle_daily_finance_state(
         run_revision: current.run_revision,
         game_day: target_game_day,
     };
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "contextPreparation",
+        phase_started.elapsed(),
+    );
 
+    phase_started = Instant::now();
     prepare_annual_property_tax_boundary_in_tx(
         tx,
         rules.property.as_ref(),
@@ -993,7 +1031,14 @@ async fn settle_daily_finance_state(
         target_game_day,
     )
     .await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "policyPreparation",
+        phase_started.elapsed(),
+    );
 
+    phase_started = Instant::now();
     validate_due_settlement_envelopes(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
     validate_due_lease_lifecycle_actions_in_tx(
@@ -1030,6 +1075,14 @@ async fn settle_daily_finance_state(
         target_game_day,
     )
     .await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "dailyPlanPreparation",
+        phase_started.elapsed(),
+    );
+
+    phase_started = Instant::now();
     reset_variable_loan_rates_in_tx(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
     ensure_monthly_bond_series_in_tx(tx, current.market_world_id, target_game_day).await?;
@@ -1049,6 +1102,14 @@ async fn settle_daily_finance_state(
     .await?;
     prepare_employment_annual_tax_boundary(tx, rules.finance.as_ref(), annual_tax_context).await?;
     prepare_annual_tax_year_boundary(tx, annual_tax_context).await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "financialBoundaryPreparation",
+        phase_started.elapsed(),
+    );
+
+    phase_started = Instant::now();
     advance_military_lifecycle_in_tx(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
     advance_recruitment_lifecycle_in_tx(tx, current.save_id, current.run_revision, target_game_day)
@@ -1057,7 +1118,14 @@ async fn settle_daily_finance_state(
         .await?;
     advance_recruitment_actions_in_tx(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "careerLifecycle",
+        phase_started.elapsed(),
+    );
 
+    phase_started = Instant::now();
     if market_world_product_bundle_id.is_some() {
         mark_pension_positions_to_market(
             tx,
@@ -1069,7 +1137,14 @@ async fn settle_daily_finance_state(
         .await?;
         create_llx_entitlements_in_tx(tx, asset_context).await?;
     }
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "assetValuation",
+        phase_started.elapsed(),
+    );
 
+    phase_started = Instant::now();
     settle_due_finance_items(
         tx,
         Arc::clone(&rules.finance),
@@ -1079,6 +1154,14 @@ async fn settle_daily_finance_state(
         market,
     )
     .await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "dueSettlements",
+        phase_started.elapsed(),
+    );
+
+    phase_started = Instant::now();
     execute_due_property_sales_in_tx(
         tx,
         rules.finance.as_ref(),
@@ -1096,9 +1179,25 @@ async fn settle_daily_finance_state(
     .await?;
     advance_lease_lifecycle_in_tx(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "propertyLifecycle",
+        phase_started.elapsed(),
+    );
+
+    phase_started = Instant::now();
     apply_credit_end_of_day_in_tx(tx, current.save_id, current.run_revision, target_game_day)
         .await?;
     recover_due_cases_in_tx(tx, current.save_id, current.run_revision, target_game_day).await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "creditRecovery",
+        phase_started.elapsed(),
+    );
+
+    phase_started = Instant::now();
     expire_insurance_contracts_in_tx(
         tx,
         rules.insurance.as_ref(),
@@ -1121,7 +1220,30 @@ async fn settle_daily_finance_state(
         target_game_day,
     )
     .await?;
+    warn_if_settlement_phase_is_slow(
+        current.save_id,
+        target_game_day,
+        "expiry",
+        phase_started.elapsed(),
+    );
     Ok(())
+}
+
+fn warn_if_settlement_phase_is_slow(
+    save_id: u64,
+    target_game_day: u32,
+    phase: &'static str,
+    elapsed: Duration,
+) {
+    if elapsed >= Duration::from_millis(500) {
+        tracing::warn!(
+            save_id,
+            target_game_day,
+            phase,
+            elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+            "daily settlement phase exceeded the slow threshold"
+        );
+    }
 }
 
 async fn mark_pension_positions_to_market(
