@@ -189,7 +189,11 @@ function refineCommandResult(
     });
   }
   const committed = snapshot.life.insolvency.currentCase;
-  if (!response.replayed && (committed === null || committed.id !== result.id)) {
+  const matchesCommittedState =
+    expectedStatus === 'withdrawn'
+      ? committed === null
+      : committed !== null && committed.id === result.id;
+  if (!response.replayed && !matchesCommittedState) {
     context.addIssue({
       code: 'custom',
       path: ['snapshot', 'life', 'insolvency', 'currentCase'],
