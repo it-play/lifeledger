@@ -9,7 +9,7 @@ use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use futures_core::Stream;
 use serde::{Deserialize, Serialize};
@@ -38,6 +38,14 @@ use crate::finance::{
 use crate::life::{
     HousingLeaseOfferKind, InsolvencyProcedureKind, LifeRegionKey, LivingCostCategory,
     LoanProductKind,
+};
+use crate::playtest::{
+    AnalyticsCollection, ConsentAction, ConsentCommand, ConsentDisplayStatus,
+    ConsentPolicy as DomainConsentPolicy, ConsentState as DomainConsentState,
+    ConsentUpdate as DomainConsentUpdate, FeedbackCategory as DomainFeedbackCategory,
+    FeedbackDeletion as DomainFeedbackDeletion, FeedbackDraft, FeedbackItem as DomainFeedbackItem,
+    FeedbackSeverity as DomainFeedbackSeverity, PlaytestFailureCode,
+    PlaytestFeedbackOverview as DomainPlaytestFeedbackOverview, PlaytestStoreResult,
 };
 use crate::runs::{
     CharacterPresetVersion, LeagueDefinition, LeagueRankingItem, LeagueRankingPage,
@@ -235,6 +243,10 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         season_leagues,
         league_rankings,
         run_finalization,
+        playtest_feedback_overview,
+        set_playtest_consent,
+        submit_playtest_feedback,
+        delete_playtest_feedback,
         offline_progress_status,
         set_offline_progress,
         preview_point_budget,
@@ -845,6 +857,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/seasons/{id}/leagues", get(season_leagues))
         .route("/api/leagues/{id}/rankings", get(league_rankings))
         .route("/api/runs/{id}/finalization", get(run_finalization))
+        .route(
+            "/api/playtest/feedback",
+            get(playtest_feedback_overview).post(submit_playtest_feedback),
+        )
+        .route("/api/playtest/consent", put(set_playtest_consent))
+        .route(
+            "/api/playtest/feedback/{id}",
+            delete(delete_playtest_feedback),
+        )
         .route("/api/offline-progress", put(set_offline_progress))
         .route("/api/offline-progress/status", get(offline_progress_status))
         .route("/api/runs/point-preview", post(preview_point_budget))
@@ -1159,6 +1180,487 @@ async fn run_finalization(
         .await?
         .ok_or(PointBudgetPreviewError::VersionNotFound)?;
     Ok(Json(response))
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum PlaytestConsentActionValue {
+    Grant,
+    Withdraw,
+}
+
+impl From<PlaytestConsentActionValue> for ConsentAction {
+    fn from(value: PlaytestConsentActionValue) -> Self {
+        match value {
+            PlaytestConsentActionValue::Grant => Self::Grant,
+            PlaytestConsentActionValue::Withdraw => Self::Withdraw,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum PlaytestFeedbackCategoryValue {
+    Bug,
+    Balance,
+    Usability,
+    Performance,
+    Rules,
+    Other,
+}
+
+impl From<PlaytestFeedbackCategoryValue> for DomainFeedbackCategory {
+    fn from(value: PlaytestFeedbackCategoryValue) -> Self {
+        match value {
+            PlaytestFeedbackCategoryValue::Bug => Self::Bug,
+            PlaytestFeedbackCategoryValue::Balance => Self::Balance,
+            PlaytestFeedbackCategoryValue::Usability => Self::Usability,
+            PlaytestFeedbackCategoryValue::Performance => Self::Performance,
+            PlaytestFeedbackCategoryValue::Rules => Self::Rules,
+            PlaytestFeedbackCategoryValue::Other => Self::Other,
+        }
+    }
+}
+
+impl From<DomainFeedbackCategory> for PlaytestFeedbackCategoryValue {
+    fn from(value: DomainFeedbackCategory) -> Self {
+        match value {
+            DomainFeedbackCategory::Bug => Self::Bug,
+            DomainFeedbackCategory::Balance => Self::Balance,
+            DomainFeedbackCategory::Usability => Self::Usability,
+            DomainFeedbackCategory::Performance => Self::Performance,
+            DomainFeedbackCategory::Rules => Self::Rules,
+            DomainFeedbackCategory::Other => Self::Other,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum PlaytestFeedbackSeverityValue {
+    Blocking,
+    Major,
+    Minor,
+    Suggestion,
+}
+
+impl From<PlaytestFeedbackSeverityValue> for DomainFeedbackSeverity {
+    fn from(value: PlaytestFeedbackSeverityValue) -> Self {
+        match value {
+            PlaytestFeedbackSeverityValue::Blocking => Self::Blocking,
+            PlaytestFeedbackSeverityValue::Major => Self::Major,
+            PlaytestFeedbackSeverityValue::Minor => Self::Minor,
+            PlaytestFeedbackSeverityValue::Suggestion => Self::Suggestion,
+        }
+    }
+}
+
+impl From<DomainFeedbackSeverity> for PlaytestFeedbackSeverityValue {
+    fn from(value: DomainFeedbackSeverity) -> Self {
+        match value {
+            DomainFeedbackSeverity::Blocking => Self::Blocking,
+            DomainFeedbackSeverity::Major => Self::Major,
+            DomainFeedbackSeverity::Minor => Self::Minor,
+            DomainFeedbackSeverity::Suggestion => Self::Suggestion,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum PlaytestConsentStatusSnapshot {
+    NotGranted,
+    Granted,
+    Withdrawn,
+    PolicyChanged,
+}
+
+impl From<ConsentDisplayStatus> for PlaytestConsentStatusSnapshot {
+    fn from(value: ConsentDisplayStatus) -> Self {
+        match value {
+            ConsentDisplayStatus::NotGranted => Self::NotGranted,
+            ConsentDisplayStatus::Granted => Self::Granted,
+            ConsentDisplayStatus::Withdrawn => Self::Withdrawn,
+            ConsentDisplayStatus::PolicyChanged => Self::PolicyChanged,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum AnalyticsCollectionSnapshot {
+    Disabled,
+}
+
+impl From<AnalyticsCollection> for AnalyticsCollectionSnapshot {
+    fn from(value: AnalyticsCollection) -> Self {
+        match value {
+            AnalyticsCollection::Disabled => Self::Disabled,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PlaytestConsentPolicySnapshot {
+    id: String,
+    scope: String,
+    policy_key: String,
+    version: u32,
+    schema_version: u16,
+    display_name: String,
+    notice_text: String,
+    canonical_sha256: String,
+    analytics_collection: AnalyticsCollectionSnapshot,
+    maximum_active_feedback: u64,
+    message_maximum_characters: usize,
+}
+
+impl From<DomainConsentPolicy> for PlaytestConsentPolicySnapshot {
+    fn from(value: DomainConsentPolicy) -> Self {
+        Self {
+            id: value.id.to_string(),
+            scope: value.scope,
+            policy_key: value.policy_key,
+            version: value.version,
+            schema_version: value.schema_version,
+            display_name: value.display_name,
+            notice_text: value.notice_text,
+            canonical_sha256: value.canonical_sha256,
+            analytics_collection: value.analytics_collection.into(),
+            maximum_active_feedback: value.maximum_active_feedback,
+            message_maximum_characters: value.message_maximum_characters,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PlaytestConsentSnapshot {
+    status: PlaytestConsentStatusSnapshot,
+    revision: u64,
+    policy_version_id: Option<String>,
+    granted_at: Option<String>,
+    withdrawn_at: Option<String>,
+}
+
+impl From<DomainConsentState> for PlaytestConsentSnapshot {
+    fn from(value: DomainConsentState) -> Self {
+        Self {
+            status: value.status.into(),
+            revision: value.revision,
+            policy_version_id: value.policy_version_id.map(|id| id.to_string()),
+            granted_at: value.granted_at,
+            withdrawn_at: value.withdrawn_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PlaytestFeedbackSnapshot {
+    id: String,
+    category: PlaytestFeedbackCategoryValue,
+    severity: PlaytestFeedbackSeverityValue,
+    message: String,
+    run_revision: Option<u32>,
+    run_manifest_sha256: Option<String>,
+    finalization_sha256: Option<String>,
+    created_at: String,
+}
+
+impl From<DomainFeedbackItem> for PlaytestFeedbackSnapshot {
+    fn from(value: DomainFeedbackItem) -> Self {
+        Self {
+            id: value.id,
+            category: value.category.into(),
+            severity: value.severity.into(),
+            message: value.message,
+            run_revision: value.run_revision,
+            run_manifest_sha256: value.run_manifest_sha256,
+            finalization_sha256: value.finalization_sha256,
+            created_at: value.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PlaytestFeedbackOverviewResponse {
+    policy: PlaytestConsentPolicySnapshot,
+    consent: PlaytestConsentSnapshot,
+    feedback: Vec<PlaytestFeedbackSnapshot>,
+}
+
+impl From<DomainPlaytestFeedbackOverview> for PlaytestFeedbackOverviewResponse {
+    fn from(value: DomainPlaytestFeedbackOverview) -> Self {
+        Self {
+            policy: value.policy.into(),
+            consent: value.consent.into(),
+            feedback: value.feedback.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlaytestConsentRequest {
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]{0,19}$")]
+    policy_version_id: String,
+    #[schema(maximum = 9007199254740991_u64)]
+    expected_revision: u64,
+    action: PlaytestConsentActionValue,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PlaytestConsentUpdateResponse {
+    consent: PlaytestConsentSnapshot,
+    purged_feedback_count: u64,
+}
+
+impl From<DomainConsentUpdate> for PlaytestConsentUpdateResponse {
+    fn from(value: DomainConsentUpdate) -> Self {
+        Self {
+            consent: value.consent.into(),
+            purged_feedback_count: value.purged_feedback_count,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlaytestFeedbackRequest {
+    #[schema(minimum = 1, maximum = 9007199254740991_u64)]
+    expected_consent_revision: u64,
+    category: PlaytestFeedbackCategoryValue,
+    severity: PlaytestFeedbackSeverityValue,
+    #[schema(min_length = 1, max_length = 500)]
+    message: String,
+    privacy_confirmed: bool,
+    run_revision: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PlaytestFeedbackDeletionResponse {
+    id: String,
+    status: &'static str,
+    withdrawn_at: String,
+}
+
+impl From<DomainFeedbackDeletion> for PlaytestFeedbackDeletionResponse {
+    fn from(value: DomainFeedbackDeletion) -> Self {
+        Self {
+            id: value.id,
+            status: "withdrawn",
+            withdrawn_at: value.withdrawn_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum PlaytestFailureCodeSnapshot {
+    InvalidCommand,
+    PolicyUnavailable,
+    RevisionConflict,
+    ConsentRequired,
+    PrivacyConfirmationRequired,
+    FeedbackCapacityReached,
+    RunReferenceNotFound,
+    FeedbackNotFound,
+}
+
+impl From<PlaytestFailureCode> for PlaytestFailureCodeSnapshot {
+    fn from(value: PlaytestFailureCode) -> Self {
+        match value {
+            PlaytestFailureCode::InvalidCommand => Self::InvalidCommand,
+            PlaytestFailureCode::PolicyUnavailable => Self::PolicyUnavailable,
+            PlaytestFailureCode::RevisionConflict => Self::RevisionConflict,
+            PlaytestFailureCode::ConsentRequired => Self::ConsentRequired,
+            PlaytestFailureCode::PrivacyConfirmationRequired => Self::PrivacyConfirmationRequired,
+            PlaytestFailureCode::FeedbackCapacityReached => Self::FeedbackCapacityReached,
+            PlaytestFailureCode::RunReferenceNotFound => Self::RunReferenceNotFound,
+            PlaytestFailureCode::FeedbackNotFound => Self::FeedbackNotFound,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct PlaytestFailure {
+    code: PlaytestFailureCodeSnapshot,
+}
+
+enum PlaytestRequestError {
+    Domain(PlaytestFailureCode),
+    Internal(AppError),
+}
+
+impl From<anyhow::Error> for PlaytestRequestError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(AppError::from(error))
+    }
+}
+
+impl axum::response::IntoResponse for PlaytestRequestError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Domain(code) => {
+                let status = match code {
+                    PlaytestFailureCode::InvalidCommand
+                    | PlaytestFailureCode::PrivacyConfirmationRequired => StatusCode::BAD_REQUEST,
+                    PlaytestFailureCode::RunReferenceNotFound
+                    | PlaytestFailureCode::FeedbackNotFound => StatusCode::NOT_FOUND,
+                    PlaytestFailureCode::PolicyUnavailable
+                    | PlaytestFailureCode::RevisionConflict
+                    | PlaytestFailureCode::ConsentRequired
+                    | PlaytestFailureCode::FeedbackCapacityReached => StatusCode::CONFLICT,
+                };
+                (status, Json(PlaytestFailure { code: code.into() })).into_response()
+            }
+            Self::Internal(error) => error.into_response(),
+        }
+    }
+}
+
+fn accepted_playtest<T>(result: PlaytestStoreResult<T>) -> Result<T, PlaytestRequestError> {
+    match result {
+        PlaytestStoreResult::Accepted(value) => Ok(value),
+        PlaytestStoreResult::Rejected(code) => Err(PlaytestRequestError::Domain(code)),
+    }
+}
+
+fn parse_playtest_policy_id(value: &str) -> Result<u64, PlaytestRequestError> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or(PlaytestRequestError::Domain(
+            PlaytestFailureCode::InvalidCommand,
+        ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/playtest/feedback",
+    responses(
+        (status = 200, description = "현재 고지·동의와 소유한 활성 피드백", body = PlaytestFeedbackOverviewResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "조회 실패")
+    ),
+    security(("sessionCookie" = []))
+)]
+async fn playtest_feedback_overview(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<PlaytestFeedbackOverviewResponse>, PlaytestRequestError> {
+    Ok(Json(
+        state.playtest_feedback_overview(user.id).await?.into(),
+    ))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/playtest/consent",
+    request_body = PlaytestConsentRequest,
+    responses(
+        (status = 200, description = "동의 또는 철회 결과", body = PlaytestConsentUpdateResponse),
+        (status = 400, description = "strict 요청 형식 오류", body = PlaytestFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "policy·revision·동의 충돌", body = PlaytestFailure),
+        (status = 500, description = "저장 실패")
+    ),
+    security(("sessionCookie" = []))
+)]
+async fn set_playtest_consent(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<PlaytestConsentRequest>, JsonRejection>,
+) -> Result<Json<PlaytestConsentUpdateResponse>, PlaytestRequestError> {
+    let Json(request) =
+        request.map_err(|_| PlaytestRequestError::Domain(PlaytestFailureCode::InvalidCommand))?;
+    if request.expected_revision > MAX_JSON_SAFE_INTEGER {
+        return Err(PlaytestRequestError::Domain(
+            PlaytestFailureCode::InvalidCommand,
+        ));
+    }
+    let result = state
+        .set_playtest_consent(
+            user.id,
+            ConsentCommand {
+                policy_version_id: parse_playtest_policy_id(&request.policy_version_id)?,
+                expected_revision: request.expected_revision,
+                action: request.action.into(),
+            },
+        )
+        .await?;
+
+    Ok(Json(accepted_playtest(result)?.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/playtest/feedback",
+    request_body = PlaytestFeedbackRequest,
+    responses(
+        (status = 200, description = "서버가 hash를 해석해 저장한 피드백", body = PlaytestFeedbackSnapshot),
+        (status = 400, description = "strict 요청·본문·개인정보 확인 오류", body = PlaytestFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "소유한 run 없음", body = PlaytestFailure),
+        (status = 409, description = "동의·revision·용량 충돌", body = PlaytestFailure),
+        (status = 500, description = "저장 실패")
+    ),
+    security(("sessionCookie" = []))
+)]
+async fn submit_playtest_feedback(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<PlaytestFeedbackRequest>, JsonRejection>,
+) -> Result<Json<PlaytestFeedbackSnapshot>, PlaytestRequestError> {
+    let Json(request) =
+        request.map_err(|_| PlaytestRequestError::Domain(PlaytestFailureCode::InvalidCommand))?;
+    if request.expected_consent_revision > MAX_JSON_SAFE_INTEGER {
+        return Err(PlaytestRequestError::Domain(
+            PlaytestFailureCode::InvalidCommand,
+        ));
+    }
+    let result = state
+        .submit_playtest_feedback(
+            user.id,
+            FeedbackDraft {
+                expected_consent_revision: request.expected_consent_revision,
+                category: request.category.into(),
+                severity: request.severity.into(),
+                message: request.message,
+                privacy_confirmed: request.privacy_confirmed,
+                run_revision: request.run_revision,
+            },
+        )
+        .await?;
+
+    Ok(Json(accepted_playtest(result)?.into()))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/playtest/feedback/{id}",
+    params(("id" = String, Path, description = "서버가 발급한 feedback UUID")),
+    responses(
+        (status = 200, description = "피드백 tombstone 결과", body = PlaytestFeedbackDeletionResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "소유한 피드백 없음", body = PlaytestFailure),
+        (status = 500, description = "삭제 실패")
+    ),
+    security(("sessionCookie" = []))
+)]
+async fn delete_playtest_feedback(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<PlaytestFeedbackDeletionResponse>, PlaytestRequestError> {
+    let result = state.delete_playtest_feedback(user.id, &id).await?;
+    Ok(Json(accepted_playtest(result)?.into()))
 }
 
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]

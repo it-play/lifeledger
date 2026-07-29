@@ -8,6 +8,7 @@ pub mod life;
 pub mod market;
 pub mod offline;
 mod operations;
+pub mod playtest;
 mod routes;
 pub mod runs;
 mod state;
@@ -72,6 +73,10 @@ pub async fn run_api() -> anyhow::Result<()> {
         pool.clone(),
         offline::create_offline_rules(),
     ));
+    let playtest = Arc::new(store::create_mysql_playtest_store(
+        pool.clone(),
+        playtest::create_playtest_rules(),
+    ));
     let users = store::create_mysql_user_store(pool);
     let games = day::create_daily_pipeline(
         saves.clone(),
@@ -91,6 +96,7 @@ pub async fn run_api() -> anyhow::Result<()> {
         markets,
         runs,
         offline_progress,
+        playtest,
         users: Arc::new(users),
     });
     let state = state::AppState::new(app_stores, providers);

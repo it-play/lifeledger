@@ -40,6 +40,10 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{InterestRateState, MarketRegime};
+use crate::playtest::{
+    ConsentCommand, ConsentUpdate, FeedbackDeletion, FeedbackDraft, FeedbackItem,
+    PlaytestFeedbackOverview, PlaytestStore, PlaytestStoreResult,
+};
 use crate::runs::{
     LeagueRankingPage, PointBudgetEvaluation, PointSelection, RankedRunPreparation,
     RankingPageCursor, RunFinalization, RunManifestSummary, RunOptions, SeasonLeagues,
@@ -5633,6 +5637,7 @@ pub struct AppState {
     markets: Arc<dyn MarketStore>,
     runs: Arc<dyn RunStore>,
     offline_progress: Arc<dyn OfflineProgressStore>,
+    playtest: Arc<dyn PlaytestStore>,
     users: Arc<dyn UserStore>,
     pub providers: Providers,
     runtimes: StdMutex<HashMap<u64, Arc<SaveRuntime>>>,
@@ -5651,6 +5656,7 @@ pub struct AppStores {
     markets: Arc<dyn MarketStore>,
     runs: Arc<dyn RunStore>,
     offline_progress: Arc<dyn OfflineProgressStore>,
+    playtest: Arc<dyn PlaytestStore>,
     users: Arc<dyn UserStore>,
 }
 
@@ -5666,6 +5672,7 @@ pub struct AppStoreDependencies {
     pub markets: Arc<dyn MarketStore>,
     pub runs: Arc<dyn RunStore>,
     pub offline_progress: Arc<dyn OfflineProgressStore>,
+    pub playtest: Arc<dyn PlaytestStore>,
     pub users: Arc<dyn UserStore>,
 }
 
@@ -5682,6 +5689,7 @@ pub fn create_app_stores(dependencies: AppStoreDependencies) -> AppStores {
         markets,
         runs,
         offline_progress,
+        playtest,
         users,
     } = dependencies;
     AppStores {
@@ -5696,6 +5704,7 @@ pub fn create_app_stores(dependencies: AppStoreDependencies) -> AppStores {
         markets,
         runs,
         offline_progress,
+        playtest,
         users,
     }
 }
@@ -5734,6 +5743,7 @@ impl AppState {
             markets: dependencies.stores.markets,
             runs: dependencies.stores.runs,
             offline_progress: dependencies.stores.offline_progress,
+            playtest: dependencies.stores.playtest,
             users: dependencies.stores.users,
             providers: dependencies.providers,
             runtimes: StdMutex::new(HashMap::new()),
@@ -5787,6 +5797,37 @@ impl AppState {
 
     pub async fn offline_progress_status(&self, user_id: u64) -> Result<OfflineProgressState> {
         self.offline_progress.status(user_id).await
+    }
+
+    pub async fn playtest_feedback_overview(
+        &self,
+        user_id: u64,
+    ) -> Result<PlaytestFeedbackOverview> {
+        self.playtest.overview(user_id).await
+    }
+
+    pub async fn set_playtest_consent(
+        &self,
+        user_id: u64,
+        command: ConsentCommand,
+    ) -> Result<PlaytestStoreResult<ConsentUpdate>> {
+        self.playtest.set_consent(user_id, command).await
+    }
+
+    pub async fn submit_playtest_feedback(
+        &self,
+        user_id: u64,
+        draft: FeedbackDraft,
+    ) -> Result<PlaytestStoreResult<FeedbackItem>> {
+        self.playtest.submit_feedback(user_id, draft).await
+    }
+
+    pub async fn delete_playtest_feedback(
+        &self,
+        user_id: u64,
+        feedback_id: &str,
+    ) -> Result<PlaytestStoreResult<FeedbackDeletion>> {
+        self.playtest.delete_feedback(user_id, feedback_id).await
     }
 
     pub async fn set_offline_progress(
@@ -15233,6 +15274,39 @@ mod tests {
         }
     }
 
+    struct FakePlaytestStore;
+
+    #[async_trait]
+    impl PlaytestStore for FakePlaytestStore {
+        async fn overview(&self, _user_id: u64) -> Result<PlaytestFeedbackOverview> {
+            anyhow::bail!("not used by game-loop tests")
+        }
+
+        async fn set_consent(
+            &self,
+            _user_id: u64,
+            _command: ConsentCommand,
+        ) -> Result<PlaytestStoreResult<ConsentUpdate>> {
+            anyhow::bail!("not used by game-loop tests")
+        }
+
+        async fn submit_feedback(
+            &self,
+            _user_id: u64,
+            _draft: FeedbackDraft,
+        ) -> Result<PlaytestStoreResult<FeedbackItem>> {
+            anyhow::bail!("not used by game-loop tests")
+        }
+
+        async fn delete_feedback(
+            &self,
+            _user_id: u64,
+            _feedback_id: &str,
+        ) -> Result<PlaytestStoreResult<FeedbackDeletion>> {
+            anyhow::bail!("not used by game-loop tests")
+        }
+    }
+
     #[async_trait]
     impl UserStore for FakeUserStore {
         async fn upsert(&self, _identity: &OAuthIdentity) -> Result<AccountUser> {
@@ -15979,6 +16053,7 @@ mod tests {
         let lives: Arc<dyn LifeStore> = Arc::new(FakeLifeStore);
         let markets: Arc<dyn MarketStore> = Arc::new(FakeMarketStore);
         let runs: Arc<dyn RunStore> = Arc::new(FakeRunStore);
+        let playtest: Arc<dyn PlaytestStore> = Arc::new(FakePlaytestStore);
         let users: Arc<dyn UserStore> = Arc::new(FakeUserStore);
         let offline_progress: Arc<dyn OfflineProgressStore> = Arc::new(FakeOfflineProgressStore);
         let timer = Arc::new(ManualTimer::new());
@@ -15999,6 +16074,7 @@ mod tests {
                     markets,
                     runs,
                     offline_progress,
+                    playtest,
                     users,
                 }),
                 providers,
@@ -16237,6 +16313,7 @@ mod tests {
             let lives: Arc<dyn LifeStore> = Arc::new(FakeLifeStore);
             let markets: Arc<dyn MarketStore> = Arc::new(FakeMarketStore);
             let runs: Arc<dyn RunStore> = Arc::new(FakeRunStore);
+            let playtest: Arc<dyn PlaytestStore> = Arc::new(FakePlaytestStore);
             let users: Arc<dyn UserStore> = Arc::new(FakeUserStore);
             let timer = Arc::new(ManualTimer::new());
             let providers = Providers::from_env("http://localhost:8080".to_owned())
@@ -16254,6 +16331,7 @@ mod tests {
                         lives,
                         markets,
                         runs,
+                        playtest,
                         users,
                         offline_progress: Arc::new(FakeOfflineProgressStore),
                     }),

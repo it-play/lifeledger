@@ -22,6 +22,7 @@ mod market;
 mod military;
 mod mysql;
 mod offline;
+mod playtest;
 mod properties;
 mod property_tax;
 mod recruitment;
@@ -38,6 +39,7 @@ pub use life::create_mysql_life_store;
 pub use market::create_mysql_market_store;
 pub use mysql::create_mysql_save_store;
 pub use offline::create_mysql_offline_progress_store;
+pub use playtest::create_mysql_playtest_store;
 pub use runs::create_mysql_run_store;
 pub use types::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
