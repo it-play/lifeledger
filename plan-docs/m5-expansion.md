@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4 production 완료, **M5-A 실행 모드·포인트 예산 구현 개시**
+- 상태: M4 production 완료, **M5-A catalog·point preview production 완료, `POST /api/runs` 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -25,8 +25,8 @@ M5는 M3·M4의 규칙을 새로 정의하지 않는다. ranked run은 M3 커리
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-M4는 [`m4-life.md` §13.24](./m4-life.md)의 development production 검증으로 완료했다. production server는
-`c95edef`, DB는 migration `51/51`이며 같은 시작 draft의 1일 step 10,950회와 30일 step 365회가 day
+M4는 [`m4-life.md` §13.24](./m4-life.md)의 development production 검증으로 완료했다. M4 인수 기준 server는
+`c95edef`, DB는 migration `51/51`이었으며 같은 시작 draft의 1일 step 10,950회와 30일 step 365회가 day
 10950에서 정규화 SHA-256
 `a1021ed3a8b9e49416a25b1fdfe6b9138a42bfacabe4fffcebfcd993378692ee`로 수렴했다. 장기 연체 30년과
 도산 재기 exclusive 경계도 별도 append-only run에서 완료했다. M5는 이 결과를 바꾸지 않고 새 run의
@@ -34,15 +34,59 @@ manifest와 실행 모드를 추가한다.
 
 M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
 
-1. 기존 character start·save·`run_rule_bundle` 경계를 조사한 뒤 `run_manifest`, versioned preset·point
+1. **완료** — 기존 character start·save·`run_rule_bundle` 경계를 조사한 뒤 `run_manifest`, versioned preset·point
    budget catalog와 기존 run의 명시적 unranked backfill을 migration으로 추가한다. sealed version은
    update/delete하지 않는다.
-2. option ID를 canonical 정렬해 fixed/perUnit/tiered와 exclusive/requires/forbids를 i64 checked arithmetic로
+2. **완료** — option ID를 canonical 정렬해 fixed/perUnit/tiered와 exclusive/requires/forbids를 i64 checked arithmetic로
    평가하는 순수 point ledger를 만들고 `GET /api/run-options`, `POST /api/runs/point-preview`를 strict API로
    공개한다. preview 합계는 시작 transaction에서 다시 계산한다.
-3. `rankedPreset · rankedCustom · sandbox`의 필수·금지 필드, immutable manifest hash, command replay를
+3. **다음 재개점** — `rankedPreset · rankedCustom · sandbox`의 필수·금지 필드, immutable manifest hash, command replay를
    `POST /api/runs`에 연결한 뒤 스타일 없는 생성 화면을 추가한다. ranked season·league의 실제 게시와
    랭킹 계산은 M5-C가 소유하므로 M5-A fixture는 게시 전 development season만 사용한다.
+
+2026-07-29 현재 1·2단계의 구현과 development production 인수를 마쳤다.
+
+- `0052_m5a_run_modes_point_budget.sql`은 sealed preset 5개, point budget 1개, exclusive group 5개,
+  option 12개, tier 3개, 활성 assignment 1개와 immutable `run_manifest`를 추가했다. 기존
+  `run_rule_bundle` 9건은 모두 `sandbox · rankingEligible=false · legacyRun` manifest 9건으로 백필됐고,
+  bundle/manifest authority 불일치는 0건이다.
+- `server/src/runs/`의 순수 evaluator는 option ID canonical 순서, fixed/perUnit/tiered 누진 정수 비용,
+  exclusive/condition/effect와 checked i64 ledger를 처리한다. `server/src/store/runs.rs`가 sealed catalog만
+  읽고, `GET /api/run-options`와 `POST /api/runs/point-preview`가 strict JSON 경계로 이를 공개한다.
+- 기존 `POST /api/characters`는 계속 sandbox 전용 호환 경로이며, 시작 transaction 안에서
+  `legacyStartEndpoint` manifest를 함께 기록한다. manifest 없는 새 legacy run을 만들지 않는다.
+- 최초 CD `30416923330`은 migration 52의 `tr_point_budget_version_seal_only` 조건 괄호 누락으로 실패했다.
+  새 server를 중지한 상태에서 실제 production MySQL parser로 수정 SQL의 생성을 확인하고 확인용 trigger를
+  즉시 삭제했다. 실패 실행이 만든 preset/budget의 부분 table·trigger와 `_sqlx_migrations`의 version 52
+  실패 row만 역순 제거했으며 migration 51과 기존 bundle 9건은 보존했다. 복구 dump나 별도 DB는 만들지
+  않았다.
+- `3336425`가 trigger 구문을 복구했고 CD `30417524665`에서 migration `52/52`가 성공했다. 이후 catalog
+  effect JSON의 variant 내부 camelCase를 Rust가 snake_case로 읽던 500을 `136a484`에서 바로잡았고 CD
+  `30417912895`가 성공했다. 최종 server container는 healthy, startup migration 실패 0, 새 container
+  WARN/ERROR 0건, 열린 InnoDB transaction 0건이다.
+- public HTTP에서 run options는 세 mode, active season null, preset 5개, budget 1개, group 5개, option
+  12개를 반환했다. 기준 선택은 total 100, spent 10, remaining 90, ledger line 5개, failure 0으로 유효했고,
+  빈 선택은 필수 group 누락 5개를 반환했다. unknown request field는 `400 invalidCommand`로 거절됐다.
+- 검증은 기능에 필요한 범위로 제한했다. 순수 point evaluator 4건과 camelCase effect/condition parser 2건,
+  server check·clippy·fmt, 실제 production migration·HTTP smoke를 실행했으며 DOM/network/DB 단위 테스트나
+  전체 회귀는 추가하지 않았다.
+
+다음 작업은 이 문서 §2, §3.1, §3.2, §8을 다시 읽고 현재 `server/src/routes/mod.rs`,
+`server/src/runs/types.rs`, `server/src/store/runs.rs`, `server/src/store/mysql.rs`의 character start transaction을
+기준으로 진행한다.
+
+1. `POST /api/runs`의 mode별 strict request를 먼저 정의한다. ranked preset은 preset version만, ranked
+   custom은 budget version과 canonical selection만 허용하고 sandbox만 허용된 draft/override를 받는다.
+   mode에 없는 필드, unknown field, 사용할 수 없는 sealed version은 stable failure code로 거절한다.
+2. preview와 같은 evaluator/effect materializer로 시작 draft와 ledger를 transaction 안에서 다시 계산한다.
+   character·save·`run_rule_bundle`·`run_manifest`를 한 번에 commit하고 manifest canonical JSON/hash와 모든
+   pinned ID를 저장한다. `commandId` replay는 같은 fingerprint면 같은 run을 반환하고 다른 payload면
+   conflict여야 한다. active season이 아직 null이므로 실제 ranked 게시를 흉내 내지 말고 unavailable로
+   닫으며, 게시 fixture와 리그 연결은 M5-C에서 연다.
+3. mode validation, preview/start 동등성, manifest canonicalization, replay처럼 순수 core/service 규칙만
+   작은 BDD로 검증한다. server production CD와 실제 MySQL/HTTP smoke까지 통과한 뒤에만
+   `client-foundation`을 읽고 스타일 없는 생성 화면을 연결한다. M5-B로 넘어가거나 시각 스타일링을
+   시작하지 않는다.
 
 새 `POST /api/runs`가 client에 연결되기 전에도 manifest 없는 run을 허용하지 않는다. 기존
 `POST /api/characters` v1/v2는 호환 기간 동안 **sandbox 전용 legacy start**로 해석하고, 기존 command
@@ -339,7 +383,9 @@ pagination과 고정 행 슬롯을 쓴다. 시각적 스타일·애니메이션�
 배포 단위는 `server API`, `offline worker`, `client`, `migration/content artifact`다. API와 worker 이미지는
 같은 engine source와 version을 사용하되 별도 process/health check/scale 설정을 가진다.
 
-1. PII 없는 production clone에서 빈 DB·현재 DB forward migration과 이전 이미지 read-only 호환을 검증한다.
+1. 외부 사용자가 없는 development 단계는 현재 production DB에 startup migration을 직접 적용하고
+   migration row·기존 run·health를 확인한다. 외부 플레이테스트 gate 이후에는 PII 없는 production clone에서
+   빈 DB·현재 DB forward migration과 이전 이미지 read-only 호환을 먼저 검증한다.
 2. content/policy bundle을 sealed 상태로 먼저 적재하되 assignment나 season은 활성화하지 않는다.
 3. API를 배포하고 schema·bundle health를 확인한다.
 4. worker를 drain 후 배포하고 manifest 호환 run만 claim하는지 확인한다.
