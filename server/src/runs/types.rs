@@ -36,7 +36,12 @@ pub enum PointFactValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum PointEffect {
     SetInteger {
         fact_path: String,
@@ -53,7 +58,12 @@ pub enum PointEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum PointCondition {
     RequiresOption {
         option_id: ResourceId,
@@ -214,4 +224,65 @@ pub trait PointBudgetRules: Send + Sync + 'static {
         catalog: &PointBudgetCatalog,
         selections: &[PointSelection],
     ) -> PointBudgetEvaluation;
+}
+
+#[cfg(test)]
+mod tests {
+    mod point_effect_contract {
+        use super::super::PointEffect;
+
+        mod context_camel_case_json {
+            use super::*;
+
+            #[test]
+            fn given_camel_case_effect_when_parsed_then_fields_are_accepted() {
+                let given_json = r#"{
+                    "kind":"incrementInteger",
+                    "factPath":"startingCashKrw",
+                    "valuePerUnit":1000000
+                }"#;
+
+                let when_parsed = serde_json::from_str::<PointEffect>(given_json)
+                    .expect("camelCase point effect should parse");
+
+                assert_eq!(
+                    when_parsed,
+                    PointEffect::IncrementInteger {
+                        fact_path: "startingCashKrw".to_owned(),
+                        value_per_unit: 1_000_000,
+                    }
+                );
+            }
+        }
+    }
+
+    mod point_condition_contract {
+        use super::super::{PointCondition, PointFactComparison, PointFactValue};
+
+        mod context_camel_case_json {
+            use super::*;
+
+            #[test]
+            fn given_camel_case_condition_when_parsed_then_fields_are_accepted() {
+                let given_json = r#"{
+                    "kind":"requiresFact",
+                    "factPath":"certifications",
+                    "comparison":"greaterOrEqual",
+                    "expected":{"type":"integer","value":1}
+                }"#;
+
+                let when_parsed = serde_json::from_str::<PointCondition>(given_json)
+                    .expect("camelCase point condition should parse");
+
+                assert_eq!(
+                    when_parsed,
+                    PointCondition::RequiresFact {
+                        fact_path: "certifications".to_owned(),
+                        comparison: PointFactComparison::GreaterOrEqual,
+                        expected: PointFactValue::Integer(1),
+                    }
+                );
+            }
+        }
+    }
 }
