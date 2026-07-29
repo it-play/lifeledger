@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4·M5-A~M5-E development production 완료, **M5-F 운영 리포트·runbook 완료, 동의형 피드백 경계 다음**
+- 상태: M4·M5-A~M5-F 기능 development production 완료, **외부 플레이테스트 release gate 결정 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -23,7 +23,28 @@ M5는 M3·M4의 규칙을 새로 정의하지 않는다. ranked run은 M3 커리
 시각적 리디자인·스타일링, 모바일 전용 UX, 실시간 다인 상호작용, 거래 가능한 보상, 실제 회사 경영 ERP는
 범위 밖이다.
 
-### 1.1 현재 재개 지점 (2026-07-29)
+### 1.1 현재 재개 지점 (2026-07-30)
+
+2026-07-30에 M5-F의 읽기 전용 운영 리포트·runbook뿐 아니라 §9.4의 동의·철회형 피드백 server/client와
+production 인수까지 완료했다. production DB는 migration `59/59`, 실패 0이고 API·offline worker는 healthy,
+운영 경고는 0이다. canonical client `https://lifeledger-ruby.vercel.app/playtest-feedback`도 최신 local bundle과
+같은 SHA-256으로 배포됐다. 실제 외부 참가자, usage analytics, season 상태는 변경하지 않았다.
+
+따라서 다음 재개점은 피드백 구현이나 스타일링이 아니라 아래 세 release gate 단계다.
+
+1. **승인 없이 진행 가능한 잔여 인수** — ranked run이 자연스럽게 day 10,950에 도달할 때 §5.2~§5.3의
+   completed finalization·canonical line/hash·공개 ranking·keyset 안정성을 확인한다. 현재 환경의 혼합 부하와
+   queue/latency/lock wait baseline을 측정해 alert threshold 후보를 기록하고 알려진 문제·문의·계정 삭제
+   절차를 완성한다. 목표일이나 production 자산 상태를 수동 조작하지 않는다. 검증 범위는 이 문서 §10.2와
+   [`server/deploy/RUNBOOK.md`](../server/deploy/RUNBOOK.md)의 season·privacy 절차를 함께 따른다.
+2. **보존·복구 결정 요청** — 외부 참가자에게 고지할 피드백 최대 보존 기간과 새 policy version을 승인받고,
+   backup/restore rehearsal의 암호화 위치·보존 기간·삭제 계획도 별도 승인받는다. 현재 사용자 지시는 별도
+   DB와 복구 dump를 만들지 않는 것이므로 승인 전에는 rehearsal이나 dump를 실행하지 않는다. 결정 근거는
+   이 문서 §9.1·§9.4, [`development-plan.md`](./development-plan.md) §10과 runbook의 Database recovery다.
+3. **외부 gate 명시 승인** — §11의 남은 항목을 확인한 다음에만 참가자 모집과 season 운영 변경을 한다.
+   analytics가 필요하면 `feedbackSubmission`과 분리된 새 scope·수집 항목·목적·보존 기간·철회 경로를 먼저
+   설계하고 승인받는다. 배포 순서는 이 문서 §9.1, 최종 체크는 §11을 따른다. 명시 승인 전에는
+   모집·analytics·season 상태 변경과 시각 스타일링을 계속 보류한다.
 
 M4는 [`m4-life.md` §13.24](./m4-life.md)의 development production 검증으로 완료했다. M4 인수 기준 server는
 `c95edef`, DB는 migration `51/51`이었으며 같은 시작 draft의 1일 step 10,950회와 30일 step 365회가 day
@@ -255,19 +276,12 @@ development production 인수를 마쳤다.
   ranked run 2, finalization 실패 0, `alerts=[]`를 반환했다. 최근 server/worker 오류 신호, 잔존 임시 report
   container, 열린 InnoDB transaction도 모두 0이었다.
 
-다음 기본 재개점은 **M5-F §9.3의 3단계인 명시적 동의·철회형 피드백 경계**다. 아래 순서를 바꾸지 않는다.
-
-1. 먼저 이 문서 §9.3·§11, [`development-plan.md`](./development-plan.md) §10의 개인정보 원칙,
-   [`server/deploy/RUNBOOK.md`](../server/deploy/RUNBOOK.md)의 privacy 절차를 읽는다. server의 auth/session,
-   manifest/finalization owner API와 client `api → app` 경계를 조사한다.
-2. `database-schema`·`migration-guide`·`api-design`·`security-checklist`를 적용해 다음 migration `0059`의
-   동의 시각·철회 시각·보존 범위, stable feedback category, 선택적인 manifest/finalization hash와 삭제
-   절차를 **이 문서에 먼저 고정한다**. 실제 재산·소득·건강·캐릭터 값, 원 단위 금액, OAuth profile,
-   session·command ID는 수집하지 않는다.
-3. strict 소유자 API와 스타일 없는 피드백 화면을 구현하고 production DB startup migration과 HTTP로
-   인수한다. 핵심 consent/eligibility/service 규칙만 BDD로 검증하며 DOM·network·DB 단위 테스트와 무관한
-   전체 회귀는 병목으로 만들지 않는다. 실제 외부 참가자 모집, analytics 활성화, season 상태 변경은
-   사용자 승인과 고지문 확인 전에는 수행하지 않는다.
+2026-07-30에 위 3단계도 완료했다. `34960e5`에서 §9.4 권위를 먼저 고정하고 `f3d52cd`에서 migration
+`0059`, 순수 동의 규칙, MySQL store와 strict owner API를 구현했다. `c99743a`는 zod 계약·API와 스타일 없는
+`/playtest-feedback` 화면을 dashboard에 연결했다. `1ea007a`는 feedback insert를 commit한 뒤 새 connection으로
+다시 읽어 durable row만 성공 응답으로 내보내도록 순서를 닫았고, `4cf1d5e`는 production smoke에서 드러난
+MySQL `COUNT(*)` signed `BIGINT` 매핑을 검증된 `i64 → u64` 변환으로 고쳤다. 다음 재개 순서는 이 문서
+§1.1의 세 release gate 단계와 §11을 따른다.
 
 M5-D 도중 또는 그 이후 최초 ranked run이 자연 진행이나 명시적인 controlled fixture로 day 10,950에 도달하면
 M5-C 잔여 인수 체크포인트를 반드시 함께 닫는다. 목표일 transaction의 `completed` finalization과 canonical
@@ -923,8 +937,9 @@ M5-F는 스타일링이나 외부 SaaS 대시보드 도입보다, 현재 단일 
 
 2026-07-29 기준 1·2단계는 `dead187`과 Server Deploy `30468295977`에서 완료했다. production report는
 migration 58·실패 0, API/worker healthy, 운영 경고 0을 반환했고 runbook의 관찰 절차를 실제 서버에서
-재실행했다. 따라서 다음 구현은 3단계이며, 정확한 시작 순서와 금지 수집 항목은 §1.1의 현재 재개 지점을
-따른다.
+재실행했다. 2026-07-30에는 3단계도 `34960e5`~`4cf1d5e`, migration `0059`와 최종 Server Deploy
+`30474101097`에서 완료했다. 외부 모집·analytics·season 변경은 이 기능 배포와 별개이며, §1.1·§11의 남은
+release gate와 사용자 승인을 따른다.
 
 `ops-report`의 경고는 stable code 목록으로 계산하되 첫 version은 관측만 한다. migration 실패,
 `pausedBySystem`, 만료 뒤 남은 worker lease, 최근 finalization 실패는 각각 별도 code다. queue age와 처리량의
@@ -985,6 +1000,30 @@ run/feedback은 `404`로 owner 존재 여부를 숨긴다. 이 API는 game comma
 확인한다. 핵심 동의 전이와 feedback eligibility·정규화만 순수 BDD로 검증하고 DOM·network·DB 단위 테스트는
 추가하지 않는다.
 
+2026-07-30 development production 인수 결과는 다음과 같다.
+
+- 첫 server 배포 `30471322304`에서 migration `59/59`, 실패 0과 API·worker health를 확인했다. 제출 성공
+  응답을 durable row와 연결하지 못한 smoke 결과를 성공으로 단정하지 않고, `1ea007a`에서 commit 뒤 재조회로
+  성공 경계를 강화했다. 이어진 배포 `30473029534` 뒤에는 숨겨져 있던 `COUNT(*)` signed decode 오류가 500으로
+  드러났고 row는 rollback됐다. `4cf1d5e`가 이를 수정한 최종 배포 `30474101097`은 9분 51초에 성공했다.
+- 최종 production HTTP/DB smoke에서 현재 policy와 analytics `disabled`, 동의 grant, owned run reference를
+  포함한 feedback 두 건의 각각 `200 → 별도 DB connection에서 active row 1건 → 즉시 GET`을 확인했다.
+  API의 manifest SHA-256은 서버가 해석한 소유 manifest authority와 같았다. 첫 행의 개별 DELETE와 둘째 행을
+  포함한 전체 동의 철회 뒤 두 행 모두 category·severity·message·run revision·manifest/finalization hash가
+  null인 withdrawn tombstone만 남았고 active feedback은 0건이었다. unknown request field는
+  `400 invalidCommand`였다.
+- 검증용 raw session token은 저장하거나 출력하지 않았고 임시 session row를 삭제했다. 열린 InnoDB
+  transaction, 잔존 `ops-report` container, 새 server/worker fault log는 모두 0이며 statement history 진단
+  consumer도 `NO`다. 별도 DB·schema·복구 dump를 만들지 않았다. 최종 `observe.sh`는 migration 59·실패 0,
+  API/worker healthy, offline backlog·실패 0, registration-open season 1, ranked run 2, finalization 실패 0,
+  `alerts=[]`를 반환했다.
+- client typecheck·lint·production build가 통과했고 기존 bundle 크기 권고만 남았다. canonical Vercel의
+  `/playtest-feedback`는 HTTP 200, app script 1개이며 local/public bundle SHA-256은
+  `f14378cf57c7cb194a899e77ad4df7624491bece25d2eb473f50215a3ae8565d`로 같았다. bundle에서 새 route와
+  `/api/playtest/feedback` 경로를 확인했고 same-origin `/api/health`도 200이었다.
+- server는 핵심 동의·본문 정규화 BDD 5건, fmt와 check만 실행했다. client는 typecheck·lint·build로 계약과
+  조립을 확인했다. 프로젝트 정책에 따라 DOM·network·DB 단위 테스트와 무관한 전체 회귀는 추가하지 않았다.
+
 ## 10. 테스트와 검증
 
 ### 10.1 순수 규칙·protocol
@@ -1024,8 +1063,14 @@ run/feedback은 `404`로 owner 존재 여부를 숨긴다. 이 API는 game comma
 3. M3/M4 콘텐츠 bundle의 source/license 검토와 투자 조언·단순 법률/보험 모델 고지
 4. 30년 고정 시나리오와 실제 MySQL·혼합 부하 검증 결과
 5. API·worker·DB dashboard, alert, backup, 복구 연습, season lock runbook
-6. 피드백 폼과 익명 run manifest/결과 hash, 명시적 analytics 동의·철회 경로
+6. 피드백 폼과 익명 run manifest/결과 hash. analytics는 disabled로 미수집하거나 별도 명시 동의·철회 경로
 7. 알려진 문제, 데이터 삭제/계정 문의, 장애 공지 경로
+
+2026-07-30 현재 피드백 폼·소유 run hash·동의/철회/개별 삭제와 운영 관측은 production에서 인수했다. 그러나
+이것만으로 gate가 열린 것은 아니다. 남은 release gate는 (a) 자연 목표일 finalization/ranking과 혼합 부하
+baseline, (b) 알려진 문제·문의·계정 삭제 절차, (c) 외부 고지용 고정 최대 보존 기간과 새 policy version,
+(d) 별도 승인된 위치·보존·삭제 계획 아래의 backup/restore rehearsal이다. `usageAnalytics`는 disabled이며
+외부 참가자 모집·analytics·season 상태 변경은 명시적 사용자 승인 전까지 수행하지 않는다.
 
 플레이테스트 중 policy/content/point 값을 in-place 수정하지 않는다. 치명적 무결성 버그는 시즌을 lock하고
 새 version/season을 내며, 밸런스 문제는 다음 시즌 후보로 기록한다. 참가자의 실제 재산·소득·건강 정보를

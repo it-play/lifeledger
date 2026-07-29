@@ -170,6 +170,40 @@ location and deletion plan before external participants are invited.
 - Run the sanitized report, health checks, immutable manifest/bundle hash checks, ledger balance
   checks, command replay checks, and finalization/ranking checks before reopening a season.
 
+## Playtest consent withdrawal or feedback deletion
+
+### Confirm
+
+- Require the authenticated owner to use GET /api/playtest/feedback. Do not locate a report by
+  asking for an email, OAuth profile, save/run identifier, session token, message text, or money
+  amount.
+- Confirm only the current consent status/revision and aggregate active feedback count. Operators
+  do not read or copy category, severity, message, manifest hash, or finalization hash.
+- Distinguish one-report deletion from full consent withdrawal. Account deletion is a separate
+  procedure below and must not be inferred from either action.
+
+### Mitigate and recover
+
+- For one report, use DELETE /api/playtest/feedback/{feedbackId} through the authenticated owner
+  UI/API. For all active reports, use PUT /api/playtest/consent with action withdraw and the exact
+  current policy/revision.
+- Never hard-delete or manually null feedback columns. The application transaction changes the
+  row to a withdrawn tombstone and clears category, severity, message, run revision, manifest
+  hash, and finalization hash together.
+- Do not export a dump, copy feedback into a ticket or analytics store, or change consent event
+  history. A failed or unknown POST is resolved by refreshing the owner list before any retry.
+
+### Verify
+
+- Through the owner API, require zero active rows for a full withdrawal or absence of the one
+  deleted report. A repeated DELETE of the same owned tombstone may return the same withdrawn
+  result.
+- Through an aggregate database query, verify the affected active count decreased and every
+  withdrawn row has null content/evidence fields. Do not print public UUIDs or owner identifiers.
+- Confirm no open transaction, error log, temporary session, report container, dump, or analytics
+  copy remains. Consent withdrawal does not delete the account; approved account deletion uses
+  the foreign-key cascade described below.
+
 ## Privacy or deletion request
 
 ### Confirm
