@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4·M5-A·M5-B·M5-C·M5-D development production 완료, **M5-E 법인 상세 기능 구현 다음**
+- 상태: M4·M5-A~M5-E development production 완료, **M5-F 운영 리포트·runbook 완료, 동의형 피드백 경계 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -221,20 +221,53 @@ development production 인수를 마쳤다.
   transaction은 모두 0이었고 두 검증용 session을 삭제해 잔존 0건을 확인했다. raw token·hash·credential은
   DB 출력이나 문서에 남기지 않았다.
 
-다음 기본 재개점은 **M5-E 법인 상세 경영**이다. 기능 우선으로 아래 세 단계를 순서대로 진행한다.
+2026-07-29에 **M5-E 법인 상세 경영의 기능 구현과 development production 인수**를 완료했다.
 
-1. 먼저 [`development-plan.md`](./development-plan.md)의 서버 시간·원 단위 정수·typed ledger 원칙,
-   [`m4-life.md`](./m4-life.md) §9.1~§9.4와 §13.21의 기존 법인 원장·월 손익·급여·세금·배당 인수 상태,
-   이 문서 §7·§8·§10을 다시 읽는다. 기존 schema와 service/API/client를 조사한 뒤 `database-schema`와
-   `migration-guide`를 적용해 다음 migration `0057`의 immutable business catalog/policy, 고객계약·직원·월
-   운영계획·운전자금 최소 상태와 기존 법인 backfill 규칙을 이 문서에 먼저 고정한다.
-2. deterministic 월 제안과 capacity, 계약 priority, 직원 비용, 현금 buffer를 순수 planner로 만들고 기존
-   법인 월 마감의 원장 transaction에 연결한다. M4의 개인↔법인 typed command와 correlation, server-owned
-   game day, checked integer money를 재사용하며 고객계약·직원·운영계획의 strict 소유자 API를 구현한다.
-3. 스타일 없는 `/corporation` 화면에서 제안 확인, 계약 수락·우선순위, 채용·운영계획과 다음 월 결과를
-   끝까지 조작하게 연결한 뒤 main push와 production DB·HTTP로 인수한다. 핵심 planner/service BDD와 관련
-   check·clippy·fmt·typecheck·lint·build만 실행하고 시각 스타일·DOM/network/DB 단위 테스트와 무관한 전체
-   회귀는 병목으로 만들지 않는다.
+- `ecae34b`에서 §7.3의 권위와 transaction 경계를 먼저 고정했다. `0057_m5e_business_operations.sql`과
+  `803763f`는 immutable business catalog, deterministic 계약 제안, capacity·직원·월 계획과 기존 법인 월
+  손익 합성을 구현했고 CD `30462851946`가 성공했다. `d600cce`는 strict client 계약과 스타일 없는
+  `/corporation` 계약·채용·운영계획 화면을 연결했다.
+- `0058_m5e_corporation_finance.sql`과 `8952ae2`는 추가 출자, catalog 고정 운전자금 인출·상환·월 이자,
+  개인/법인 typed ledger와 조건부 해산을 구현했다. 명령 identity를 원장보다 먼저 기록해 FK와 replay가
+  같은 transaction 안에서 성립하며 실패 명령은 전체 rollback한다. CD `30466456678`이 성공했고
+  `bd2b4f7`은 출자·대출·상환·해산 준비 상태를 기능 화면에 연결했다.
+- production DB는 migration `58/58`, 실패 0이다. 기존 QA 계정의 새 sandbox run을 정책 효력일
+  `2026-07-01`까지 정상 전진한 뒤 법인 설립, 추가 출자, 최소 원금 운전자금 인출, 전액 상환을 모두 HTTP
+  `200`으로 실행했다. 같은 상환 command/body 재전송은 `replayed=true`, revision과 cursor가 그대로였다.
+- DB에는 해당 추가 출자 1건, `repaid` 대출 1건과 상환 1건만 남고 대출 잔액은 0이었다. 법인 원장
+  transaction별 posting 합계 불일치와 열린 InnoDB transaction은 각각 0건이었다. 해산 권위와 strict
+  client 경로는 구현했지만 이번 production smoke에서는 계약 blocker를 우회하거나 상태를 수동 조작해
+  해산 성공을 만들지 않았다.
+- server fmt/check와 관련 core test, client typecheck·lint·production build를 통과했다. full clippy는 이번
+  변경과 무관한 기존 `too_many_arguments` 2건과 큰 enum 경고 1건만 남아 이를 해소하기 위한 범위 밖
+  refactor를 하지 않았다. 임시 인증 session과 요청 파일은 모두 삭제했고 별도 MySQL·schema·복구 dump는
+  만들지 않았다.
+
+2026-07-29에 **M5-F의 읽기 전용 운영 리포트와 runbook 단계**도 development production에서 인수했다.
+
+- `d44965d`에서 §9.3의 첫 운영 수직 슬라이스를 먼저 고정했고 `dead187`은 같은 server image에
+  `ops-report`, `deploy/scripts/observe.sh`, migration 배포 gate와 [`server/deploy/RUNBOOK.md`](../server/deploy/RUNBOOK.md)를
+  추가했다. 리포트는 SELECT 집계만 수행하며 migration이나 game state를 변경하지 않는다.
+- Server Deploy `30468295977` job `90631689819`는 13분 32초에 성공했다. image에 `ops-report`가 포함됐고
+  API/worker health 뒤 `--check-migrations`가 실행돼 `latestSuccessfulVersion=58 · failedCount=0`을 확인했다.
+- production에서 `observe.sh`를 다시 실행해 API·server·offline worker가 모두 healthy임을 확인했다.
+  report schema 1은 offline enabled/pending/paused·lease·최근 실패가 모두 0, registration-open season 1,
+  ranked run 2, finalization 실패 0, `alerts=[]`를 반환했다. 최근 server/worker 오류 신호, 잔존 임시 report
+  container, 열린 InnoDB transaction도 모두 0이었다.
+
+다음 기본 재개점은 **M5-F §9.3의 3단계인 명시적 동의·철회형 피드백 경계**다. 아래 순서를 바꾸지 않는다.
+
+1. 먼저 이 문서 §9.3·§11, [`development-plan.md`](./development-plan.md) §10의 개인정보 원칙,
+   [`server/deploy/RUNBOOK.md`](../server/deploy/RUNBOOK.md)의 privacy 절차를 읽는다. server의 auth/session,
+   manifest/finalization owner API와 client `api → app` 경계를 조사한다.
+2. `database-schema`·`migration-guide`·`api-design`·`security-checklist`를 적용해 다음 migration `0059`의
+   동의 시각·철회 시각·보존 범위, stable feedback category, 선택적인 manifest/finalization hash와 삭제
+   절차를 **이 문서에 먼저 고정한다**. 실제 재산·소득·건강·캐릭터 값, 원 단위 금액, OAuth profile,
+   session·command ID는 수집하지 않는다.
+3. strict 소유자 API와 스타일 없는 피드백 화면을 구현하고 production DB startup migration과 HTTP로
+   인수한다. 핵심 consent/eligibility/service 규칙만 BDD로 검증하며 DOM·network·DB 단위 테스트와 무관한
+   전체 회귀는 병목으로 만들지 않는다. 실제 외부 참가자 모집, analytics 활성화, season 상태 변경은
+   사용자 승인과 고지문 확인 전에는 수행하지 않는다.
 
 M5-D 도중 또는 그 이후 최초 ranked run이 자연 진행이나 명시적인 controlled fixture로 day 10,950에 도달하면
 M5-C 잔여 인수 체크포인트를 반드시 함께 닫는다. 목표일 transaction의 `completed` finalization과 canonical
@@ -887,6 +920,11 @@ M5-F는 스타일링이나 외부 SaaS 대시보드 도입보다, 현재 단일 
 3. **플레이테스트 gate** — 운영 리포트와 runbook rehearsal 뒤 명시적 동의·철회가 있는 익명 피드백 경계와
    재현 가능한 manifest/finalization hash 제출을 구현한다. 실제 외부 참가자 모집, analytics 활성화, season
    상태 변경은 코드 배포만으로 간주하지 않고 사용자 승인과 고지문 확인 뒤 수행한다.
+
+2026-07-29 기준 1·2단계는 `dead187`과 Server Deploy `30468295977`에서 완료했다. production report는
+migration 58·실패 0, API/worker healthy, 운영 경고 0을 반환했고 runbook의 관찰 절차를 실제 서버에서
+재실행했다. 따라서 다음 구현은 3단계이며, 정확한 시작 순서와 금지 수집 항목은 §1.1의 현재 재개 지점을
+따른다.
 
 `ops-report`의 경고는 stable code 목록으로 계산하되 첫 version은 관측만 한다. migration 실패,
 `pausedBySystem`, 만료 뒤 남은 worker lease, 최근 finalization 실패는 각각 별도 code다. queue age와 처리량의
