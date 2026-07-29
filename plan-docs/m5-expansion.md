@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4·M5-A·M5-B production 완료, **M5-C 기능 production 완료, 실제 30년 완주 결산 인수 체크포인트를 남기고 M5-D 다음**
+- 상태: M4·M5-A·M5-B·M5-C·M5-D development production 완료, **M5-E 법인 상세 기능 구현 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -189,21 +189,52 @@ development production 인수를 마쳤다.
   `liquidation_line`이 각각 0건인 것이 정상이다. 아직 없는 completed row나 공개 ranking 반영을 완료했다고
   간주하지 않는다. 별도 MySQL·schema·복구 dump를 만들지 않았고 production DB를 직접 검증했다.
 
-다음 기본 재개점은 **M5-D 오프라인 진행**이다. 기능 우선으로 아래 세 단계를 순서대로 진행한다.
+2026-07-29에 **M5-D 오프라인 진행의 기능 구현과 development production 인수**를 완료했다.
 
-1. 먼저 [`development-plan.md`](./development-plan.md)의 서버 시간 권위·원 단위 정수 원칙과 이 문서
-   §2의 `offlinePolicyVersionId`, §6 전체, §8 API, §10 배포 순서를 다시 읽는다. `database-schema`와
-   `migration-guide`를 적용해 다음 번호 `0056`에 immutable offline policy version·assignment,
-   run별 opt-in/progress cursor, DB-time lease와 online intent의 최소 schema를 설계하고 문서에 먼저 고정한다.
-   외부 사용자가 없는 현재 단계에서는 별도 DB나 dump 없이 development production DB startup migration으로
-   직접 전진한다.
-2. 하루 진행 domain service를 API와 worker가 같이 호출할 수 있도록 분리하고, DB
-   `CURRENT_TIMESTAMP` 기준 lease 획득·갱신·상실, online intent 우선권, 한 번의 catch-up 상한과 하루별 commit을
-   구현한다. 기존 server-owned cursor·command idempotence를 우회하지 않으며 lease/cap처럼 순수하거나 핵심
-   service 규칙에만 작은 BDD를 둔다.
-3. 같은 workspace의 별도 Rust worker binary/service, 인증된 opt-in·상태 API와 스타일 없는 client 표시를
-   연결한 뒤 main push와 실제 production DB·HTTP로 인수한다. server/client build·lint·clippy·fmt와 관련
-   targeted test만 실행하고 DOM·network·DB 단위 테스트 및 무관한 전체 회귀는 병목으로 만들지 않는다.
+- `149e13c`은 §6.4의 DB 시간 권위와 잠금 순서를 먼저 고정했다. `0056_m5d_offline_progress.sql`은 sealed
+  `m5d-offline-progress-v1`, 새 sandbox assignment, run별 setting, DB-time presence·lease와 append-only attempt를
+  추가한다. 기존 13개 manifest와 ranked release 1은 nullable offline policy pin을 그대로 보존하고 새 sandbox
+  run만 policy ID 1과 SHA-256
+  `140c73cab408ce58cc774ec449196220fa58949a4632f22e8f98cead0d8f60a0`을 고정한다.
+- `0db6005`는 API와 worker가 같은 `DailyPipeline` one-day transaction을 사용하도록 분리하고,
+  `save → offline_progress_setting → progress_lease` 잠금, DB 시각 lease·online intent, 60초 cadence·90일 window
+  cap·7일 claim batch와 하루별 attempt commit을 연결했다. `2464ac2`는 인증된 strict 상태·opt-in/out API와
+  스타일 없는 dashboard 표시를 추가했고 `9537236`은 같은 server image의 별도 `offline-worker` 서비스를
+  production compose와 검증 script에 연결했다. 별도 MySQL·schema·복구 dump는 만들지 않았다.
+- 관련 순수 accrual BDD 3건과 worker backoff BDD 2건, server check·clippy `-D warnings`·fmt, client protocol
+  BDD·typecheck·lint·production build, compose config와 shell syntax를 통과했다. DOM·network·DB 단위 테스트와
+  무관한 전체 회귀는 실행하지 않았다. client build에는 기존 bundle 크기 권고만 남았다.
+- 첫 전체 배포 `30455943171`은 성공했으나 실제 상태 조회에서 MySQL numeric projection과 Rust unsigned type의
+  불일치 두 건이 차례로 드러났다. `b2a1337`, `18d13fa`, `fd59079`에서 상태 누계와 retry 집계를 명시적
+  `UNSIGNED` projection으로 고쳤다. 중간 커밋을 완전히 포함한 최종 CD `30457496847`만 남기고 중복 실행
+  `30457030839`는 취소했으며, 최종 배포는 9분 33초에 성공했다.
+- production migration 56은 성공, 실패 migration은 0이다. API와 worker가 각각 healthy이고 worker는
+  `m5a-dev-v1 · poll 5000ms`로 시작했다. 공개 `/api/health`는 `200`, 최종 배포 뒤 server/worker
+  ERROR·panic·failed 로그와 복구 dump는 0건이었다.
+- production QA save 29의 새 sandbox run 8은 manifest SHA-256
+  `e87fb940358d6d393774a34d504d84def011d252e9fea2711615ac43f482933d`와 위 offline policy를 pin했다. 기본
+  off/revision 0에서 opt-in revision 1로 전환하자 DB 시각에 absence window가 열렸고, 60초 뒤 worker가
+  day 1/state revision 1을 정확히 한 번 commit했다. 같은 attempt key에 `started → committed`, game day 1,
+  lease generation 1, retry 0, error null이 남았으며 setting은 pending 0·processed 1이었다.
+- 비인증 상태 조회는 `401`, unknown PUT field는 `400`, stale revision은 `409`였다. 정상 opt-out은 revision
+  2에서 window를 닫고 enabled false·pending 0·processed 1을 보존했다. active lease·presence·열린 InnoDB
+  transaction은 모두 0이었고 두 검증용 session을 삭제해 잔존 0건을 확인했다. raw token·hash·credential은
+  DB 출력이나 문서에 남기지 않았다.
+
+다음 기본 재개점은 **M5-E 법인 상세 경영**이다. 기능 우선으로 아래 세 단계를 순서대로 진행한다.
+
+1. 먼저 [`development-plan.md`](./development-plan.md)의 서버 시간·원 단위 정수·typed ledger 원칙,
+   [`m4-life.md`](./m4-life.md) §9.1~§9.4와 §13.21의 기존 법인 원장·월 손익·급여·세금·배당 인수 상태,
+   이 문서 §7·§8·§10을 다시 읽는다. 기존 schema와 service/API/client를 조사한 뒤 `database-schema`와
+   `migration-guide`를 적용해 다음 migration `0057`의 immutable business catalog/policy, 고객계약·직원·월
+   운영계획·운전자금 최소 상태와 기존 법인 backfill 규칙을 이 문서에 먼저 고정한다.
+2. deterministic 월 제안과 capacity, 계약 priority, 직원 비용, 현금 buffer를 순수 planner로 만들고 기존
+   법인 월 마감의 원장 transaction에 연결한다. M4의 개인↔법인 typed command와 correlation, server-owned
+   game day, checked integer money를 재사용하며 고객계약·직원·운영계획의 strict 소유자 API를 구현한다.
+3. 스타일 없는 `/corporation` 화면에서 제안 확인, 계약 수락·우선순위, 채용·운영계획과 다음 월 결과를
+   끝까지 조작하게 연결한 뒤 main push와 production DB·HTTP로 인수한다. 핵심 planner/service BDD와 관련
+   check·clippy·fmt·typecheck·lint·build만 실행하고 시각 스타일·DOM/network/DB 단위 테스트와 무관한 전체
+   회귀는 병목으로 만들지 않는다.
 
 M5-D 도중 또는 그 이후 최초 ranked run이 자연 진행이나 명시적인 controlled fixture로 day 10,950에 도달하면
 M5-C 잔여 인수 체크포인트를 반드시 함께 닫는다. 목표일 transaction의 `completed` finalization과 canonical
