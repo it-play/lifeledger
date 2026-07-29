@@ -53,7 +53,7 @@ struct ScopeRow {
     cash_krw: i64,
     has_character: bool,
     policy_set_id: u64,
-    policy_key: String,
+    policy_compatible: bool,
     life_catalog_set_id: u64,
     insolvency_component_version_id: Option<u64>,
     component_version_key: Option<String>,
@@ -1400,7 +1400,7 @@ async fn assess_scope(
     };
     let assessment = rules.assess_eligibility(InsolvencyEligibilityInput {
         policy_available: component_active(scope)
-            && scope.policy_key == POLICY_KEY
+            && scope.policy_compatible
             && scope.policy_rule_id.is_some()
             && scope
                 .minimum_simulation_date
@@ -1522,7 +1522,30 @@ fn scope_query(predicate: &str, lock: bool) -> String {
                 save.state_revision, save.game_day, save.cash_krw,
                 EXISTS(SELECT 1 FROM `character` WHERE `character`.save_id = save.id)
                     AS has_character,
-                save.policy_set_id, policy.policy_key,
+                save.policy_set_id,
+                (
+                    policy.sealed_at IS NOT NULL
+                    AND (
+                        BINARY policy.policy_key = BINARY '{POLICY_KEY}'
+                        OR EXISTS(
+                            SELECT 1
+                            FROM policy_rule_clone_provenance AS clone
+                            INNER JOIN policy_rule AS source_rule
+                              ON source_rule.id = clone.source_policy_rule_id
+                            INNER JOIN policy_set AS source_policy
+                              ON source_policy.id = source_rule.policy_set_id
+                            WHERE clone.target_policy_rule_id = policy_rule.id
+                              AND BINARY clone.clone_kind = BINARY 'sealedExactClone'
+                              AND source_policy.sealed_at IS NOT NULL
+                              AND BINARY source_policy.policy_key = BINARY '{POLICY_KEY}'
+                              AND BINARY source_rule.domain = BINARY policy_rule.domain
+                              AND BINARY source_rule.rule_key = BINARY policy_rule.rule_key
+                              AND source_rule.effective_from = policy_rule.effective_from
+                              AND source_rule.effective_to <=> policy_rule.effective_to
+                              AND source_rule.parameters = policy_rule.parameters
+                        )
+                    )
+                ) AS policy_compatible,
                 bundle.life_catalog_set_id,
                 catalog.insolvency_component_version_id,
                 component.version_key AS component_version_key,
