@@ -4,6 +4,76 @@ use utoipa::ToSchema;
 use crate::character::CharacterDraft;
 use crate::finance::ResourceId;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentAuthorityKind {
+    CareerCatalog,
+    RecruitmentRuleset,
+    EmploymentPolicy,
+    LifeCatalog,
+    CreditModel,
+    RealEstateModel,
+    CharacterPreset,
+    PointBudget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentBundleMember {
+    pub authority_kind: ContentAuthorityKind,
+    pub authority_id: ResourceId,
+    pub authority_key: String,
+    pub authority_version: u32,
+    pub authority_sha256: Option<String>,
+    pub source_note: String,
+    pub referenced: bool,
+    pub sealed: bool,
+    pub ranked_eligible: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentBundleDraft {
+    pub bundle_key: String,
+    pub version: u32,
+    pub schema_version: u16,
+    pub ranked_eligible: bool,
+    pub source_note: String,
+    pub members: Vec<ContentBundleMember>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentBundleFailureCode {
+    InvalidBundle,
+    InvalidMember,
+    MissingAuthorityKind,
+    InvalidAuthorityCardinality,
+    MissingReference,
+    UnsealedReference,
+    MissingCanonicalSha,
+    DuplicateAuthorityVersion,
+    DuplicateCanonicalSha,
+    RankedIneligibleAuthority,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentBundleFailure {
+    pub code: ContentBundleFailureCode,
+    pub authority_kind: Option<ContentAuthorityKind>,
+    pub authority_id: Option<ResourceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentBundlePublication {
+    pub canonical_json: String,
+    pub canonical_sha256: String,
+}
+
+pub trait ContentBundleRules: Send + Sync + 'static {
+    fn validate(
+        &self,
+        draft: &ContentBundleDraft,
+    ) -> Result<ContentBundlePublication, Vec<ContentBundleFailure>>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum RunMode {

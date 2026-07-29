@@ -318,8 +318,8 @@ mod tests {
     };
     use crate::store::{
         ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt, CareerCatalogAssignment,
-        EmploymentPolicyAssignment, GameCommandCursor, GameCommandRejection, MarketWorldState,
-        StartGameReceipt,
+        ContentBundleAssignment, EmploymentPolicyAssignment, GameCommandCursor,
+        GameCommandRejection, MarketWorldState, StartGameReceipt,
     };
 
     const USER_ID: u64 = 7;
@@ -794,6 +794,10 @@ mod tests {
                 life_catalog_set_id: ResourceId::from_u64(1),
                 credit_model_version_id: ResourceId::from_u64(1),
                 real_estate_model_version_id: ResourceId::from_u64(1),
+                assignment_revision: 1,
+            },
+            content_bundle: ContentBundleAssignment {
+                bundle_id: ResourceId::from_u64(1),
                 assignment_revision: 1,
             },
         }

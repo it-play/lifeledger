@@ -86,9 +86,9 @@ use super::tax_accounts::{
 };
 use super::types::{
     ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt, AdvanceCommandStepResult,
-    AdvanceDayResult, GameCommandCursor, GameCommandRejection, ManualAdvanceCommand, SaveCursor,
-    SaveState, SaveStore, StartGameCommand, StartGameManifestKind, StartGameReceipt,
-    StartGameResult, TradeStoreResult, TradingStore,
+    AdvanceDayResult, ContentBundleAssignment, GameCommandCursor, GameCommandRejection,
+    ManualAdvanceCommand, SaveCursor, SaveState, SaveStore, StartGameCommand,
+    StartGameManifestKind, StartGameReceipt, StartGameResult, TradeStoreResult, TradingStore,
 };
 use super::welfare::{
     close_welfare_for_new_run_in_tx, ensure_welfare_evaluations_for_target_day_in_tx,
@@ -352,6 +352,17 @@ impl SaveStore for MySqlSaveStore {
             return Ok(StartGameResult::ActiveWorldChanged);
         }
 
+        let content_bundle_sha256: String = sqlx::query_scalar(
+            "SELECT canonical_sha256
+             FROM content_bundle
+             WHERE id = ? AND status = 'sealed'
+             FOR SHARE",
+        )
+        .bind(expected.content_bundle.bundle_id.get())
+        .fetch_one(&mut *tx)
+        .await
+        .context("active content bundle is not sealed")?;
+
         write_command_identity(&mut tx, save_id, &identity).await?;
 
         cancel_tax_accounts_for_new_run(
@@ -550,6 +561,7 @@ impl SaveStore for MySqlSaveStore {
             save_id,
             new_run_revision,
             &expected,
+            &content_bundle_sha256,
             ranking_ineligibility_reason,
         )?;
         sqlx::query(
@@ -557,9 +569,10 @@ impl SaveStore for MySqlSaveStore {
                  (save_id, run_revision, mode, market_world_id, policy_set_id,
                   career_catalog_bundle_id, employment_policy_set_id, life_catalog_set_id,
                   credit_model_version_id, real_estate_model_version_id,
+                  content_bundle_id, content_bundle_sha256,
                   canonical_selections_json, engine_version, start_game_day,
                   ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
-             VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
+             VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
                      FALSE, ?, ?)",
         )
         .bind(save_id)
@@ -571,6 +584,8 @@ impl SaveStore for MySqlSaveStore {
         .bind(expected.rule_bundle.life_catalog_set_id.get())
         .bind(expected.rule_bundle.credit_model_version_id.get())
         .bind(expected.rule_bundle.real_estate_model_version_id.get())
+        .bind(expected.content_bundle.bundle_id.get())
+        .bind(&content_bundle_sha256)
         .bind(M5A_ENGINE_VERSION)
         .bind(ranking_ineligibility_reason)
         .bind(manifest_canonical_json)
@@ -1948,10 +1963,13 @@ fn sandbox_manifest_canonical(
     save_id: u64,
     run_revision: u32,
     configuration: &ActiveRunConfiguration,
+    content_bundle_sha256: &str,
     ranking_ineligibility_reason: &str,
 ) -> Result<String> {
     serde_json::to_string(&serde_json::json!({
         "careerCatalogBundleId": configuration.career_catalog.bundle_id.get().to_string(),
+        "contentBundleId": configuration.content_bundle.bundle_id.get().to_string(),
+        "contentBundleSha256": content_bundle_sha256,
         "creditModelVersionId": configuration.rule_bundle.credit_model_version_id.get().to_string(),
         "employmentPolicySetId": configuration.employment_policy.policy_set_id.get().to_string(),
         "engineVersion": M5A_ENGINE_VERSION,
@@ -1964,7 +1982,7 @@ fn sandbox_manifest_canonical(
         "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
         "runRevision": run_revision,
         "saveId": save_id.to_string(),
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "selections": [],
         "startGameDay": 0
     }))
@@ -2265,6 +2283,8 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
         u64,
         u64,
         u64,
+        u64,
+        u64,
     );
     let row: Option<ActiveRunConfigurationRow> = sqlx::query_as(
         "SELECT assignment.market_world_id, assignment.market_assignment_revision,
@@ -2272,11 +2292,17 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
                 assignment.career_catalog_bundle_id, assignment.career_assignment_revision,
                 assignment.employment_policy_set_id, assignment.employment_assignment_revision,
                 assignment.life_catalog_set_id, assignment.credit_model_version_id,
-                assignment.real_estate_model_version_id, assignment.assignment_revision
+                assignment.real_estate_model_version_id, assignment.assignment_revision,
+                content.id, content_assignment.assignment_revision
          FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
            ON bundle.market_world_id = assignment.market_world_id
           AND bundle.published_at IS NOT NULL
+         INNER JOIN content_bundle_assignment AS content_assignment
+           ON content_assignment.assignment_key = 'newRun'
+         INNER JOIN content_bundle AS content
+           ON content.id = content_assignment.content_bundle_id
+          AND content.status = 'sealed'
          WHERE assignment.assignment_key = 'newRun'",
     )
     .fetch_optional(pool)
@@ -2297,6 +2323,8 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
             credit_model_version_id,
             real_estate_model_version_id,
             bundle_assignment_revision,
+            content_bundle_id,
+            content_assignment_revision,
         )| {
             ActiveRunConfiguration {
                 market_world: ActiveMarketWorld {
@@ -2323,6 +2351,10 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
                         real_estate_model_version_id,
                     ),
                     assignment_revision: bundle_assignment_revision,
+                },
+                content_bundle: ContentBundleAssignment {
+                    bundle_id: ResourceId::from_u64(content_bundle_id),
+                    assignment_revision: content_assignment_revision,
                 },
             }
         },
@@ -2347,6 +2379,8 @@ async fn lock_active_run_configuration(
         u64,
         u64,
         u64,
+        u64,
+        u64,
     );
     let row: Option<ActiveRunConfigurationRow> = sqlx::query_as(
         "SELECT assignment.market_world_id, assignment.market_assignment_revision,
@@ -2354,11 +2388,17 @@ async fn lock_active_run_configuration(
                 assignment.career_catalog_bundle_id, assignment.career_assignment_revision,
                 assignment.employment_policy_set_id, assignment.employment_assignment_revision,
                 assignment.life_catalog_set_id, assignment.credit_model_version_id,
-                assignment.real_estate_model_version_id, assignment.assignment_revision
+                assignment.real_estate_model_version_id, assignment.assignment_revision,
+                content.id, content_assignment.assignment_revision
          FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
            ON bundle.market_world_id = assignment.market_world_id
           AND bundle.published_at IS NOT NULL
+         INNER JOIN content_bundle_assignment AS content_assignment
+           ON content_assignment.assignment_key = 'newRun'
+         INNER JOIN content_bundle AS content
+           ON content.id = content_assignment.content_bundle_id
+          AND content.status = 'sealed'
          WHERE assignment.assignment_key = 'newRun'
          FOR SHARE",
     )
@@ -2380,6 +2420,8 @@ async fn lock_active_run_configuration(
             credit_model_version_id,
             real_estate_model_version_id,
             bundle_assignment_revision,
+            content_bundle_id,
+            content_assignment_revision,
         )| {
             ActiveRunConfiguration {
                 market_world: ActiveMarketWorld {
@@ -2406,6 +2448,10 @@ async fn lock_active_run_configuration(
                         real_estate_model_version_id,
                     ),
                     assignment_revision: bundle_assignment_revision,
+                },
+                content_bundle: ContentBundleAssignment {
+                    bundle_id: ResourceId::from_u64(content_bundle_id),
+                    assignment_revision: content_assignment_revision,
                 },
             }
         },
@@ -3872,6 +3918,38 @@ mod tests {
         }
     }
 
+    fn given_active_run_configuration() -> ActiveRunConfiguration {
+        ActiveRunConfiguration {
+            market_world: ActiveMarketWorld {
+                world_id: 11,
+                assignment_revision: 1,
+            },
+            policy_set: PolicySetAssignment {
+                policy_set_id: ResourceId::from_u64(12),
+                assignment_revision: 1,
+            },
+            product_bundle_id: None,
+            career_catalog: super::super::types::CareerCatalogAssignment {
+                bundle_id: ResourceId::from_u64(13),
+                assignment_revision: 1,
+            },
+            employment_policy: super::super::types::EmploymentPolicyAssignment {
+                policy_set_id: ResourceId::from_u64(14),
+                assignment_revision: 1,
+            },
+            rule_bundle: super::super::types::RunRuleBundleAssignment {
+                life_catalog_set_id: ResourceId::from_u64(15),
+                credit_model_version_id: ResourceId::from_u64(16),
+                real_estate_model_version_id: ResourceId::from_u64(17),
+                assignment_revision: 1,
+            },
+            content_bundle: ContentBundleAssignment {
+                bundle_id: ResourceId::from_u64(18),
+                assignment_revision: 1,
+            },
+        }
+    }
+
     mod context_a_start_game_payload_is_fingerprinted {
         use super::*;
 
@@ -3953,6 +4031,33 @@ mod tests {
                 .expect("explicit sandbox 지문을 만들 수 있어야 한다");
 
             assert_ne!(legacy, explicit);
+        }
+    }
+
+    mod context_a_sandbox_manifest_is_projected {
+        use super::*;
+
+        #[test]
+        fn given_active_content_when_projected_then_bundle_identity_is_in_schema_two() {
+            let configuration = given_active_run_configuration();
+
+            let when = sandbox_manifest_canonical(
+                7,
+                3,
+                &configuration,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "sandboxMode",
+            )
+            .expect("sandbox manifest를 직렬화할 수 있어야 한다");
+            let parsed: serde_json::Value =
+                serde_json::from_str(&when).expect("manifest는 JSON이어야 한다");
+
+            assert_eq!(parsed["contentBundleId"], "18");
+            assert_eq!(
+                parsed["contentBundleSha256"],
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            );
+            assert_eq!(parsed["schemaVersion"], 2);
         }
     }
 

@@ -3319,6 +3319,13 @@ pub struct RunRuleBundleAssignment {
     pub assignment_revision: u64,
 }
 
+/// Immutable M5 content publication selected for a newly started run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContentBundleAssignment {
+    pub bundle_id: ResourceId,
+    pub assignment_revision: u64,
+}
+
 impl From<&SaveState> for SaveCursor {
     fn from(state: &SaveState) -> Self {
         Self {
@@ -3340,6 +3347,7 @@ pub struct ActiveRunConfiguration {
     pub career_catalog: CareerCatalogAssignment,
     pub employment_policy: EmploymentPolicyAssignment,
     pub rule_bundle: RunRuleBundleAssignment,
+    pub content_bundle: ContentBundleAssignment,
 }
 
 /// Result of one committed daily pipeline attempt.

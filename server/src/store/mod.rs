@@ -133,7 +133,8 @@ pub use types::{
 #[cfg(test)]
 pub use types::{
     ActiveMarketWorld, ActiveRunConfiguration, CareerActivityReceipt, CareerArtifactReceipt,
-    CareerCatalogAssignment, CareerSnapshotState, EmploymentPolicyAssignment, FocusCareerReceipt,
-    MarketHistoryState, MarketWorldState, RunRuleBundleAssignment,
+    CareerCatalogAssignment, CareerSnapshotState, ContentBundleAssignment,
+    EmploymentPolicyAssignment, FocusCareerReceipt, MarketHistoryState, MarketWorldState,
+    RunRuleBundleAssignment,
 };
 pub use user::create_mysql_user_store;
