@@ -725,6 +725,68 @@ shareholderLoan` typed command뿐이다. shareholder loan은 게시 상품과 �
 보증이 있는 채무만 M4 개인 insolvency claim으로 이어진다. 해산은 미수·재고 없는 M5 단순 모델에서
 채권·세금·직원 급여를 우선순위와 ID 순으로 정산하고 남은 자산만 지분 비율로 분배한다.
 
+### 7.3 M5-E 첫 business operations authority 계약 (2026-07-29)
+
+첫 상세 경영 version은 `m5e-business-operations-v1`, schema 1, engine `m5a-dev-v1`로 봉인한다. 기존 M4
+법인을 소급 변환하지 않는다. `business_catalog_assignment`의 `newSandboxRun` slot을 새 sandbox manifest가
+pin하고, `run_manifest.business_catalog_version_id/sha256`가 null인 기존 run은 §9의 단순 법인만 계속 사용한다.
+현재 ranked release의 pin도 null로 보존해 상세 경영 명령을 닫는다. 이후 새 ranked release만 exact catalog
+ID·SHA를 canonical release와 run manifest에 함께 넣을 수 있다.
+
+v1 catalog와 runtime 경계는 다음과 같다.
+
+- `business_catalog_version`과 contract·role·marketing·working-capital-loan template은 sealed 뒤
+  update/delete하지 않는다. role은 current run의 M3 `career_catalog_bundle`에 속한 job family와 연봉 band를
+  참조하고 월 gross는 pin한 연봉의 12분의 1을 원 단위 내림한다. catalog는 M4의 세 업종 key와 exact
+  component version을 함께 검증한다.
+- 법인 설립 transaction은 run manifest에 business pin이 있을 때 `corporation_business_profile`과 업종별
+  vacant position을 함께 만든다. profile은 catalog ID·SHA, owner capacity, 다음 operating month와 control
+  revision을 가진다. pin이 없는 기존 법인에는 row를 만들지 않으며 조회가 숨은 write나 자동 upgrade를 하지
+  않는다.
+- 고객계약 row 자체가 `offered → accepted → active → completed|failed|cancelled` authority다. 제안은
+  `(worldSeed, corporationId, operatingYearMonth, templateKey, occurrence, "offer")`로 한 번 materialize하고
+  조회 횟수로 바뀌지 않는다. v1 contract는 한 operating month만 수행하며 accepted contract는 그 달 시작에
+  active가 된다. capacity가 충분하면 revenue와 variable cost를 인식·즉시 수금해 receivable opening/created/
+  collected/closing을 모두 기록하고 completed가 된다. 부족하면 priority와 contract ID가 뒤인 계약부터
+  failed가 되며 revenue는 0, catalog penalty만 비용으로 인식한다.
+- position은 `vacant → hired → active → resigned|terminated`를 가진다. hire는 다음 operating month부터
+  유효하고, active 직원은 role capacity와 gross wage·employer cost를 제공한다. NPC 직원 급여는 개인 player
+  income으로 가장하지 않고 법인 employee expense로만 원장에 적는다. v1은 무작위 사직을 발생시키지 않지만
+  상태와 transition authority는 후속 catalog와 replay를 위해 보존한다.
+- append-only 월 운영계획은 다음 operating month, marketing band, 보호할 cash buffer와 accepted/active
+  contract ID의 canonical priority를 고정한다. owner capacity는 M4 scale의 `lean=2 · standard=4 · growth=6`,
+  직원 capacity를 더한다. processing order는 plan priority 뒤 contract ID이며 client는 capacity나 결과를
+  재계산하지 않는다. 새 plan이 없으면 `off · cashBuffer=0 · contract ID 오름차순`을 사용한다.
+- M5 business month는 기존 `corporation_operating_month`와 1:1이다. M4 deterministic base revenue/expense를
+  유지하고, completed contract revenue·variable cost, marketing, employee cost, failed penalty를 같은 월
+  revenue/expense와 기존 cash·payable·retained-earnings transaction에 합성한다. 상세 breakdown,
+  capacity, receivable flow, plan/catalog provenance는 별도 immutable row와 contract result에 보존한다.
+  이렇게 해야 기존 M4 tax close·dividend와 원장 합계가 상세 경영 이익을 그대로 소비한다.
+- 운전자금 명령은 `capitalContribution · drawWorkingCapitalLoan · repayWorkingCapitalLoan`만 허용한다.
+  출자는 개인 wallet/투자자산과 법인 cash/contributed capital을 같은 command correlation으로 기록한다.
+  대출은 catalog principal 범위, 월 interest ppm, 만기와 personal guarantee 여부를 pin하며 임의 금리를 받지
+  않는다. 이자는 월 expense, 원금은 liability이고 조기상환은 cash와 principal만 줄인다. 보증 없는 v1 법인
+  대출은 개인 insolvency claim으로 전이하지 않는다.
+- 해산은 active·dormant·insolvent에서 새 계약·직원·미수금이 없고 operating/corporate-tax/loan payable이
+  모두 0일 때만 허용한다. 남은 cash는 typed liquidation distribution으로 개인 wallet에 보내고 법인 cash와
+  retained/distributable balance를 0으로 만든 뒤 `dissolved` transition을 append한다. 조건이 부족하면
+  `corporationStateConflict`로 닫고 값을 추측하지 않는다.
+
+strict owner API는 `GET /api/corporations/{id}/operations`와
+`POST /api/corporations/{id}/operations` 한 쌍이다. POST는 공통 command/cursor에 아래 `action` tagged union
+하나만 더하며 variant 밖 필드와 unknown field를 거절한다.
+
+- `acceptContract · cancelContract · hirePosition · terminatePosition`
+- `setMonthlyPlan`
+- `capitalContribution · drawWorkingCapitalLoan · repayWorkingCapitalLoan`
+- `dissolve`
+
+모든 성공 명령은 같은 command/body replay에서 같은 result와 최신 snapshot을 반환하고, payload 변조는
+`idempotencyConflict`, stale cursor는 `stateConflict`, 다른 user/save/run/corporation ID는 존재 여부를 감춘
+`corporationResourceNotFound`다. 명령 transaction 잠금은 `save → corporation → business profile → 대상
+contract|position|loan` 순서다. 돈은 i64 KRW와 checked i128 중간 계산만 쓰며 DB·client·로그에 raw entropy,
+credential이나 player 외 개인정보를 남기지 않는다.
+
 ## 8. API·기능 화면
 
 strict API는 M4 공통 command/cursor와 unknown-field 거절을 유지한다.
