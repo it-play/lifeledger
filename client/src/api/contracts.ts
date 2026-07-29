@@ -10326,6 +10326,7 @@ export const PlaytestConsentPolicySchema = z
     noticeText: z.string().min(1).max(2_000),
     canonicalSha256: Sha256Schema,
     analyticsCollection: z.literal('disabled'),
+    retentionMaximumDays: z.literal(90),
     maximumActiveFeedback: z.literal(20),
     messageMaximumCharacters: z.literal(500),
   })

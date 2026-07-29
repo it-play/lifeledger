@@ -57,6 +57,8 @@ export function createHttpClient(options: HttpClientOptions = {}): DeleteHttpCli
     put: (path, body, decoder, requestOptions) => send('PUT', path, decoder, body, requestOptions),
     delete: (path, decoder, requestOptions) =>
       send('DELETE', path, decoder, undefined, requestOptions),
+    deleteWithBody: (path, body, decoder, requestOptions) =>
+      send('DELETE', path, decoder, body, requestOptions),
   };
 }
 

@@ -1,4 +1,4 @@
-import { type HttpClient, HttpError } from '../lib/http/index.js';
+import { type DeleteHttpClient, HttpError } from '../lib/http/index.js';
 import {
   type AuthProvider,
   AuthProviderListSchema,
@@ -18,6 +18,7 @@ export interface AuthApi {
   /** The signed-in account, or undefined. A 401 is a normal answer here, not an error. */
   me(): Promise<Me | undefined>;
   logout(): Promise<void>;
+  deleteAccount(): Promise<void>;
   /**
    * Where to start a login. Must be navigated to with `location.assign`; fetching it
    * would never open the provider's login page.
@@ -26,7 +27,7 @@ export interface AuthApi {
 }
 
 export interface AuthApiDeps {
-  readonly http: HttpClient;
+  readonly http: DeleteHttpClient;
 }
 
 const providerListDecoder = asDecoder(AuthProviderListSchema);
@@ -52,6 +53,14 @@ export function createAuthApi(deps: AuthApiDeps): AuthApi {
 
     async logout() {
       await http.post('/api/auth/logout', undefined, emptyDecoder);
+    },
+
+    async deleteAccount() {
+      await http.deleteWithBody(
+        '/api/auth/account',
+        { confirmation: 'deleteAccount' },
+        emptyDecoder,
+      );
     },
 
     loginUrl: (provider) => `/api/auth/${provider}/start`,

@@ -1078,6 +1078,11 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         const lifeSummaryValue = el('span');
         const accountValue = el('span', { class: 'account' });
         const logoutButton = el('button', { type: 'button', class: 'logout' }, '로그아웃');
+        const deleteAccountButton = el(
+          'button',
+          { type: 'button' },
+          '계정과 모든 데이터 영구 삭제',
+        );
         const policySetValue = el('span');
         const accountBody = el('tbody');
         const accountTable = createAccountTable(accountBody, ACCOUNT_TABLE_CAPACITY);
@@ -1291,6 +1296,50 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           { class: 'dashboard' },
           el('h1', {}, 'LifeLedger'),
           el('p', { class: 'account-line' }, accountValue, ' ', logoutButton),
+          el(
+            'section',
+            {},
+            el('h2', {}, '개발 플레이테스트 안내'),
+            el(
+              'p',
+              {},
+              '캐릭터와 자산은 모두 허구이며 투자·법률·보험 모델은 단순화된 게임 규칙으로 조언이 아닙니다.',
+            ),
+            el(
+              'p',
+              {},
+              '사용 분석은 수집하지 않습니다. 피드백 본문은 최대 90일 보관하며 개별 삭제나 동의 철회로 더 일찍 삭제할 수 있습니다.',
+            ),
+            el(
+              'p',
+              {},
+              '알려진 문제·장애·삭제 문의: ',
+              el(
+                'a',
+                {
+                  href: 'https://github.com/it-play/lifeledger/blob/main/plan-docs/m5-playtest-release.md',
+                  attrs: { target: '_blank', rel: 'noreferrer' },
+                },
+                '알려진 문제와 고지',
+              ),
+              ' · ',
+              el(
+                'a',
+                {
+                  href: 'https://github.com/it-play/lifeledger/issues',
+                  attrs: { target: '_blank', rel: 'noreferrer' },
+                },
+                'GitHub Issues 문의',
+              ),
+              ' — 이메일, 세션 토큰, 실제 금융정보나 피드백 본문은 적지 마세요.',
+            ),
+            el(
+              'p',
+              {},
+              '계정 삭제는 모든 게임 기록·동의·피드백을 되돌릴 수 없게 삭제합니다. ',
+              deleteAccountButton,
+            ),
+          ),
           el('p', { class: 'connection' }, '스트림: ', statusValue),
           el('p', {}, el('a', { href: '/career', dataset: { link: '' } }, '커리어 관리')),
           el('p', {}, el('a', { href: '/corporation', dataset: { link: '' } }, '법인 경영')),
@@ -1939,6 +1988,9 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         });
         h.useEventListener(logoutButton, 'click', () => {
           void logout(auth, toasts);
+        });
+        h.useEventListener(deleteAccountButton, 'click', () => {
+          void deleteAccount(auth, toasts, deleteAccountButton);
         });
 
         h.useEffect(() => {
@@ -3833,6 +3885,31 @@ async function logout(auth: AuthApi, toasts: ToastQueue): Promise<void> {
     return;
   }
   // A full reload is the reliable way to pick up the cleared session cookie
+  globalThis.location.assign('/');
+}
+
+async function deleteAccount(
+  auth: AuthApi,
+  toasts: ToastQueue,
+  button: HTMLButtonElement,
+): Promise<void> {
+  if (
+    !globalThis.confirm('계정과 모든 게임 기록·동의·피드백이 영구 삭제됩니다. 계속하시겠습니까?')
+  ) {
+    return;
+  }
+  if (!globalThis.confirm('삭제 후에는 복구할 수 없습니다. 정말 계정을 삭제하시겠습니까?')) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    await auth.deleteAccount();
+  } catch {
+    button.disabled = false;
+    toasts.show('계정을 삭제하지 못했습니다. 다시 시도해 주세요.', { tone: 'error' });
+    return;
+  }
   globalThis.location.assign('/');
 }
 

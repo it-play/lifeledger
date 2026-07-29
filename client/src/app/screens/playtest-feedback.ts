@@ -370,7 +370,7 @@ function policyEvidenceText(overview: PlaytestFeedbackOverview | undefined): str
   return [
     `policy: ${overview.policy.policyKey} v${overview.policy.version}`,
     `policy sha256: ${overview.policy.canonicalSha256}`,
-    '보존: 동의 유지 중 활성 본문 보관, 철회 시 즉시 내용 삭제',
+    `보존: 제출 후 최대 ${String(overview.policy.retentionMaximumDays)}일, 철회·삭제 시 즉시 내용 삭제`,
   ].join('\n');
 }
 
