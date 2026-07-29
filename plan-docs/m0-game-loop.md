@@ -1,12 +1,12 @@
 # M0 게임 루프 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: 기능 구현 완료, 명령 멱등성 보강 중 (자동·격리 MySQL 검증 통과, 실제 OAuth 수동 스모크 미수행)
+- 상태: **M0 기능·명령 멱등성·production protocol 인수 완료** (외부 provider 계정 authorization/callback만 owner 수동 확인)
 - 상위 계획: [`development-plan.md` §2, §4.2, §12](./development-plan.md)
 
 ## 1. 목표와 범위
 
-M0의 남은 목표는 **서버 소유 게임일 전진을 수동 스텝과 배속·일시정지 양쪽에서 같은 일일
+M0의 구현 목표는 **서버 소유 게임일 전진을 수동 스텝과 배속·일시정지 양쪽에서 같은 일일
 파이프라인으로 실행**하는 것이다. 이번 범위는 기능과 무결성까지이며 시각적 스타일링은 포함하지 않는다.
 
 이미 구현된 인증, 캐릭터 생성, MySQL 세이브, SSE, 클라이언트 기반 레이어 위에 다음을 더한다.
@@ -17,8 +17,8 @@ M0의 남은 목표는 **서버 소유 게임일 전진을 수동 스텝과 배�
 - 캐릭터 생성 전 전진 차단
 - 계정당 세이브 하나와 세이브별 전진 직렬화
 
-시장 조회·평가·정산·이벤트 단계는 아직 빈 훅이다. M1 이후 로직은 이 일일 파이프라인 안에 순서대로
-추가하며, 다시 일괄 커서 증가 방식으로 돌아가지 않는다.
+M0 시점의 시장 조회·평가·정산·이벤트 단계는 빈 훅으로 시작했다. M1~M5 구현은 이 일일 파이프라인 안에
+순서대로 추가됐고, 현재 production도 같은 하루 단위 commit 경계를 사용한다.
 
 M0에는 랭킹이 없으므로 기존 전체 필드 편집은 개발용 비랭크 시작으로 둔다. 프리셋 선택이 기본 흐름이며,
 포인트 예산 검증과 랭크·샌드박스 모드 분리는 M5에서 서버 계약과 함께 도입한다.
@@ -134,9 +134,21 @@ M0 자동 진행은 **현재 브라우저 세션이 연결된 동안만** 돈다
 5. 캐릭터 없는 세이브, 지원하지 않는 속도, 30일을 넘는 수동 요청을 서버가 거부한다.
 6. 클라이언트 타입 검사·단위 테스트·프로덕션 빌드와 서버 테스트·clippy·fmt가 통과한다.
 
+### 6.1 최종 인수 (2026-07-30)
+
+- M1~M5의 실제 production 장기 검증이 M0 `command_identity → advance_command_step → command_receipt`
+  재개 계약을 그대로 사용했다. ranked preset의 마지막 30일 처리 중 day 10,949에서 정산 오류가 발생했을
+  때 앞선 29개 하루 commit이 보존됐고, 같은 command ID와 최초 cursor로 재시도해 day 10,950 receipt와
+  finalization 한 건으로 수렴했다. 새 command와 과거 cursor는 `409 busy`로 거절됐다.
+- production `/api/auth/providers`는 DataGSM·Google 두 provider만 반환하고 canonical client `/login`도 두
+  버튼을 표시한다. 두 start endpoint는 transaction cookie를 만들고 각 provider authorization endpoint로
+  `303`을 반환했다. 실제 외부 계정의 authorization/callback은 계정 접근 승인이 필요한 owner 수동 smoke이며,
+  서버 기능 또는 M0 완료의 미구현 항목으로 세지 않는다.
+- 전체 server `cargo clippy --all-targets -- -D warnings`와 `cargo fmt --check`, client typecheck·lint·build는
+  최종 M5 인수에서 다시 통과했다. M0의 기능·무결성 목표는 완료다.
+
 ## 7. 후속 작업
 
-- M1: 일일 파이프라인에 시장 생성·조회와 포지션 평가를 삽입한다.
-- M2: 정산 큐를 삽입하고 한 달 스텝도 같은 일일 처리 순서를 유지한다.
-- M5: 오프라인 자동 진행과 랭크/샌드박스 실행 정책을 추가한다.
-- SSE `Last-Event-ID` 재생은 시장·정산 델타가 생길 때 별도 계약으로 확정한다.
+- M1 시장 생성·조회·포지션 평가, M2 정산 큐, M5 오프라인 진행과 ranked/sandbox 정책은 모두 완료됐다.
+- SSE는 재연결 때 최신 authoritative snapshot으로 수렴한다. 과거 tick 자체의 `Last-Event-ID` outbox 재생은
+  현재 snapshot protocol의 정확성에 필요하지 않은 post-M5 확장 범위이며 M0~M5 미완료로 세지 않는다.

@@ -39,9 +39,13 @@ LifeLedger의 계정, 캐릭터, 소득과 자산은 모두 게임 안의 허구
 4. 시각 스타일링과 모바일 전용 UX는 기능 인수 뒤 작업이다.
 5. production client bundle은 708 KiB로 webpack 권고 크기를 넘는다. 기능에는 영향이 없지만 스타일링 단계에서
    화면 단위 lazy loading 후보로 다룬다.
-6. Rust 1.97의 전체 clippy `-D warnings`는 기존 M5-A/E 코드의 `too_many_arguments` 두 건과
-   `large_enum_variant` 한 건을 보고한다. 변경 범위의 `cargo check --all-targets`, 운영 경고 BDD와 fmt는
-   통과하며 이 세 항목은 별도 구조 개선 대상으로 남긴다.
+6. DataGSM·Google provider 노출과 각 authorization redirect까지 production에서 확인했다. 실제 외부
+   계정의 OAuth authorization/callback은 계정 접근 승인이 필요한 owner 수동 smoke다.
+
+내부 development acceptance에서는 ranked preset과 ranked custom을 각각 30일 command 365개로 day 10,950까지
+완주했고, 두 run 모두 completed finalization·9개 canonical line·공개 league 1위로 반영됐다. 이는 실제 참가자
+성과나 밸런스 표본이 아니라 기술 경로 검증 결과다. sandbox offline worker도 opt-in 뒤 하루를 정확히 한 번
+commit하고 opt-out했으며 최종 운영 경고는 0이었다.
 
 ## 문의와 장애 보고
 

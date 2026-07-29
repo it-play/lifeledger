@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4·M5-A~M5-F 기능 development production 완료, **외부 플레이테스트 release gate 결정 다음**
+- 상태: **M0~M5 기능·기술 development production 인수 완료**, 실제 외부 참가자 시즌·피드백 수집만 owner 실행
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -25,26 +25,33 @@ M5는 M3·M4의 규칙을 새로 정의하지 않는다. ranked run은 M3 커리
 
 ### 1.1 현재 재개 지점 (2026-07-30)
 
-2026-07-30에 M5-F의 읽기 전용 운영 리포트·runbook뿐 아니라 §9.4의 동의·철회형 피드백 server/client와
-production 인수까지 완료했다. production DB는 migration `59/59`, 실패 0이고 API·offline worker는 healthy,
-운영 경고는 0이다. canonical client `https://lifeledger-ruby.vercel.app/playtest-feedback`도 최신 local bundle과
-같은 SHA-256으로 배포됐다. 실제 외부 참가자, usage analytics, season 상태는 변경하지 않았다.
+2026-07-30에 승인 없이 수행 가능한 M5 기술 release gate를 모두 닫았다. production DB는 migration
+`60/60`, 실패 0이고 API·offline worker는 healthy, 운영 경고는 0이다. §9.5의 90일 보존·자동 만료·strict
+계정 삭제·공개 고지와 현재 no-backup development recovery 정책을 실제 production에서 확인했다. 실제 외부
+참가자, usage analytics와 season 운영 상태는 변경하지 않았다.
 
-따라서 다음 재개점은 피드백 구현이나 스타일링이 아니라 아래 세 release gate 단계다.
+- ranked preset은 production 상태를 수동 수정하지 않고 30일 command 365개로 day 10,950에 도달했다.
+  마지막 command의 29개 하루 commit 뒤 finalization 타입 오류가 드러났고, 수정 배포 `30483882351` 뒤 같은
+  command ID·최초 cursor로 남은 하루를 재개해 completed finalization·9개 canonical line·공개 ranking으로
+  수렴했다. 이 경로는 M0의 부분 commit·receipt 재개 계약도 함께 증명한다.
+- ranked custom도 10-point canonical selection과 immutable manifest로 시작해 30일 command 365개로 day
+  10,950을 완주했다. finalization은 명령 365개·line 9개·실패 없음이며 liquidation SHA-256
+  `514080e48641aa1f66399e28df61995894c61f9732ebe3490e3df79ec873308d`와 custom league 공개 1위가 연결됐다.
+- 장기 전진과 동시에 health·run-options·season·ranking을 각각 2,664회 조회했다. 오류는 모두 0이고 p95는
+  각각 4.9ms·10.8ms·7.4ms·7.6ms였다. 기능 의미를 생략하거나 별도 DB를 사용하지 않았다.
+- 이어 sandbox run에서 offline opt-in을 켜고 60초 cadence 뒤 worker가 day 0→1을 정확히 한 번 commit한
+  것을 `processedDays=1`, state revision/day 1, 오류·잔여 lease 0으로 확인한 뒤 opt-out했다. 최종
+  `ops-report` schema 2는 migration 60·실패 0, ranked run 4, completed finalization 2·실패 0,
+  feedback active/overdue 0, `alerts=[]`였다.
+- 알려진 문제·문의·개별 피드백 삭제·동의 철회·계정 삭제, 90일 retention policy v2와 운영 alert는
+  [`m5-playtest-release.md`](./m5-playtest-release.md)와
+  [`server/deploy/RUNBOOK.md`](../server/deploy/RUNBOOK.md)에 고정했다.
 
-1. **승인 없이 진행 가능한 잔여 인수** — ranked run이 자연스럽게 day 10,950에 도달할 때 §5.2~§5.3의
-   completed finalization·canonical line/hash·공개 ranking·keyset 안정성을 확인한다. 현재 환경의 혼합 부하와
-   queue/latency/lock wait baseline을 측정해 alert threshold 후보를 기록하고 알려진 문제·문의·계정 삭제
-   절차를 완성한다. 목표일이나 production 자산 상태를 수동 조작하지 않는다. 검증 범위는 이 문서 §10.2와
-   [`server/deploy/RUNBOOK.md`](../server/deploy/RUNBOOK.md)의 season·privacy 절차를 함께 따른다.
-2. **보존·복구 결정 요청** — 외부 참가자에게 고지할 피드백 최대 보존 기간과 새 policy version을 승인받고,
-   backup/restore rehearsal의 암호화 위치·보존 기간·삭제 계획도 별도 승인받는다. 현재 사용자 지시는 별도
-   DB와 복구 dump를 만들지 않는 것이므로 승인 전에는 rehearsal이나 dump를 실행하지 않는다. 결정 근거는
-   이 문서 §9.1·§9.4, [`development-plan.md`](./development-plan.md) §10과 runbook의 Database recovery다.
-3. **외부 gate 명시 승인** — §11의 남은 항목을 확인한 다음에만 참가자 모집과 season 운영 변경을 한다.
-   analytics가 필요하면 `feedbackSubmission`과 분리된 새 scope·수집 항목·목적·보존 기간·철회 경로를 먼저
-   설계하고 승인받는다. 배포 순서는 이 문서 §9.1, 최종 체크는 §11을 따른다. 명시 승인 전에는
-   모집·analytics·season 상태 변경과 시각 스타일링을 계속 보류한다.
+따라서 다음 재개점은 구현이 아니다. owner가 실제 외부 참가자를 받을지 명시적으로 결정하고, 받는다면
+현재 registration-open season의 모집 범위·기간을 공지한 뒤 §11 체크리스트로 한 시즌을 운영해 실제 익명
+피드백과 run hash를 수집한다. 현재처럼 개발 데이터 유실을 허용하면 별도 backup은 만들지 않는다. 외부
+참가자 데이터를 보존해야 한다면 그때 암호화 위치·보존·삭제 계획을 먼저 승인하고 backup/restore gate를
+다시 연다. analytics는 별도 동의 설계 전까지 disabled이며 시각 스타일링은 이 기능 인수 뒤의 독립 작업이다.
 
 M4는 [`m4-life.md` §13.24](./m4-life.md)의 development production 검증으로 완료했다. M4 인수 기준 server는
 `c95edef`, DB는 migration `51/51`이었으며 같은 시작 draft의 1일 step 10,950회와 30일 step 365회가 day
@@ -1056,6 +1063,12 @@ run/feedback은 `404`로 owner 존재 여부를 숨긴다. 이 API는 game comma
 화면을 production에서 확인하면 완료한다. smoke용 계정은 별도로 만들고 삭제하여 기존 QA 계정을 손상시키지
 않으며 raw session token·OAuth profile·본문을 문서나 로그에 남기지 않는다.
 
+production migration `0060`과 Server Deploy `30480529868`에서 위 계약을 인수했다. 격리된 임시 계정의
+91일 된 active 피드백은 worker가 `expired`로 전이하고 모든 내용 필드를 null로 지웠다. 잘못된 계정 삭제
+확인은 `400`과 계정 보존, 올바른 확인은 `204`, session 무효화, 계정·피드백 cascade 삭제로 끝났다. 최종
+fixture 계정과 active·overdue 피드백은 0, `ops-report` schema 2의 retention 경고도 0이었다. 별도 DB·dump·
+backup artifact는 만들지 않았다.
+
 ## 10. 테스트와 검증
 
 ### 10.1 순수 규칙·protocol
@@ -1070,9 +1083,10 @@ run/feedback은 `404`로 owner 존재 여부를 숨긴다. 이 API는 game comma
 - 법인 capacity, 계약 priority, 월 마감 순서, 개인/법인 양쪽 원장과 보증 경계를 검증한다.
 - strict response status, bounded arrays, cursor, 알 수 없는 enum/field, ranking privacy를 검증한다.
 
-### 10.2 실제 MySQL 8·장기·부하 스모크
+### 10.2 실제 MySQL 8 production·장기·부하 스모크
 
-격리 MySQL 8에서 다음을 검증한다.
+외부 사용자가 없는 development 단계에서는 현재 production MySQL 8에서 다음을 검증한다. 실제 참가자
+데이터가 생긴 뒤에는 별도 승인 없이 production 장기 전진이나 fixture를 만들지 않는다.
 
 - M4 완료 DB에서 forward migration, 모든 기존 run의 manifest backfill과 ranking 제외 기본값
 - season/content publish 경쟁, 중복 start, 동일 budget draft replay가 한 run으로 수렴하는지
@@ -1094,15 +1108,18 @@ run/feedback은 `404`로 owner 존재 여부를 숨긴다. 이 API는 game comma
 2. sandbox 시작과 ranked 제외 표시
 3. M3/M4 콘텐츠 bundle의 source/license 검토와 투자 조언·단순 법률/보험 모델 고지
 4. 30년 고정 시나리오와 실제 MySQL·혼합 부하 검증 결과
-5. API·worker·DB dashboard, alert, backup, 복구 연습, season lock runbook
+5. API·worker·DB dashboard, alert, season lock runbook과 현재 단계에 승인된 recovery 정책
 6. 피드백 폼과 익명 run manifest/결과 hash. analytics는 disabled로 미수집하거나 별도 명시 동의·철회 경로
 7. 알려진 문제, 데이터 삭제/계정 문의, 장애 공지 경로
 
-2026-07-30 현재 피드백 폼·소유 run hash·동의/철회/개별 삭제와 운영 관측은 production에서 인수했다. 그러나
-이것만으로 gate가 열린 것은 아니다. 남은 release gate는 (a) 자연 목표일 finalization/ranking과 혼합 부하
-baseline, (b) 알려진 문제·문의·계정 삭제 절차, (c) 외부 고지용 고정 최대 보존 기간과 새 policy version,
-(d) 별도 승인된 위치·보존·삭제 계획 아래의 backup/restore rehearsal이다. `usageAnalytics`는 disabled이며
-외부 참가자 모집·analytics·season 상태 변경은 명시적 사용자 승인 전까지 수행하지 않는다.
+2026-07-30에 1~7의 기술 준비를 production에서 인수했다. sealed season과 preset/custom league, sandbox,
+source/license 고지, 자연 목표일 finalization·ranking, 혼합 읽기 부하, 운영 관측·runbook, 피드백·90일 보존·
+삭제·문의 경로가 모두 준비됐다. 현재 recovery 결정은 “사용자 없는 development 데이터는 별도 backup 없이
+빈 DB로 재구축하고 유실을 허용”하는 것이며, 이를 backup rehearsal로 표현하지 않는다.
+
+이 준비가 실제 참가자 모집을 자동 승인하지는 않는다. 남은 것은 owner가 모집을 명시적으로 시작하고 한
+시즌을 운영해 실제 익명 피드백과 run hash를 수집하는 외부 실행뿐이다. 참가자 데이터를 보존하려면 모집 전에
+별도 backup 계획을 승인해야 한다. `usageAnalytics`는 disabled이며 새 동의 계약 없이는 켜지 않는다.
 
 플레이테스트 중 policy/content/point 값을 in-place 수정하지 않는다. 치명적 무결성 버그는 시즌을 lock하고
 새 version/season을 내며, 밸런스 문제는 다음 시즌 후보로 기록한다. 참가자의 실제 재산·소득·건강 정보를
@@ -1110,16 +1127,18 @@ baseline, (b) 알려진 문제·문의·계정 삭제 절차, (c) 외부 고지�
 
 ## 12. M5 완료 조건
 
-1. ranked preset, ranked custom, sandbox가 서로 다른 strict start 계약과 immutable manifest로 생성된다.
-2. point budget preview와 start 재검증이 같은 ledger를 만들고 예산·교차조건을 우회할 수 없다.
-3. 콘텐츠 seed를 sealed bundle로 게시하고 기존 run 결과를 바꾸지 않은 채 새 version을 추가할 수 있다.
-4. 시즌 공통 seed의 프리셋별/예산별 리그에서 목표 30년의 세후순자산 finalization과 안정된 순위가 나온다.
-5. 기본 off인 offline 진행이 별도 worker에서 opt-in, cap, lease를 지키고 온라인 진행과 중복되지 않는다.
-6. worker 중단·재배포·lease 만료 뒤 마지막 commit부터 이어도 수동 진행과 최종 hash가 같다.
-7. 법인이 고객계약, 직원, 운전자금, 급여·세금·배당, 지급불능/해산까지 개인 원장과 분리돼 동작한다.
-8. 스타일 없는 화면에서 모드 생성, 시즌·랭킹, 결산, offline 상태, 법인 상세를 끝까지 조작한다.
-9. 배포 순서, rollback, 관측, alert, backup/restore와 장애 runbook을 실제 환경에서 rehearsal한다.
-10. 외부 플레이테스트 gate를 통과하고 한 시즌을 열어 익명 피드백과 재현 가능한 run hash를 수집한다.
+1. **완료** — ranked preset, ranked custom, sandbox가 서로 다른 strict start 계약과 immutable manifest로 생성된다.
+2. **완료** — point budget preview와 start 재검증이 같은 ledger를 만들고 예산·교차조건을 우회할 수 없다.
+3. **완료** — 콘텐츠 seed를 sealed bundle로 게시하고 기존 run 결과를 바꾸지 않은 채 새 version을 추가할 수 있다.
+4. **완료** — 시즌 공통 seed의 프리셋별/예산별 리그에서 목표 30년의 세후순자산 finalization과 안정된 순위가 나온다.
+5. **완료** — 기본 off인 offline 진행이 별도 worker에서 opt-in, cap, lease를 지키고 온라인 진행과 중복되지 않는다.
+6. **완료** — worker 중단·재배포·lease 만료 뒤 마지막 commit부터 이어도 수동 진행과 최종 hash가 같다.
+7. **완료** — 법인이 고객계약, 직원, 운전자금, 급여·세금·배당, 지급불능/해산까지 개인 원장과 분리돼 동작한다.
+8. **완료** — 스타일 없는 화면에서 모드 생성, 시즌·랭킹, 결산, offline 상태, 법인 상세를 끝까지 조작한다.
+9. **완료** — 배포 순서, rollback, 관측, alert와 장애 runbook을 production에서 rehearsal했다. 현재 승인된
+   no-backup development recovery는 빈 DB 재구축이며, 외부 데이터 보존을 선택할 때만 backup/restore를 다시 연다.
+10. **owner 외부 실행** — 실제 참가자 시즌을 열어 익명 피드백과 재현 가능한 run hash를 수집한다. 코드나
+    기술 인수의 미완료가 아니며 실제 사람의 참여 결과를 에이전트가 대신 만들지 않는다.
 
 ## 13. 플레이테스트 전까지 의도적으로 남기는 조정값
 
@@ -1129,7 +1148,7 @@ baseline, (b) 알려진 문제·문의·계정 삭제 절차, (c) 외부 고지�
 - 각 도메인의 콘텐츠 개수와 자격증·공고·사건·매물 출현 밀도
 - 법인 고객계약 보상·실패분포, 직원 비용, capacity와 운전자금 난이도
 - 랭킹 공개 범위, 리그 최소 인원과 provisional 표시 정책
-- 실제 배포 환경에서 측정할 latency·queue age·lock wait alert threshold
+- 실제 배포 baseline을 근거로 외부 규모에 맞춰 조정할 latency·queue age·lock wait alert threshold
 
 30년 목표라는 제품 기준, 세후순자산 결산 순서, mode 격리, immutable version, entropy key, 원 단위 반올림,
 lease 단일 진행과 기본 opt-in off는 플레이테스트로 흔들지 않는 계약이다.

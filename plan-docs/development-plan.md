@@ -5,7 +5,7 @@
 
 - 최초 작성: 2026-07-25
 - 최근 갱신: 2026-07-30
-- 상태: **M4 전체·M5-A~M5-F 기능 production 완료**, 외부 플레이테스트 release gate 결정 다음, 시각 스타일링 보류
+- 상태: **M0~M5 기능·기술 production 인수 완료**, 실제 외부 참가자 시즌·피드백 수집만 owner 실행, 시각 스타일링 보류
 
 ---
 
@@ -550,8 +550,8 @@ SSE만 그 채널을 구독한다. 전역 채널에서 `save_id`로 사후 필�
 
 ## 12. 로드맵
 
-현재 production 완료 상태는 **M0·M1·M2·M3·M4 전체와 M5-A~M5-F 기능까지**다.
-production DB는 migration `59/59`, 실패 0이며 스타일 없는 `/playtest-feedback` client까지 Vercel production에
+현재 production 완료 상태는 **M0·M1·M2·M3·M4 전체와 M5-A~M5-F 기능·기술 인수까지**다.
+production DB는 migration `60/60`, 실패 0이며 스타일 없는 `/playtest-feedback` client까지 Vercel production에
 전달됐다. 정상 paired fixture의 1일 step
 10,950회와 30일 step 365회는 같은 day 10950 상태·정규화 SHA-256으로 수렴했고, 별도 append-only run의
 30년 장기 연체와 도산 재기 exclusive 경계도 완료했다. 정확한 수치·불변식·재시작 검증은
@@ -564,9 +564,12 @@ release·season·6개 league와 preset/custom 시작, 목표일 전진 상한, i
 M5-E는 deterministic 고객계약·인력·월 계획과 추가 출자·운전자금·월 이자·조건부 해산을 production에
 연결했다. M5-F는 같은 image의 읽기 전용 `ops-report`, migration 배포 gate,
 [`server/deploy/RUNBOOK.md`](../server/deploy/RUNBOOK.md), 명시적 동의·철회·개별 삭제형 피드백 권위와
-owned manifest/finalization hash를 실제 서버에서 인수했다. 다음 재개 순서는 [M5 확장](./m5-expansion.md)
-§1.1·§9.4·§11의 자연 목표일 finalization/ranking·혼합 부하 baseline·외부 고지/보존/복구 결정이다. 별도
-DB·복구 dump와 실제 외부 참가자·analytics·season 상태 변경, 시각 스타일링은 승인 전까지 보류한다.
+owned manifest/finalization hash를 실제 서버에서 인수했다. 이어 90일 보존·자동 만료, owner 계정 삭제,
+`ops-report` retention 경고, 공개 고지와 no-backup development recovery 결정을 migration `0060`으로 닫았다.
+자연 목표일 ranked finalization·공개 ranking과 장기 전진 중 10,656건의 공개 읽기 요청(오류 0)도 production에서
+확인했다. 정확한 다음 재개점은 [M5 확장](./m5-expansion.md) §1.1·§11의 실제 외부 참가자 시즌 운영뿐이다.
+analytics는 새 동의 계약 전까지 disabled이고, 참가자 데이터 보존을 선택할 때만 backup 계획을 다시 연다.
+시각 스타일링은 기능 인수와 분리해 보류한다.
 기존 월드 v1·v2·v3와 그 월드에 고정된 런은 보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를
 사용한다. M3는 style 없는 기능 화면,
 fresh MySQL 8 전진 마이그레이션과 실제 HTTP 스모크까지 완료했다. M3-C는 지급일 귀속 월 급여,
@@ -645,12 +648,15 @@ DB projection으로 확인했다. 상세 금액·CD run·checksum·hash는 [M4 �
 authority·목표일 상한·세후 청산·공개 랭킹, M5-D offline worker·lease, M5-E 법인 상세·운전자금까지
 migration 52~58과 production에서 인수했다. M5-F의 읽기 전용 운영 리포트·배포 migration gate·runbook은
 Server Deploy `30468295977`에서, 동의·피드백 migration `0059`와 server/client 기능은 `34960e5`~`4cf1d5e`와
-최종 Server Deploy `30474101097`에서 인수했다. 최종 `observe.sh`는 healthy, migration 59·실패 0,
-alert 0을 반환했다. production smoke는 성공 응답의 durable feedback row, owned manifest hash, 개별 삭제와
-동의 철회의 내용·evidence null tombstone, strict unknown-field 거절을 확인했고 active feedback·임시 session·
-열린 transaction은 0으로 끝났다. 정확한 다음 재개점은 [M5 확장](./m5-expansion.md) §1.1·§9.4·§11의 세
-release gate 단계다. 별도 DB·복구 dump와 실제 외부 참가자·analytics·season 상태 변경, 시각 스타일링은
-승인 전까지 보류한다.
+최종 Server Deploy `30474101097`에서 인수했다. 이어 migration `0060`의 90일 retention·자동 만료·계정 삭제와
+운영 schema 2를 Server Deploy `30480529868`에서 인수했다. 격리 임시 계정의 만료 tombstone과 계정 cascade
+삭제 뒤 fixture·active·overdue feedback은 0이었다. ranked preset은 자연스럽게 day 10,950에 도달했고 정산
+집계 타입 오류를 `b30c4d9`에서 고친 Server Deploy `30483882351` 뒤 같은 command ID로 재개해 completed
+finalization·canonical hash·공개 ranking으로 수렴했다. 장기 전진과 동시에 공개 읽기 10,656건은 오류 0,
+p95 10.8ms 이하였다. sandbox offline worker도 60초 cadence 뒤 day 0→1을 정확히 한 번 commit했고 opt-out
+뒤 lease·pending·오류는 0이었다. 전체 Rust Clippy `-D warnings`도 0경고로 닫았다. 정확한 다음 재개점은
+[M5 확장](./m5-expansion.md) §1.1·§11의 실제 외부 참가자 시즌·피드백 수집이다. 별도 DB·복구 dump와
+analytics는 만들지 않았고, 시각 스타일링은 기능 인수와 분리해 보류한다.
 
 | 마일스톤 | 범위 | 완료 기준 |
 |---------|------|-----------|
