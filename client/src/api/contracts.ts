@@ -3564,6 +3564,130 @@ export const CorporationOperatingMonthPageResponseSchema = z
   })
   .strict();
 
+export const BusinessContractStatusSchema = z.enum([
+  'offered',
+  'accepted',
+  'active',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+export const BusinessPositionStatusSchema = z.enum([
+  'vacant',
+  'hired',
+  'active',
+  'resigned',
+  'terminated',
+]);
+
+export const BusinessMarketingBandSchema = z
+  .object({
+    id: ResourceIdSchema,
+    bandKey: z.string().min(1).max(64),
+    displayName: z.string().min(1).max(100),
+    bandOrder: z.number().int().min(1).max(65_535),
+    monthlyCostKrw: NonnegativeKrwSchema,
+    offerSlots: z.number().int().min(1).max(65_535),
+  })
+  .strict();
+
+export const BusinessLoanProductSchema = z
+  .object({
+    id: ResourceIdSchema,
+    productKey: z.string().min(1).max(64),
+    displayName: z.string().min(1).max(100),
+    minimumPrincipalKrw: PositiveKrwSchema,
+    maximumPrincipalKrw: PositiveKrwSchema,
+    principalStepKrw: PositiveKrwSchema,
+    monthlyInterestRatePpm: z.number().int().min(0).max(1_000_000),
+    termMonths: z.number().int().min(1).max(65_535),
+    personalGuarantee: z.boolean(),
+  })
+  .strict();
+
+export const BusinessContractSchema = z
+  .object({
+    id: ResourceIdSchema,
+    templateKey: z.string().min(1).max(64),
+    displayName: z.string().min(1).max(100),
+    status: BusinessContractStatusSchema,
+    serviceYear: z.number().int().min(1).max(65_535),
+    serviceMonth: z.number().int().min(1).max(12),
+    requiredCapacityUnits: z.number().int().min(1).max(65_535),
+    revenueKrw: NonnegativeKrwSchema,
+    variableCostPpm: z.number().int().min(0).max(1_000_000),
+    failurePenaltyKrw: NonnegativeKrwSchema,
+  })
+  .strict();
+
+export const BusinessPositionSchema = z
+  .object({
+    id: ResourceIdSchema,
+    roleKey: z.string().min(1).max(64),
+    displayName: z.string().min(1).max(100),
+    status: BusinessPositionStatusSchema,
+    capacityUnits: z.number().int().min(1).max(65_535),
+    monthlyGrossWageKrw: NonnegativeKrwSchema,
+    employerCostRatePpm: z.number().int().min(0).max(1_000_000),
+    effectiveYear: z.number().int().min(1).max(65_535).nullable(),
+    effectiveMonth: z.number().int().min(1).max(12).nullable(),
+  })
+  .strict();
+
+export const BusinessMonthlyPlanSchema = z
+  .object({
+    id: ResourceIdSchema,
+    effectiveYear: z.number().int().min(1).max(65_535),
+    effectiveMonth: z.number().int().min(1).max(12),
+    planRevision: z.number().int().safe().min(1),
+    marketingBandId: ResourceIdSchema,
+    marketingBandKey: z.string().min(1).max(64),
+    cashBufferKrw: NonnegativeKrwSchema,
+    contractPriorityIds: z.array(ResourceIdSchema).max(50),
+  })
+  .strict();
+
+export const BusinessMonthSchema = z
+  .object({
+    id: ResourceIdSchema,
+    operatingYear: z.number().int().min(1).max(65_535),
+    operatingMonth: z.number().int().min(1).max(12),
+    totalCapacityUnits: z.number().int().safe().nonnegative(),
+    usedCapacityUnits: z.number().int().safe().nonnegative(),
+    contractRevenueKrw: NonnegativeKrwSchema,
+    contractVariableCostKrw: NonnegativeKrwSchema,
+    marketingCostKrw: NonnegativeKrwSchema,
+    employeeCostKrw: NonnegativeKrwSchema,
+    failedContractPenaltyKrw: NonnegativeKrwSchema,
+    completedContractCount: z.number().int().min(0).max(65_535),
+    failedContractCount: z.number().int().min(0).max(65_535),
+    activeEmployeeCount: z.number().int().min(0).max(65_535),
+    appliedGameDay: z.number().int().safe().nonnegative(),
+  })
+  .strict();
+
+export const BusinessOperationsResponseSchema = z
+  .object({
+    availability: CorporationAvailabilitySchema,
+    corporationId: ResourceIdSchema,
+    catalogVersionId: ResourceIdSchema.nullable(),
+    catalogSha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .nullable(),
+    revision: z.number().int().safe().nonnegative(),
+    nextOperatingYear: z.number().int().min(1).max(65_535).nullable(),
+    nextOperatingMonth: z.number().int().min(1).max(12).nullable(),
+    marketingBands: z.array(BusinessMarketingBandSchema).max(8),
+    loanProducts: z.array(BusinessLoanProductSchema).max(8),
+    contracts: z.array(BusinessContractSchema).max(50),
+    positions: z.array(BusinessPositionSchema).max(32),
+    plan: BusinessMonthlyPlanSchema.nullable(),
+    latestMonth: BusinessMonthSchema.nullable(),
+  })
+  .strict();
+
 export const LifeSnapshotSchema = z
   .object({
     ...LifeSummaryFields,
@@ -3888,6 +4012,67 @@ export const CorporationPayoutRequestSchema = z
   })
   .strict();
 
+const BusinessOperationCursorFields = {
+  ...LifeCommandCursorFields,
+  expectedRevision: z.number().int().safe().min(1),
+} as const;
+
+export const BusinessMonthlyPlanDraftSchema = z
+  .object({
+    marketingBandId: ResourceIdSchema,
+    cashBufferKrw: NonnegativeKrwSchema,
+    contractPriorityText: z.string().trim().max(1_000),
+  })
+  .strict();
+
+export const BusinessOperationRequestSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('acceptContract'),
+      contractId: ResourceIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('cancelContract'),
+      contractId: ResourceIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('hirePosition'),
+      positionId: ResourceIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('terminatePosition'),
+      positionId: ResourceIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('setMonthlyPlan'),
+      marketingBandId: ResourceIdSchema,
+      cashBufferKrw: NonnegativeKrwSchema,
+      contractPriorityIds: z.array(ResourceIdSchema).max(50),
+    })
+    .strict(),
+]);
+
+export const BusinessOperationResultSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('acceptContract'), contract: BusinessContractSchema }).strict(),
+  z.object({ action: z.literal('cancelContract'), contract: BusinessContractSchema }).strict(),
+  z.object({ action: z.literal('hirePosition'), position: BusinessPositionSchema }).strict(),
+  z.object({ action: z.literal('terminatePosition'), position: BusinessPositionSchema }).strict(),
+  z.object({ action: z.literal('setMonthlyPlan'), plan: BusinessMonthlyPlanSchema }).strict(),
+]);
+
 export const CorporationDividendSchema = z
   .object({
     id: ResourceIdSchema,
@@ -3935,6 +4120,15 @@ export const CorporationSettingsResponseSchema = z
 export const CorporationDividendResponseSchema = z
   .object({
     result: CorporationDividendSchema,
+    replayed: z.boolean(),
+    snapshot: GameSnapshotSchema,
+  })
+  .strict();
+
+export const BusinessOperationResponseSchema = z
+  .object({
+    result: BusinessOperationResultSchema,
+    revision: z.number().int().safe().min(1),
     replayed: z.boolean(),
     snapshot: GameSnapshotSchema,
   })
@@ -10354,6 +10548,15 @@ export type CorporationOperatingMonth = z.infer<typeof CorporationOperatingMonth
 export type CorporationOperatingMonthPageResponse = z.infer<
   typeof CorporationOperatingMonthPageResponseSchema
 >;
+export type BusinessContractStatus = z.infer<typeof BusinessContractStatusSchema>;
+export type BusinessPositionStatus = z.infer<typeof BusinessPositionStatusSchema>;
+export type BusinessMarketingBand = z.infer<typeof BusinessMarketingBandSchema>;
+export type BusinessLoanProduct = z.infer<typeof BusinessLoanProductSchema>;
+export type BusinessContract = z.infer<typeof BusinessContractSchema>;
+export type BusinessPosition = z.infer<typeof BusinessPositionSchema>;
+export type BusinessMonthlyPlan = z.infer<typeof BusinessMonthlyPlanSchema>;
+export type BusinessMonth = z.infer<typeof BusinessMonthSchema>;
+export type BusinessOperationsResponse = z.infer<typeof BusinessOperationsResponseSchema>;
 export type LifeSnapshot = z.infer<typeof LifeSnapshotSchema>;
 export type LifeBudgetResponse = z.infer<typeof LifeBudgetResponseSchema>;
 export type GameSnapshot = z.infer<typeof GameSnapshotSchema>;
@@ -10368,6 +10571,10 @@ export type CorporationDividend = z.infer<typeof CorporationDividendSchema>;
 export type CorporationCreateResponse = z.infer<typeof CorporationCreateResponseSchema>;
 export type CorporationSettingsResponse = z.infer<typeof CorporationSettingsResponseSchema>;
 export type CorporationDividendResponse = z.infer<typeof CorporationDividendResponseSchema>;
+export type BusinessOperationRequest = z.infer<typeof BusinessOperationRequestSchema>;
+export type BusinessOperationResult = z.infer<typeof BusinessOperationResultSchema>;
+export type BusinessOperationResponse = z.infer<typeof BusinessOperationResponseSchema>;
+export type BusinessMonthlyPlanDraft = z.infer<typeof BusinessMonthlyPlanDraftSchema>;
 export type LifeBudgetUpdateDraft = z.infer<typeof LifeBudgetUpdateDraftSchema>;
 export type LifeBudgetUpdateRequest = z.infer<typeof LifeBudgetUpdateRequestSchema>;
 export type EssentialArrearPaymentDraft = z.infer<typeof EssentialArrearPaymentDraftSchema>;

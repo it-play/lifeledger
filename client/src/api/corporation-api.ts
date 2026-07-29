@@ -1,6 +1,12 @@
 import type { z } from 'zod';
 import { type HttpClient, HttpError, type ResponseDecoder } from '../lib/http/index.js';
 import {
+  type BusinessOperationRequest,
+  BusinessOperationRequestSchema,
+  type BusinessOperationResponse,
+  BusinessOperationResponseSchema,
+  type BusinessOperationsResponse,
+  BusinessOperationsResponseSchema,
   type CorporationCreateRequest,
   CorporationCreateRequestSchema,
   type CorporationCreateResponse,
@@ -28,6 +34,12 @@ import { asDecoder } from './zod-adapters.js';
 export interface CorporationApi {
   templates(signal?: AbortSignal): Promise<CorporationTemplatesResponse>;
   detail(corporationId: string, signal?: AbortSignal): Promise<CorporationSummary>;
+  operations(corporationId: string, signal?: AbortSignal): Promise<BusinessOperationsResponse>;
+  manageOperations(
+    corporationId: string,
+    request: BusinessOperationRequest,
+    signal?: AbortSignal,
+  ): Promise<BusinessOperationResponse>;
   create(
     request: CorporationCreateRequest,
     signal?: AbortSignal,
@@ -96,6 +108,38 @@ export function createCorporationApi(deps: CorporationApiDeps): CorporationApi {
               message: 'corporation detail does not match the requested corporation',
             }),
           ),
+          requestOptions(signal),
+        ),
+      );
+    },
+
+    operations(corporationId, signal) {
+      const id = ResourceIdSchema.parse(corporationId);
+      return requestQuery(() =>
+        deps.http.get(
+          `/api/corporations/${id}/operations`,
+          asDecoder(
+            BusinessOperationsResponseSchema.refine(
+              (operations) => operations.corporationId === id,
+              {
+                path: ['corporationId'],
+                message: 'business operations do not match the requested corporation',
+              },
+            ),
+          ),
+          requestOptions(signal),
+        ),
+      );
+    },
+
+    manageOperations(corporationId, request, signal) {
+      const id = ResourceIdSchema.parse(corporationId);
+      const body = BusinessOperationRequestSchema.parse(request);
+      return requestCommand(() =>
+        deps.http.post(
+          `/api/corporations/${id}/operations`,
+          body,
+          commandDecoder(BusinessOperationResponseSchema, body, id),
           requestOptions(signal),
         ),
       );
