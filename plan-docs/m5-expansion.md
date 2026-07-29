@@ -451,6 +451,55 @@ liquidation planner를 실행한다.
 5. 보험 해지환급·복지 미수급처럼 결산 규칙이 포함한다고 명시한 권리
 6. 모든 대출·연체·세금·보증금 반환·도산계획 채무
 
+#### 첫 청산 정책 `m5c-after-tax-liquidation-v1`
+
+ranking rule v1이 pin한 첫 청산 정책은 미래 날짜를 만들지 않고 목표일 종료 상태만 아래 canonical component
+순서로 평가한다. 각 component는 보유 건별 authority ID와 입력 합계를 `detailJson`에 정렬해 남기되 DB line은
+component당 한 건만 쓴다. 값이 0이어도 line을 생략하지 않아 서로 다른 진행 경로가 같은 line 집합으로
+수렴하게 한다.
+
+1. `cash.walletAccounts` — 지갑과 open 금융계좌 현금을 액면가로 합산한다.
+2. `cash.productPrincipal` — 목표일에 active인 예금·적금 원금만 carry한다. 목표일 뒤의 이자·정부기여금·
+   만기우대는 아직 확정 수취채권이 아니므로 넣지 않는다.
+3. `receivable.earned` — 이미 생성된 LLX 분배 entitlement, approved/active 복지의 pending payment,
+   `ready` 보험청구 지급액만 포함한다. candidate 보험청구, 미래 급여·보험금·복지급여는 제외한다. 현재
+   account/policy에 의해 즉시 결정되는 원천징수만 tax로 기록하고, 미래 세율을 추정하지 않는다.
+4. `asset.marketSecurities` — LLX는 목표일 index close, 채권은 dirty market value, KRX 금과 인출한 실물
+   금은 목표일 금 종가를 gross로 쓴다. LLX·채권·KRX 금은 pin된 상품의 sell fee와 거래세를 적용한다.
+   실물 금은 서버에 재매입·처분 계약이 없으므로 시장가 carry이며 처분비는 0이다.
+5. `tax.accountClosure` — ISA는 위 가상 매도의 계좌별 실현손익을 기존 누적 profit/loss에 더해 목표일
+   해지세를 다시 계산한다. 연금저축·IRP는 가상 매도비용을 tax layer의 당일 가치손실로 반영한 뒤 전액을
+   명시적 비연금 인출한다고 보아 세금을 계산한다. 계좌 상태나 pinned tax authority가 불완전하면 임의의
+   기본 세율을 쓰지 않고 finalization을 `failed`로 닫는다.
+6. `asset.leaseDeposit` — 현재 임차인의 반환받을 보증금을 액면가로 carry한다. 보증금대출은 아래 개인채무에
+   포함하므로 여기서 상계하지 않는다.
+7. `asset.property` — active 자가주택은 목표일 지역 가격지수로 계산한 인정가액을 gross로 쓴다. 현재 부동산
+   매도 권위는 candidate 대기일 뒤에만 실제 처분비·양도소득세·담보 조기상환 수수료를 확정하므로, 결산은
+   미래 candidate 날짜를 만들지 않고 인정가액 carry, 비용·세금 0으로 기록한다. 가격지수나 pinned
+   real-estate authority 자체가 없으면 `failed`다. 담보 원금은 개인채무 line에서 한 번만 차감한다. 같은 날
+   확정 가능한 별도 청산 권위를 게시하는 다음 policy version부터만 처분비·세금을 적용한다.
+8. `asset.corporationEquity` — 개인이 전부 소유한 현재 법인의 `max(cash - operatingPayable -
+   corporateTaxPayable, 0)`을 지분 gross로 본다. 납입자본까지는 자본환급, 초과분은 목표일에 pin된 개인
+   배당 원천징수율을 적용한다. 유한책임 법인채무를 개인채무에 다시 넣지 않는다.
+9. `liability.personal` — active/delinquent/defaulted/restructured 대출의 원금·미지급 이자·수수료, 생활비·
+   임대차 연체, 미납 세금의 현재 채무 projection 전체를 음수 gross로 쓴다. 합계는 반드시 `save.debtKrw`와
+   일치해야 하며 도산 case의 이미 면책·배분된 금액을 다시 더하지 않는다.
+
+planner는 각 line에서 `net = gross - cost - tax`를 checked i128로 계산하고 line 전체 합계를 다시 BIGINT로
+내린다. `gross`는 자산·권리에서 0 이상, 개인채무 line에서만 0 이하이며 `cost`와 `tax`는 항상 0 이상이다.
+canonical JSON은 policy key, target day, component 순서, 적용 가능한 source authority ID와 위 입력을 모두
+포함하고, header가 ranking rule ID·SHA를 별도로 pin한다.
+
+목표일의 save cursor 갱신 뒤, 아직 열린 같은 player transaction에서 결산 source를 확인한다. terminal 행이
+있으면 그대로 성공하고, 없으면 `planning → line 전체 insert → completed`를 수행한다. 지원하지 않는 순수
+authority 상태는 `planning → failed`와 안정적인 failure code로 남긴다. 예상하지 못한 DB·산술 오류는 하루
+transaction 전체를 rollback하므로 `planning`이 고립되지 않는다. 수동 advance의 마지막 step과 자동 하루
+진행 모두 이 함수를 호출한다.
+
+`insolvencyDays`는 목표일까지 각 게임일 종료 후 마지막 `credit_history.afterBand=insolvent`였던 날의 수다.
+`playerCommandCount`는 현재 run revision에서 목표일까지 생성된 `command_identity` 수이며 자동·offline 하루
+tick은 세지 않는다. 둘 다 finalization header에 한 번 고정하고 순자산 금액에는 가감하지 않는다.
+
 실제 보유 상태를 매각하지 않고 immutable `liquidation_line`으로 계산한다. 각 line은 gross, cost, tax,
 net, policy/rule ID를 보존하고 합계는 i128 뒤 BIGINT 범위를 검증한다. 미래 매도 대기나 미래 세율을
 추정하지 않는다. 목표일에 가격이 없는 자산의 carry 규칙은 결산 규칙 version에 반드시 있고, 없으면
