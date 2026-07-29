@@ -244,6 +244,57 @@ sealed payload는 update/delete하지 않는다. retired는 새 bundle에서 선
 만들고, checksum이 다른 기존 key/version은 배포를 실패시킨다. 외부 데이터 출처가 있는 수치는 source,
 기준일, 라이선스 메모를 남기되 원시 시세를 클라이언트에 재배포하지 않는다.
 
+#### M5-B 첫 content bundle 계약 (2026-07-29)
+
+M5-B는 기존 typed authority의 payload를 generic JSON으로 복제하지 않는다. `content_bundle` header와
+`content_bundle_member`는 아래 원본의 **ID·key·version·기존 canonical SHA**만 묶고, 실제 계산은 계속 원본
+typed table을 읽는다. member의 `sourceNote`는 provenance 메모이지 payload 대체물이 아니다.
+
+| canonical kind 순서 | production 원본 권위 | ID / key / version | SHA·상태 | M5-B source note |
+|---:|---|---|---|---|
+| 10 | `career_catalog_bundle` | `1 / dev-unranked-m3-v1 / 1` | SHA 없음, published, unranked | M3-A/M3-D typed career catalog; legacy published authority has no standalone digest. |
+| 20 | `recruitment_ruleset` | `1 / dev-unranked-m3-recruitment-v1 / 1` | SHA 없음, published, unranked | M3-B typed recruitment rules; legacy published authority has no standalone digest. |
+| 30 | `employment_policy_set` | `1 / dev-unranked-m3-employment-2026-v1 / 1` | SHA 없음, published, unranked | M3-C/M3-D typed employment policy; legacy published authority has no standalone digest. |
+| 40 | `life_catalog_set` | `7 / dev-unranked-m4-life-corporation-2026-v6 / 6` | `7638c390…abea2f0`, sealed, unranked | M4 typed life catalog aggregate. |
+| 50 | `credit_model_version` | `5 / dev-unranked-m4c3-credit-2026-v4 / 4` | `d878df2c…28e6cf8`, sealed, unranked | M4 typed credit and loan model. |
+| 60 | `real_estate_model_version` | `7 / dev-unranked-m4-real-estate-sale-tax-2026-v6 / 6` | `fe870274…d1ea541`, sealed, unranked | M4 typed housing and real-estate model. |
+| 70 | `character_preset_version` | IDs `2,3,5,1,4` / `early-start,late-start,restart,rookie,supported` / 각 `1` | 각 generated SHA, sealed, unranked | M5-A sealed character preset. |
+| 80 | `point_budget_version` | `1 / dev-unranked-custom-2026 / 1` | `a340fcc4…36ca553`, sealed, unranked | M5-A sealed point budget. |
+
+첫 header는 `dev-unranked-m5-content-2026 / version 1 / schemaVersion 1`이며 source note는
+`M3/M4 typed development authorities with M5-A start catalogs.`로 고정한다. `newRun` assignment는 이
+sealed bundle을 가리키고 revision 1에서 시작한다. preset 다섯 개를 개별 member로 기록하므로 총 member는
+12개다.
+
+canonical member 순서는 kind의 고정 rank `10→80`, 같은 kind 안에서는 ASCII binary
+`authorityKey → authorityVersion → authorityId` 오름차순이다. canonical JSON은 다음 필드 순서를 byte
+contract로 사용한다.
+
+```json
+{"bundleKey":"…","members":[{"authorityId":"…","authorityKey":"…","authorityKind":"…","authoritySha256":null,"authorityVersion":1,"sourceNote":"…"}],"rankedEligible":false,"schemaVersion":1,"sourceNote":"…","version":1}
+```
+
+SHA-256 입력은 위 UTF-8 JSON 자체이며 공백·개행을 넣지 않는다. 원본 SHA가 있는 member는 64자리 소문자
+hex가 정확히 일치해야 한다. 독립 digest가 생기기 전 게시된 M3 세 authority만 현재 **unranked** bundle에서
+`authoritySha256=null`을 허용한다. ranked bundle은 모든 member의 SHA, 원본 ranked eligibility, sealed 또는
+published 상태가 필요하므로 이 development bundle을 ranked season에 쓸 수 없다. 같은 bundle 안에서
+`(kind,key,version)`과 non-null SHA는 중복될 수 없다. 이 첫 slice는 generic `requires` edge를 만들지 않고
+typed authority의 FK·publication trigger가 참조 그래프를 소유하므로 content-bundle 층의 순환은 구조적으로
+없다.
+
+DB 경계는 다음과 같다.
+
+- header는 `draft → sealed → retired`만 허용하고 active `newRun` assignment가 가리키는 동안 retire할 수
+  없다. member와 canonical manifest는 draft일 때만 insert하고 이후 update/delete하지 않는다.
+- member insert와 header seal은 kind별 typed table을 다시 조회해 ID/key/version/SHA와 published/sealed
+  상태를 검증한다. header seal은 canonical JSON의 generated SHA와 정확히 일치해야 한다.
+- `run_manifest`에는 nullable `content_bundle_id/content_bundle_sha256` pair를 추가한다. 기존 10건은 둘 다
+  null인 immutable 역사로 남기고, migration 뒤 새 run은 active sealed bundle의 ID/SHA를 둘 다 pin한다.
+  새 sandbox canonical manifest는 이 두 필드와 `schemaVersion: 2`를 포함한다.
+- start의 read/lock 양쪽이 content assignment revision을 기존 active-run ABA 비교에 포함한다. assignment가
+  바뀌거나 bundle이 retire되면 준비한 start를 재시도하며, 같은 command replay는 처음 commit된 manifest를
+  그대로 반환한다.
+
 ### 4.2 entropy namespace
 
 시장, 채용, 매물, 사건, 법인 결과는 각각 고정 namespace를 쓴다. 새 콘텐츠는 자기 `contentKey` stream만
