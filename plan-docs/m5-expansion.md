@@ -44,6 +44,11 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
    `POST /api/runs`에 연결한 뒤 스타일 없는 생성 화면을 추가한다. ranked season·league의 실제 게시와
    랭킹 계산은 M5-C가 소유하므로 M5-A fixture는 게시 전 development season만 사용한다.
 
+새 `POST /api/runs`가 client에 연결되기 전에도 manifest 없는 run을 허용하지 않는다. 기존
+`POST /api/characters` v1/v2는 호환 기간 동안 **sandbox 전용 legacy start**로 해석하고, 기존 command
+fingerprint·replay를 유지한 채 같은 start transaction에서 `rankingEligible=false`, reason
+`legacyStartEndpoint`인 immutable manifest를 기록한다. ranked mode는 이 경로로 시작할 수 없다.
+
 별도 MySQL·격리 schema·recovery dump는 만들지 않는다. server 변경은 `main` push 뒤 development
 production DB의 startup migration으로 직접 전진시키고 health·migration·기존 run 보존을 확인한다. 접속
 경로와 공개 base는 [`m4-life.md` §1.1](./m4-life.md)을 따르며 credential과 session token은 문서에 남기지
@@ -92,6 +97,18 @@ seed나 override가 ranked row에 들어가면 DB CHECK와 서비스 검증 모�
 - `tiered` — 게시된 구간별 정수 point
 - `exclusiveGroup` — 한 group에서 정확히 하나
 - `requires` / `forbids` — 다른 option 또는 character fact와의 교차조건
+
+선택은 `(optionId, quantity)`이고 같은 option ID를 두 번 보내는 것은 거절한다. `fixed`는 quantity 1만,
+`perUnit`은 version에 게시된 최소·최대 정수 수량만 허용한다. `tiered`는 수량 1부터 선택 수량까지를 서로
+겹치지 않는 연속 구간으로 나누고 각 구간의 **단위당 point delta**를 적용하는 누진 방식이다. 구간의
+공백·중복이나 option 수량 범위를 덮지 못하는 sealed catalog는 게시할 수 없다. `exclusiveGroup`은 그
+group에 속한 option 중 정확히 하나가 선택돼야 한다는 별도 제약이며 비용 종류와 섞지 않는다.
+
+각 option은 시작 draft에 적용할 strict tagged effect 하나를 가진다. v1 effect는 정수 fact 설정·수량당
+정수 fact 증가·enum fact 설정으로 제한하고, unknown effect kind·field를 거절한다. 서버는 option ID
+오름차순으로 effect를 적용해 canonical draft와 fact map을 만든 뒤 기존 character 정합성을 검사한다.
+같은 fact를 서로 다른 값으로 설정하는 조합은 catalog 조건이 빠졌더라도 거절한다. preview와 start는 같은
+point evaluator와 effect materializer를 사용한다.
 
 임의 수식이나 서버 코드는 예산 데이터에 넣지 않는다. 캐릭터 정합성은 기존 §3 규칙을 먼저 검사하고,
 그 다음 option ID 오름차순으로 point ledger를 합산한다. positive·negative delta를 모두 i64에서 더하되
