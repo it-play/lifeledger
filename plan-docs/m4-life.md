@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-F client production 전달·30년 30일 step 첫 750일 완료, 정상·도산·재기와 step 동등성 검증 대기, 시각 스타일링 보류
+- 상태: M4-F client production 전달·30년 30일 step 첫 750일·fresh 도산 제출·재기 첫 30일 완료, 장기·회복 경계와 step 동등성 검증 대기, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,13 +22,13 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-production server checkpoint는 `c79db45` binary이고 DB는 migration `51/51`, 실패 0이다. client code
+production server checkpoint는 `c95edef` binary이고 DB는 migration `51/51`, 실패 0이다. client code
 checkpoint `2a4dea1`은 Vercel deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 처음 `Ready`가 됐다. canonical
 origin `https://lifeledger-ruby.vercel.app`은 이후 문서-only push를 포함한 최신 `main` production deployment를
 추적하므로 특정 deployment ID에 고정하지 않는다. `/corporation`은 HTTP 200, 생성 HTML의
 `js/app.js`는 정확히 한 개, same-origin `/api/health`는 200, 비인증 `/api/state`는 401이다. 운영 설정·대표
 급여, 연 결산·법인세, 배당·M2 금융소득, bounded 월 history까지 development production DB와 public API에서
-인수했다. 전체 결과는 §13.21~§13.22, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
+인수했다. 전체 결과는 §13.21~§13.23, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
 `https://kimtaeeun.site/lifeledger/`는 다른 정적 사이트가 점유하고 API reverse proxy만 제공하므로 client
 origin으로 쓰지 않는다.
 
@@ -43,24 +43,35 @@ day 1115/state revision 1119다. 개인 cash는 0원이고 debt 20,620,932원은
 loan·lease arrear·tax obligation은 0원이다. 법인은 `active`, cash 61,454,825원, retained earnings
 53,094,253원, operating payable 0원, corporate tax payable 6,192,372원, distributable profit
 49,101,954원이다. 2026~2028 결산과 2026-08~2029-01 월 30건이 적용됐다. E2의 day 365 기준값은 §13.21,
-이번 첫 장기 구간은 §13.22를 따른다. E1의 user 4/save 118 fixture와 append-only 이력은 보존했다. 임시
-session 14·15는 삭제했고 열린 외부 InnoDB transaction은 0건이다.
+이번 첫 장기 구간은 §13.22를 따른다. day 1115의 정책 판정 결함을 고친 뒤 이 구성은 예상대로
+`compositionUnsupported`이며 reason은 `noSupportedDefaultedDebt · unsupportedNonLoanObligation`이다. case나
+command 이력은 만들지 않고 장기 연체 경로로 그대로 보존했다.
+
+도산·재기 fixture는 user 4, save 118의 새 run revision 2다. 공개 API만 사용해 자연 연체·default를 만든 뒤
+필수생활비 arrear 24건을 상환하고 case 3을 제출했다. 현재 cursor는 day 181/state revision 209, case 3은
+`rebuilding`, `creditRestrictionEndExclusive=1976`이다. cash는 16,935,883원, 저장 debt와 active typed debt
+authority는 모두 0원이다. 제출 결과는 총 claim 52,789,972원, 배분 1,679,199원, 면책 51,110,773원이며
+제출과 첫 30일 advance의 exact replay가 새 상태를 만들지 않음을 확인했다. 상세 과정과 두 production 결함
+수정은 §13.23을 따른다. 임시 session 14~18은 모두 삭제했고 열린 외부 InnoDB transaction은 0건이다.
 
 다음 재개 순서는 고정한다.
 
-1. [`AGENTS.md`](../AGENTS.md), 이 문서 §8.7~§8.8, §12, §13.1, §13.2, §13.19~§13.22, §14와
+1. [`AGENTS.md`](../AGENTS.md), 이 문서 §8.1~§8.8, §12, §13.1, §13.2, §13.19~§13.23, §14와
    [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다. E2 기능을 다시 수정할 때만 §9.3,
    §9.4와 [`store/corporations.rs`](../server/src/store/corporations.rs),
    [`0050_m4e2_corporation_tax_dividend.sql`](../server/migrations/0050_m4e2_corporation_tax_dividend.sql),
    [`0051_m4e2_corporation_payroll_source_width.sql`](../server/migrations/0051_m4e2_corporation_payroll_source_width.sql)을
-   함께 읽는다.
-2. **다음 한 단계는 현재 fixture의 도산 경계 확인이다.** user 5용 하루 만료 임시 session을 만들고
-   `GET /api/insolvency`로 day 1115의 eligibility와 reason을 먼저 저장한다. 현재 essential arrear 구성이
-   지원되면 prepare→submit→recovery 경로를 진행하고, 지원되지 않으면 이 fixture는 연체 장기 경로로
-   보존한 뒤 §8.8 구성을 만족하는 별도 PII 없는 production fixture에서 도산·재기를 진행한다.
-3. 그 다음 user 5의 30일 step을 고정 30년 끝까지 먼저 진행한다. 매 command마다 전체 회귀를 돌리지 않고
-   연 경계와 상태 전이에서만 cursor, debt projection, 개인·법인 원장 합, 법인 월·세금과 exact replay를
-   확인한다. 실패하면 같은 command ID로 재개해 일일 commit 경계를 검증하고 실제 원인만 표적 수정한다.
+   함께 읽는다. 도산 판정·제출·재기 문제를 만질 때는
+   [`store/insolvency.rs`](../server/src/store/insolvency.rs)를 함께 읽는다.
+2. **다음 한 단계는 user 5 장기 연체 경로의 30년 완주다.** save 3882/run 1의 day 1115/state 1119에서
+   327×30일로 day 10925까지 진행하고 마지막 25일로 총 day 10950을 맞춘다. 매 command마다 전체 회귀를
+   돌리지 않고 연 경계와 상태 전이에서만 cursor, debt projection, 개인·법인 원장 합, 법인 월·세금과
+   exact replay를 확인한다. 실패하면 같은 command ID로 재개해 일일 commit 경계를 검증하고 실제 원인만
+   표적 수정한다.
+3. 그 다음 user 4/save 118/run 2의 case 3 재기 경계를 닫는다. day 181/state 209에서 59×30일로 day
+   1951까지, 24일로 day 1975/state 2003까지 진행해 여전히 `rebuilding`인지 확인하고, 마지막 1일로 day
+   1976/state 2004에서 `recovered` transition이 정확히 한 번 생기며 신용 overlay가 해제되는지 확인한다.
+   중간에는 30일 command step 수·debt 0·원장 합만 표본 확인한다.
 4. 마지막으로 같은 bundle·seed·초기 입력을 고정한 PII 없는 paired fixture를 같은 production DB에 만들어
    1일 step과 30일 step의 최종 hash를 비교하고 정상·도산·재기 경로, 다른 run 비노출, orphan, 재시작
    불변식을 닫는다. 별도 DB·schema·dump는 만들지 않는다. 인증된 브라우저 session이 준비되면
@@ -3648,8 +3659,70 @@ client production 전달을 닫고 §13.2의 기존 user 5 법인 fixture로 30�
   0임을 확인했다. token·hash 변수도 폐기했으며 repository나 문서에 credential을 남기지 않았다. server
   코드와 schema는 바뀌지 않았으므로 server CD나 테스트를 다시 실행하지 않았다.
 
-이 checkpoint는 **30년 검증 완료가 아니다**. 정확한 재개점은 §1.1의 day 1115 도산 eligibility 확인이며,
-그 뒤 현재 30일 step 장기 경로, paired 1일 step·정상 경로와 도산·재기 비교를 순서대로 닫는다.
+이 checkpoint는 **30년 검증 완료가 아니다**. day 1115 도산 eligibility 확인과 별도 fresh 도산·재기 첫
+구간은 §13.23에서 닫았다. 정확한 다음 순서는 §1.1의 user 5 장기 경로, user 4 회복 경계, paired 1일·30일
+step 비교다.
+
+### 13.23 M4-F 도산 production 결함 수정과 재기 첫 구간 (2026-07-29)
+
+§13.22의 day 1115 도산 경계를 먼저 확인하고, 지원 구성을 공개 API로 새로 만들어 prepare·submit·replay와
+재기 첫 30일을 진행했다. 별도 MySQL·schema·dump를 만들지 않았고 development production DB의 기존
+fixture와 append-only 이력을 그대로 사용했다.
+
+- user 5/save 3882/run 1의 최초 `GET /api/insolvency`는 availability가 `cashOnlyLiquidation`인데도
+  eligibility `unavailable`, reason
+  `policyUnavailable · noSupportedDefaultedDebt · unsupportedNonLoanObligation`을 반환했고 prepare는 HTTP
+  409 `rateUnavailable`이었다. cursor state 1119/day 1115와 관련 case·command 행은 바뀌지 않았다. active
+  policy v5의 규칙 52가 기준 v4 규칙 49의 봉인 exact clone인데 runtime이 policy set key v4를 하드코딩한
+  것이 원인이었다.
+- 정책 identity 기준을 먼저 문서화한 `be6dda8` 뒤 `da82674`가 현재 봉인 규칙이 기준 규칙을 직접
+  포함하거나 `policy_rule_clone_provenance.sealedExactClone`으로 가리키며 domain·rule key·유효기간·
+  parameters가 같을 때만 호환되도록 판정을 고쳤다. server CD
+  [`30410308566`](https://github.com/it-play/lifeledger/actions/runs/30410308566)은 7분 20초에 성공했다. 같은
+  fixture는 이후 eligibility `compositionUnsupported`, reason
+  `noSupportedDefaultedDebt · unsupportedNonLoanObligation`, prepare HTTP 422
+  `insolvencyCompositionUnsupported`를 반환했다. 이는 active essential arrear만 있고 지원되는 defaulted
+  loan이 없는 §8.2의 의도한 fail-closed 결과다. 이 fixture는 변경 없이 장기 연체 경로로 보존했다.
+- user 4/save 118에는 공개 API로 run revision 2를 시작했다. 초기 wallet 25,000,000원, student loan
+  50,000,000원, unsecured loan 3,000,000원이며 DB에서 채무 상태를 직접 조작하지 않았다. day 31에 wallet
+  23,312,715원을 기존 default account 8로 옮기고 4×30일을 진행해 student loan은 day 121, 두 대출은 day
+  151에 자연 `defaulted`가 됐다. account 현금을 다시 wallet로 옮겨 active essential arrear 24건
+  3,546,145원을 각각 공식 payment API로 상환하자 `GET /api/insolvency`는 `eligible`, reason 0건이 됐다.
+- case 3 prepare는 day 151/state 177→178에서 wallet 19,766,570원, 자동 보호 2,500,000원, 추가 보호
+  15,587,371원, 청산 가능액 1,679,199원과 claim 2건 총 52,789,972원을 고정했다. 첫 submit은 HTTP 500
+  `save debt disagrees with its typed authority projection`으로 실패했지만 transaction rollback 뒤 case는
+  `prepared`, submit receipt·distribution·payment는 0건, cursor state 178/day 151과 debt·claim 합은
+  그대로였다.
+- 두 계약의 원금 52,540,728원 외에 발생이자 249,244원이 있었는데 계약 authority는 원금·이자·수수료를
+  모두 0으로 만들면서 `save.debtKrw`에서는 원금만 차감한 것이 두 번째 원인이었다. 전체 claim 차감을 먼저
+  문서화한 `b97d276` 뒤 `c95edef`가 `distribution.totalClaimKrw`를 저장 debt 차감과 guard에 함께 사용하도록
+  고쳤다. server CD
+  [`30411706775`](https://github.com/it-play/lifeledger/actions/runs/30411706775)은 6분 38초에 성공했다.
+- 재제출은 state 179/day 151에서 case 3을 `rebuilding`으로 만들었다. 보호 후 cash는 18,087,371원,
+  배분은 1,679,199원, 면책은 51,110,773원, 저장 debt는 0원이고
+  `creditRestrictionEndExclusive=1976`이다. 동일 submit command replay는 같은 case·cursor·합계를
+  `replayed=true`로 반환했고 새 receipt나 상태를 만들지 않았다.
+- 첫 재기 30일 advance는 약 2.244초에 state 179/day 151→state 209/day 181로 진행해 cash
+  16,935,883원, debt 0원, case `rebuilding`을 유지했다. 같은 command
+  `bf04c03f-cfd0-448e-ad61-e66b0e202700` replay는 initial state 179/day 151과 committed state 209/day 181을
+  그대로 반환했다. `advance_command_step`은 30건, step 번호 1~30, before day 151~180이며 day와 state의
+  합산 delta가 각각 30이다.
+- DB 불변식은 case transition 5건
+  `prepared→filed→liquidation→discharged→rebuilding`, claim 2건 합
+  `52,789,972=1,679,199+51,110,773`, 차이 0원을 확인했다. loan 5·6은 `discharged`이고 원금·발생이자·
+  수수료가 모두 0이다. 저장 debt·active loan authority·active essential arrear·account 8 cash도 모두
+  0원이다. distribution 2건과 payment 합은 각각 1,679,199원, ledger reference 불일치 0건, 관련 원장
+  중 분배 transaction 2건의 posting 합과 2개 미만 posting 위반은 모두 0이다. prepare·submit receipt는
+  각각 1건이다.
+- 최종 production은 migration `51/51`, 실패 0, 내부·public health HTTP 200이다. 새 container 시작 이후
+  warning/error/panic과 열린 InnoDB transaction은 각각 0건이다. 검증 session 16~18은 ID·user를 함께
+  제한해 삭제하고 token 변수를 폐기했으며 matching 원격 임시 JSON이나 복구 artifact도 남기지 않았다.
+  두 수정은 `cargo check`, clippy `--all-targets -D warnings`, fmt와 `git diff --check`를 통과했다. 새 순수
+  규칙이 아니라 production SQL 판정·projection 결함이었으므로 migration, DOM·network test나 전체 회귀를
+  추가하지 않았다. session/current-run scope, bind SQL, checked 금액 산술과 secret 미저장도 다시 확인했다.
+
+이 checkpoint도 **30년 검증 완료가 아니다**. 다음 명령과 예상 cursor는 §1.1에 고정했으며 user 5의 장기
+연체 fixture와 user 4의 case 3을 수정하지 않고 이어서 사용한다.
 
 ## 14. M4 완료 조건
 
