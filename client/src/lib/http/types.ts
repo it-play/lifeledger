@@ -32,6 +32,11 @@ export interface HttpClient {
   ): Promise<T>;
 }
 
+/** HTTP boundary extension for APIs that expose an idempotent resource deletion. */
+export interface DeleteHttpClient extends HttpClient {
+  delete<T>(path: string, decoder: ResponseDecoder<T>, options?: RequestOptions): Promise<T>;
+}
+
 export interface HttpClientOptions {
   readonly baseUrl?: string;
   readonly defaultHeaders?: Readonly<Record<string, string>>;

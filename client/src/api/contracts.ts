@@ -10304,6 +10304,169 @@ export const RunFinalizationSchema = z.discriminatedUnion('status', [
   }).strict(),
 ]);
 
+export const PlaytestFeedbackCategorySchema = z.enum([
+  'bug',
+  'balance',
+  'usability',
+  'performance',
+  'rules',
+  'other',
+]);
+
+export const PlaytestFeedbackSeveritySchema = z.enum(['blocking', 'major', 'minor', 'suggestion']);
+
+export const PlaytestConsentPolicySchema = z
+  .object({
+    id: ResourceIdSchema,
+    scope: z.literal('feedbackSubmission'),
+    policyKey: z.string().min(1).max(96),
+    version: z.number().int().positive(),
+    schemaVersion: z.number().int().positive().max(65_535),
+    displayName: z.string().min(1).max(120),
+    noticeText: z.string().min(1).max(2_000),
+    canonicalSha256: Sha256Schema,
+    analyticsCollection: z.literal('disabled'),
+    maximumActiveFeedback: z.literal(20),
+    messageMaximumCharacters: z.literal(500),
+  })
+  .strict();
+
+export const PlaytestConsentSchema = z
+  .object({
+    status: z.enum(['notGranted', 'granted', 'withdrawn', 'policyChanged']),
+    revision: z.number().int().safe().nonnegative(),
+    policyVersionId: ResourceIdSchema.nullable(),
+    grantedAt: z.string().min(1).nullable(),
+    withdrawnAt: z.string().min(1).nullable(),
+  })
+  .strict()
+  .superRefine((consent, context) => {
+    if (
+      (consent.status === 'notGranted' &&
+        (consent.revision !== 0 ||
+          consent.policyVersionId !== null ||
+          consent.grantedAt !== null ||
+          consent.withdrawnAt !== null)) ||
+      (consent.status !== 'notGranted' &&
+        (consent.revision === 0 ||
+          consent.policyVersionId === null ||
+          consent.grantedAt === null)) ||
+      (consent.status === 'withdrawn') !== (consent.withdrawnAt !== null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'playtest consent status and timestamps are inconsistent',
+      });
+    }
+  });
+
+export const PlaytestFeedbackIdSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+export const PlaytestFeedbackSchema = z
+  .object({
+    id: PlaytestFeedbackIdSchema,
+    category: PlaytestFeedbackCategorySchema,
+    severity: PlaytestFeedbackSeveritySchema,
+    message: z.string().min(1).max(500),
+    runRevision: z.number().int().nonnegative().nullable(),
+    runManifestSha256: Sha256Schema.nullable(),
+    finalizationSha256: Sha256Schema.nullable(),
+    createdAt: z.string().min(1),
+  })
+  .strict()
+  .superRefine((feedback, context) => {
+    if (
+      (feedback.runRevision === null) !== (feedback.runManifestSha256 === null) ||
+      (feedback.finalizationSha256 !== null && feedback.runRevision === null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['runManifestSha256'],
+        message: 'playtest run reference and hashes are inconsistent',
+      });
+    }
+  });
+
+export const PlaytestFeedbackOverviewSchema = z
+  .object({
+    policy: PlaytestConsentPolicySchema,
+    consent: PlaytestConsentSchema,
+    feedback: z.array(PlaytestFeedbackSchema).max(20),
+  })
+  .strict()
+  .superRefine((overview, context) => {
+    if (
+      overview.consent.status === 'granted' &&
+      overview.consent.policyVersionId !== overview.policy.id
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['consent', 'policyVersionId'],
+        message: 'granted consent does not match the active policy',
+      });
+    }
+  });
+
+export const PlaytestConsentRequestSchema = z
+  .object({
+    policyVersionId: ResourceIdSchema,
+    expectedRevision: z.number().int().safe().nonnegative(),
+    action: z.enum(['grant', 'withdraw']),
+  })
+  .strict();
+
+export const PlaytestConsentUpdateSchema = z
+  .object({
+    consent: PlaytestConsentSchema,
+    purgedFeedbackCount: z.number().int().safe().nonnegative(),
+  })
+  .strict();
+
+export const PlaytestFeedbackDraftSchema = z
+  .object({
+    category: PlaytestFeedbackCategorySchema,
+    severity: PlaytestFeedbackSeveritySchema,
+    message: z
+      .string()
+      .trim()
+      .min(1, '피드백을 입력해 주세요')
+      .max(500, '500자 이내로 입력해 주세요'),
+    privacyConfirmed: z.literal(true),
+    runRevision: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+export const PlaytestFeedbackRequestSchema = PlaytestFeedbackDraftSchema.extend({
+  expectedConsentRevision: z.number().int().safe().positive(),
+}).strict();
+
+export const PlaytestFeedbackDeletionSchema = z
+  .object({
+    id: PlaytestFeedbackIdSchema,
+    status: z.literal('withdrawn'),
+    withdrawnAt: z.string().min(1),
+  })
+  .strict();
+
+export const PlaytestFailureCodeSchema = z.enum([
+  'invalidCommand',
+  'policyUnavailable',
+  'revisionConflict',
+  'consentRequired',
+  'privacyConfirmationRequired',
+  'feedbackCapacityReached',
+  'runReferenceNotFound',
+  'feedbackNotFound',
+]);
+
+export const PlaytestFailureSchema = z
+  .object({
+    code: PlaytestFailureCodeSchema,
+  })
+  .strict();
+
 const UnsignedDecimalSchema = z
   .string()
   .regex(/^(0|[1-9][0-9]{0,19})$/)
@@ -11086,6 +11249,19 @@ export type LeagueRankingItem = z.infer<typeof LeagueRankingItemSchema>;
 export type LeagueRankingPage = z.infer<typeof LeagueRankingPageSchema>;
 export type RunFinalizationLine = z.infer<typeof RunFinalizationLineSchema>;
 export type RunFinalization = z.infer<typeof RunFinalizationSchema>;
+export type PlaytestFeedbackCategory = z.infer<typeof PlaytestFeedbackCategorySchema>;
+export type PlaytestFeedbackSeverity = z.infer<typeof PlaytestFeedbackSeveritySchema>;
+export type PlaytestConsentPolicy = z.infer<typeof PlaytestConsentPolicySchema>;
+export type PlaytestConsent = z.infer<typeof PlaytestConsentSchema>;
+export type PlaytestFeedback = z.infer<typeof PlaytestFeedbackSchema>;
+export type PlaytestFeedbackOverview = z.infer<typeof PlaytestFeedbackOverviewSchema>;
+export type PlaytestConsentRequest = z.infer<typeof PlaytestConsentRequestSchema>;
+export type PlaytestConsentUpdate = z.infer<typeof PlaytestConsentUpdateSchema>;
+export type PlaytestFeedbackDraft = z.infer<typeof PlaytestFeedbackDraftSchema>;
+export type PlaytestFeedbackRequest = z.infer<typeof PlaytestFeedbackRequestSchema>;
+export type PlaytestFeedbackDeletion = z.infer<typeof PlaytestFeedbackDeletionSchema>;
+export type PlaytestFailureCode = z.infer<typeof PlaytestFailureCodeSchema>;
+export type PlaytestFailure = z.infer<typeof PlaytestFailureSchema>;
 export type OfflinePolicy = z.infer<typeof OfflinePolicySchema>;
 export type ProgressLease = z.infer<typeof ProgressLeaseSchema>;
 export type OfflineProgress = z.infer<typeof OfflineProgressSchema>;

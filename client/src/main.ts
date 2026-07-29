@@ -8,6 +8,7 @@ import { createInsuranceApi } from './api/insurance-api.js';
 import { createLifeApi } from './api/life-api.js';
 import { createLifeEventApi } from './api/life-event-api.js';
 import { createLoanApi } from './api/loan-api.js';
+import { createPlaytestApi } from './api/playtest-api.js';
 import { createWelfareApi } from './api/welfare-api.js';
 import { createGameStateWriter, type GameStateWriter } from './app/game-state/index.js';
 import { createCareerView } from './app/screens/career.js';
@@ -20,6 +21,7 @@ import { createLifeView } from './app/screens/life.js';
 import { createLoansView } from './app/screens/loans.js';
 import { createLoginView } from './app/screens/login.js';
 import { createNotFoundView } from './app/screens/not-found.js';
+import { createPlaytestFeedbackView } from './app/screens/playtest-feedback.js';
 import { createRecoveryView } from './app/screens/recovery.js';
 import { createWelfareView } from './app/screens/welfare.js';
 import { type AppState, initialState, paths } from './app/state.js';
@@ -63,6 +65,7 @@ function bootstrap(): void {
   const lifeEventApi = createLifeEventApi({ http });
   const lifeApi = createLifeApi({ http });
   const loanApi = createLoanApi({ http });
+  const playtestApi = createPlaytestApi({ http });
   const welfareApi = createWelfareApi({ http });
   const api = createGameApi({
     http,
@@ -181,6 +184,10 @@ function bootstrap(): void {
           toasts,
           createCommandId: () => globalThis.crypto.randomUUID(),
         }),
+      },
+      {
+        pattern: '/playtest-feedback',
+        handler: createPlaytestFeedbackView({ store, api: playtestApi }),
       },
       {
         pattern: '/recovery',

@@ -1,14 +1,19 @@
 import { createNullLogger } from '../core/logger.js';
-import type { HttpClient, HttpClientOptions, RequestOptions, ResponseDecoder } from './types.js';
+import type {
+  DeleteHttpClient,
+  HttpClientOptions,
+  RequestOptions,
+  ResponseDecoder,
+} from './types.js';
 import { HttpError, ResponseShapeError } from './types.js';
 
-export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
+export function createHttpClient(options: HttpClientOptions = {}): DeleteHttpClient {
   const baseUrl = options.baseUrl ?? '';
   const logger = (options.logger ?? createNullLogger()).child('http');
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
   async function send<T>(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'DELETE' | 'GET' | 'POST' | 'PUT',
     path: string,
     decoder: ResponseDecoder<T>,
     body: unknown,
@@ -50,6 +55,8 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     post: (path, body, decoder, requestOptions) =>
       send('POST', path, decoder, body, requestOptions),
     put: (path, body, decoder, requestOptions) => send('PUT', path, decoder, body, requestOptions),
+    delete: (path, decoder, requestOptions) =>
+      send('DELETE', path, decoder, undefined, requestOptions),
   };
 }
 

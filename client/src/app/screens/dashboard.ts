@@ -1301,6 +1301,15 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           el(
             'p',
             {},
+            el(
+              'a',
+              { href: '/playtest-feedback', dataset: { link: '' } },
+              '개발 플레이테스트 피드백',
+            ),
+          ),
+          el(
+            'p',
+            {},
             el('a', { href: '/recovery', dataset: { link: '' } }, '채무 청산과 신용 회복'),
           ),
           el(

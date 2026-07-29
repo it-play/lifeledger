@@ -1,5 +1,6 @@
 export { createHttpClient } from './fetch-client.js';
 export {
+  type DeleteHttpClient,
   type HttpClient,
   type HttpClientOptions,
   HttpError,
