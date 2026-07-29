@@ -832,8 +832,6 @@ WHERE bundle_key = 'dev-unranked-m5-content-2026'
   AND status = 'sealed';
 
 ALTER TABLE run_manifest
-    ADD COLUMN content_bundle_id BIGINT UNSIGNED NULL
-        AFTER real_estate_model_version_id,
     ADD COLUMN content_bundle_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL
         AFTER content_bundle_id,
     ADD KEY ix_run_manifest_content_bundle (content_bundle_id),
