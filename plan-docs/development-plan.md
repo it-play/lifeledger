@@ -5,7 +5,7 @@
 
 - 최초 작성: 2026-07-25
 - 최근 갱신: 2026-07-29
-- 상태: M4-E2 server production 인수 완료, client production 전달과 M4-F 30년 검증 대기, 시각 스타일링 보류
+- 상태: **M4 전체 완료**, M5-A 실행 모드·포인트 예산 구현 개시, 시각 스타일링 보류
 
 ---
 
@@ -550,11 +550,12 @@ SSE만 그 채널을 구독한다. 전역 채널에서 `save_id`로 사후 필�
 
 ## 12. 로드맵
 
-현재 production server 완료 상태는 **M0·M1·M2·M3·M4-A·M4-B·M4-C·M4-D1·M4-D2·M4-D3·M4-E1·M4-E2
-전체**다. production DB는 migration `51/51`, 실패 0이며 E2의 운영 설정·대표 급여, 법인세·배당·월
-history를 실제 public API로 인수했다. 스타일 없는 `/corporation`은 로컬 production build까지 완료했지만
-현재 repository의 workflow는 server만 전달하므로 client production 제공으로 표시하지 않는다. 다음
-재개는 client 정적 delivery 경로 확인과 고정 30년 시나리오이며 그 전에는 M4 전체 완료로 표시하지 않는다.
+현재 production 완료 상태는 **M0·M1·M2·M3·M4 전체**다. production DB는 migration `51/51`, 실패 0이며
+스타일 없는 `/corporation` client까지 Vercel production에 전달됐다. 정상 paired fixture의 1일 step
+10,950회와 30일 step 365회는 같은 day 10950 상태·정규화 SHA-256으로 수렴했고, 별도 append-only run의
+30년 장기 연체와 도산 재기 exclusive 경계도 완료했다. 정확한 수치·불변식·재시작 검증은
+[M4 생애](./m4-life.md) §13.24를 따른다. 다음 재개는 [M5 확장](./m5-expansion.md) §1.1의 M5-A
+`run_manifest`·versioned point budget이며 시각 스타일링은 계속 보류한다.
 기존 월드 v1·v2·v3와 그 월드에 고정된 런은 보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를
 사용한다. M3는 style 없는 기능 화면,
 fresh MySQL 8 전진 마이그레이션과 실제 HTTP 스모크까지 완료했다. M3-C는 지급일 귀속 월 급여,
@@ -626,9 +627,10 @@ M4-E1의 전체 운영 인수 결과는 [M4 생애](./m4-life.md) §13.18에 기
 catalog/policy와 설립, 결정론적 월 손익, append-only 운영 설정·대표 급여, 연 결산 법인세, 배당 원천징수와
 M2 금융소득, bounded month history까지 server transaction으로 연결했다. production migration `51/51`,
 2026-08~2027-01 월 row, 대표 급여, 2026 결산, 배당·replay, 균형 원장과 재시작 불변을 실제 public HTTP와
-DB projection으로 확인했다. 상세 금액·CD run·checksum·hash는 [M4 생애](./m4-life.md) §13.21, 정확한 다음
-재개점은 같은 문서 §1.1을 따른다. client production 전달과 고정 30년 검증 전까지 M4 완료를 선언하지 않고
-시각 스타일링도 계속 보류한다.
+DB projection으로 확인했다. 상세 금액·CD run·checksum·hash는 [M4 생애](./m4-life.md) §13.21을 따른다.
+이후 client production, 장기 연체 30년, 도산 재기 경계, paired 1일·30일 30년 동등성까지 같은 문서
+§13.22~§13.24에서 닫아 M4 전체를 완료했다. 정확한 다음 재개점은 [M5 확장](./m5-expansion.md) §1.1이며
+시각 스타일링은 계속 보류한다.
 
 | 마일스톤 | 범위 | 완료 기준 |
 |---------|------|-----------|

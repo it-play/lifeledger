@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: 구현 전 설계 확정안
+- 상태: M4 production 완료, **M5-A 실행 모드·포인트 예산 구현 개시**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -22,6 +22,33 @@ M5는 M3·M4의 규칙을 새로 정의하지 않는다. ranked run은 M3 커리
 모두 포함하며, 그중 하나라도 결정론적 버전 pin과 30년 회귀를 제공하지 못하면 해당 시즌을 게시하지 않는다.
 시각적 리디자인·스타일링, 모바일 전용 UX, 실시간 다인 상호작용, 거래 가능한 보상, 실제 회사 경영 ERP는
 범위 밖이다.
+
+### 1.1 현재 재개 지점 (2026-07-29)
+
+M4는 [`m4-life.md` §13.24](./m4-life.md)의 development production 검증으로 완료했다. production server는
+`c95edef`, DB는 migration `51/51`이며 같은 시작 draft의 1일 step 10,950회와 30일 step 365회가 day
+10950에서 정규화 SHA-256
+`a1021ed3a8b9e49416a25b1fdfe6b9138a42bfacabe4fffcebfcd993378692ee`로 수렴했다. 장기 연체 30년과
+도산 재기 exclusive 경계도 별도 append-only run에서 완료했다. M5는 이 결과를 바꾸지 않고 새 run의
+manifest와 실행 모드를 추가한다.
+
+M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
+
+1. 기존 character start·save·`run_rule_bundle` 경계를 조사한 뒤 `run_manifest`, versioned preset·point
+   budget catalog와 기존 run의 명시적 unranked backfill을 migration으로 추가한다. sealed version은
+   update/delete하지 않는다.
+2. option ID를 canonical 정렬해 fixed/perUnit/tiered와 exclusive/requires/forbids를 i64 checked arithmetic로
+   평가하는 순수 point ledger를 만들고 `GET /api/run-options`, `POST /api/runs/point-preview`를 strict API로
+   공개한다. preview 합계는 시작 transaction에서 다시 계산한다.
+3. `rankedPreset · rankedCustom · sandbox`의 필수·금지 필드, immutable manifest hash, command replay를
+   `POST /api/runs`에 연결한 뒤 스타일 없는 생성 화면을 추가한다. ranked season·league의 실제 게시와
+   랭킹 계산은 M5-C가 소유하므로 M5-A fixture는 게시 전 development season만 사용한다.
+
+별도 MySQL·격리 schema·recovery dump는 만들지 않는다. server 변경은 `main` push 뒤 development
+production DB의 startup migration으로 직접 전진시키고 health·migration·기존 run 보존을 확인한다. 접속
+경로와 공개 base는 [`m4-life.md` §1.1](./m4-life.md)을 따르며 credential과 session token은 문서에 남기지
+않는다. 구현을 먼저 진행하고 순수 core/service 규칙만 BDD로 검증하며 DOM·network·DB 단위 테스트와
+무관한 전체 회귀로 병목을 만들지 않는다.
 
 ## 2. 실행 manifest와 세 모드
 

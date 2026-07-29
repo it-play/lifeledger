@@ -1,7 +1,7 @@
 # M4 생애 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4-F client production 전달·30년 30일 step 첫 750일·fresh 도산 제출·재기 첫 30일 완료, 장기·회복 경계와 step 동등성 검증 대기, 시각 스타일링 보류
+- 상태: **M4-A~F 완료** — client production, 정상·장기 연체 30년, 도산·재기 경계와 step 동등성 production 검증 완료, 시각 스타일링 보류
 - 상위 계획: [`development-plan.md` §3, §4.2, §6, §8, §9, §12](./development-plan.md)
 - 선행 마일스톤: M0 게임 루프, M1 시장 코어, M2 계좌·세제, **M3 커리어 전체**
 
@@ -22,63 +22,39 @@ M4는 M3까지의 금융·고용 루프에 생활을 유지하는 비용, 주거
 
 ### 1.1 현재 재개 지점 (2026-07-29)
 
-production server checkpoint는 `c95edef` binary이고 DB는 migration `51/51`, 실패 0이다. client code
-checkpoint `2a4dea1`은 Vercel deployment `dpl_HYkMfJEuri9ctsTiAiBWp8Xip8EA`로 처음 `Ready`가 됐다. canonical
-origin `https://lifeledger-ruby.vercel.app`은 이후 문서-only push를 포함한 최신 `main` production deployment를
-추적하므로 특정 deployment ID에 고정하지 않는다. `/corporation`은 HTTP 200, 생성 HTML의
-`js/app.js`는 정확히 한 개, same-origin `/api/health`는 200, 비인증 `/api/state`는 401이다. 운영 설정·대표
-급여, 연 결산·법인세, 배당·M2 금융소득, bounded 월 history까지 development production DB와 public API에서
-인수했다. 전체 결과는 §13.21~§13.23, 선행 E2a·월 영업 정산은 §13.19, 구현 provenance는 §13.20에 기록한다.
-`https://kimtaeeun.site/lifeledger/`는 다른 정적 사이트가 점유하고 API reverse proxy만 제공하므로 client
-origin으로 쓰지 않는다.
+M4는 §13.24의 production 검증으로 완료했다. production server checkpoint는 `c95edef` binary이고 DB는
+migration `51/51`, 실패 0이다. client code checkpoint `2a4dea1`은 Vercel에서 제공 중이며 canonical origin
+`https://lifeledger-ruby.vercel.app`은 최신 `main` production deployment를 추적한다. `/corporation`은 HTTP
+200, 생성 HTML의 `js/app.js`는 정확히 한 개, same-origin `/api/health`는 200, 비인증 `/api/state`는 401이다.
+`https://kimtaeeun.site/lifeledger/`는 API reverse proxy base이고 client origin으로 쓰지 않는다.
 
 별도 MySQL, 격리 schema, recovery dump는 만들지 않는다. server 변경은 `main`의 `server/**` push → 원격
 image build → 새 server 시작 시 `sqlx::migrate!()` → health 순서로 development production DB를 직접
 전진시킨다. 접속은 `ssh snowykte0426@59.28.34.117`, service host port는 `10105`, public base는
 `https://kimtaeeun.site/lifeledger`다. 비밀번호·session token은 문서나 repository에 남기지 않는다.
 
-M4-F 30일 step fixture는 user 5, save 3882, run revision 1, corporation 1이다. E2 인수 기준점 day 365/state
-revision 368에서 lean scale·대표 급여 0원을 설정해 state 369로 만든 뒤 25×30일을 진행했다. 현재 cursor는
-day 1115/state revision 1119다. 개인 cash는 0원이고 debt 20,620,932원은 전부 active essential arrear이며
-loan·lease arrear·tax obligation은 0원이다. 법인은 `active`, cash 61,454,825원, retained earnings
-53,094,253원, operating payable 0원, corporate tax payable 6,192,372원, distributable profit
-49,101,954원이다. 2026~2028 결산과 2026-08~2029-01 월 30건이 적용됐다. E2의 day 365 기준값은 §13.21,
-이번 첫 장기 구간은 §13.22를 따른다. day 1115의 정책 판정 결함을 고친 뒤 이 구성은 예상대로
-`compositionUnsupported`이며 reason은 `noSupportedDefaultedDebt · unsupportedNonLoanObligation`이다. case나
-command 이력은 만들지 않고 장기 연체 경로로 그대로 보존했다.
+현재 두 save의 current run은 정상 경로 paired fixture다. user 4/save 118/run 3과 user 5/save 3882/run 2는
+같은 market world 4, seed `20260101`, policy 7, life 7, credit 5, real-estate 7과 PII 없는 동일 시작 draft를
+사용했다. 각각 1일 step 10,950회와 30일 step 365회로 day 10950/state 10950에 도달했고 cash
+9,439,135,950원, debt 0원과 정규화 최종 SHA-256
+`a1021ed3a8b9e49416a25b1fdfe6b9138a42bfacabe4fffcebfcd993378692ee`가 같다. server 재시작 뒤에도 두
+hash는 변하지 않았다.
 
-도산·재기 fixture는 user 4, save 118의 새 run revision 2다. 공개 API만 사용해 자연 연체·default를 만든 뒤
-필수생활비 arrear 24건을 상환하고 case 3을 제출했다. 현재 cursor는 day 181/state revision 209, case 3은
-`rebuilding`, `creditRestrictionEndExclusive=1976`이다. cash는 16,935,883원, 저장 debt와 active typed debt
-authority는 모두 0원이다. 제출 결과는 총 claim 52,789,972원, 배분 1,679,199원, 면책 51,110,773원이며
-제출과 첫 30일 advance의 exact replay가 새 상태를 만들지 않음을 확인했다. 상세 과정과 두 production 결함
-수정은 §13.23을 따른다. 임시 session 14~18은 모두 삭제했고 열린 외부 InnoDB transaction은 0건이다.
+append-only 과거 이력은 삭제하지 않는다. user 5/save 3882/run 1/corporation 1은 30일 step 장기 연체
+경로를 day 10950/state 10954까지 완주했고 cash 0원, active essential arrear 2,075건 합 421,505,608원이다.
+user 4/save 118/run 2/case 3은 day 1976/state 2004에서 `recovered` transition을 정확히 한 번 만들었고
+신용 제한이 같은 exclusive 경계에서 해제됐다. 상세 수치와 불변식은 §13.22~§13.24를 따른다.
 
-다음 재개 순서는 고정한다.
+다음 재개는 M4 수정이나 시각 스타일링이 아니라 [`m5-expansion.md`](./m5-expansion.md)의 M5-A다.
 
-1. [`AGENTS.md`](../AGENTS.md), 이 문서 §8.1~§8.8, §12, §13.1, §13.2, §13.19~§13.23, §14와
-   [`development-plan.md` §12](./development-plan.md)를 먼저 읽는다. E2 기능을 다시 수정할 때만 §9.3,
-   §9.4와 [`store/corporations.rs`](../server/src/store/corporations.rs),
-   [`0050_m4e2_corporation_tax_dividend.sql`](../server/migrations/0050_m4e2_corporation_tax_dividend.sql),
-   [`0051_m4e2_corporation_payroll_source_width.sql`](../server/migrations/0051_m4e2_corporation_payroll_source_width.sql)을
-   함께 읽는다. 도산 판정·제출·재기 문제를 만질 때는
-   [`store/insolvency.rs`](../server/src/store/insolvency.rs)를 함께 읽는다.
-2. **다음 한 단계는 user 5 장기 연체 경로의 30년 완주다.** save 3882/run 1의 day 1115/state 1119에서
-   327×30일로 day 10925까지 진행하고 마지막 25일로 총 day 10950을 맞춘다. 매 command마다 전체 회귀를
-   돌리지 않고 연 경계와 상태 전이에서만 cursor, debt projection, 개인·법인 원장 합, 법인 월·세금과
-   exact replay를 확인한다. 실패하면 같은 command ID로 재개해 일일 commit 경계를 검증하고 실제 원인만
-   표적 수정한다.
-3. 그 다음 user 4/save 118/run 2의 case 3 재기 경계를 닫는다. day 181/state 209에서 59×30일로 day
-   1951까지, 24일로 day 1975/state 2003까지 진행해 여전히 `rebuilding`인지 확인하고, 마지막 1일로 day
-   1976/state 2004에서 `recovered` transition이 정확히 한 번 생기며 신용 overlay가 해제되는지 확인한다.
-   중간에는 30일 command step 수·debt 0·원장 합만 표본 확인한다.
-4. 마지막으로 같은 bundle·seed·초기 입력을 고정한 PII 없는 paired fixture를 같은 production DB에 만들어
-   1일 step과 30일 step의 최종 hash를 비교하고 정상·도산·재기 경로, 다른 run 비노출, orphan, 재시작
-   불변식을 닫는다. 별도 DB·schema·dump는 만들지 않는다. 인증된 브라우저 session이 준비되면
-   `/corporation` 화면 조작도 이 단계에서 한 번 확인하되, 현재는 공개 로그인 화면과 같은 Vercel origin의
-   인증 API 설정·replay까지 검증돼 있어 장기 기능 검증을 막지 않는다.
-5. 위 세 단계가 끝난 뒤에만 M4 완료를 선언하고 시각 스타일링으로 이동한다. 구현 우선 원칙에 따라 전체
-   회귀를 반복하지 않고 변경된 순수 규칙·service와 typecheck/build 등 필요한 gate만 실행한다.
+1. [`AGENTS.md`](../AGENTS.md), [`development-plan.md` §12](./development-plan.md),
+   [`m5-expansion.md` §1~§3, §8, §10, §12](./m5-expansion.md)을 먼저 읽는다. M4 회귀가 필요할 때만 이 문서
+   §13.2와 §13.24의 fixture·불변식을 사용한다.
+2. M5-A의 `run_manifest`와 versioned point-budget schema·순수 ledger를 먼저 구현하고, 기존 run에는
+   ranking 제외와 호환 manifest를 명시적으로 backfill한다.
+3. `GET /api/run-options`와 `POST /api/runs/point-preview`, 세 mode의 strict `POST /api/runs` 계약을
+   서버 권위로 연결한 뒤 스타일 없는 생성 화면을 붙인다. 변경된 순수 규칙과 typecheck/build 등 필요한
+   gate만 실행하고 DOM·network·전체 회귀를 습관적으로 추가하지 않는다.
 
 재개 전에 작업 규칙은 [`AGENTS.md`](../AGENTS.md), schema와 migration은
 [database-schema](../.agents/skills/database-schema/SKILL.md)·
@@ -3724,6 +3700,69 @@ fixture와 append-only 이력을 그대로 사용했다.
 이 checkpoint도 **30년 검증 완료가 아니다**. 다음 명령과 예상 cursor는 §1.1에 고정했으며 user 5의 장기
 연체 fixture와 user 4의 case 3을 수정하지 않고 이어서 사용한다.
 
+### 13.24 M4-F 30년 장기·재기·step 동등성 production 인수 완료 (2026-07-29)
+
+§13.23에서 남긴 세 경계를 별도 MySQL·schema·recovery dump 없이 development production DB와 public
+API에서 순서대로 닫았다. server code와 schema는 바뀌지 않았고, 각 command는 새 ID로 실행하되 전송 실패가
+발생하면 같은 body를 재시도하도록 구성했다. 실제 HTTP 실패·재시도·cursor 불일치는 없었다.
+
+**장기 연체 경로.** user 5/save 3882/run 1/corporation 1을 day 1115/state 1119에서 327×30일과 마지막
+25일로 day 10950/state 10954까지 진행했다.
+
+- 마지막 cash는 0원, 저장 debt는 421,505,608원이다. active loan·lease arrear·tax obligation은 0건이고
+  active essential arrear 2,075건 합만 421,505,608원으로 projection과 정확히 같다.
+- 법인은 `active`, cash 794,712,219원, retained earnings 707,847,171원, operating payable 0원,
+  corporate tax payable 84,696,848원, distributable profit 684,274,769원이다. 2026-08~2055-12 월 row
+  353건과 2026~2054 applied tax year 29건의 세액 합 84,696,848원이 payable과 같다.
+- day 1115~10950의 `advance_command_step`은 9,835건, command 328건, 서로 다른 before day 9,835건이며
+  모든 day/state delta가 1이다. 마지막 25일 command도 step 25건이고 exact replay가 더 전진하지 않았다.
+- 개인 원장 372 transaction/2,497 posting과 법인 원장 742 transaction/1,843 posting은 transaction별
+  posting 2개 미만과 합계 불일치가 모두 0건이다. 법인 월 link·상태·cash·payable 불일치도 0건이다.
+- server 재시작 전후 state, 법인 detail, month first page가 exact match였고 hash prefix는 각각
+  `fb415c3464fdcd0d`, `af573d14dafdedb0`, `bbca84dcd7645c50`이다.
+
+**도산 재기 경계.** user 4/save 118/run 2/case 3을 day 181/state 209에서 59×30일, 24일, 마지막
+1일로 day 1976/state 2004까지 진행했다.
+
+- day 1975의 동일 무담보대출 quote는 `creditRestricted`와 `insolvencyRebuilding`을 반환했다. 마지막 하루
+  뒤 day 1976의 동일 quote는 `eligible`로 바뀌어 exclusive 신용 제한 경계를 확인했다.
+- case 3은 `recovered`, terminal day와 credit restriction end exclusive는 모두 1976이다. transition은
+  총 6건이며 `recovered`는 정확히 한 번이다. 총 claim 52,789,972원, 배분 1,679,199원, 면책
+  51,110,773원은 바뀌지 않았고 두 loan contract는 원금·이자·수수료 0원의 `discharged`다.
+- day 181~1976의 step은 1,795건, command 61건, 서로 다른 before day 1,795건이며 모든 day/state delta가
+  1이다. 마지막 1일 command는 step 한 건이고 exact replay가 같은 cursor를 반환했다.
+- 마지막 cash는 0원, debt는 재기 뒤 새로 발생한 active essential arrear 267건 합 42,009,687원이다.
+  active loan·lease arrear·tax obligation은 0건이고 저장 projection이 typed authority와 같다. 개인 원장
+  99 transaction/446 posting, case·claim·distribution 합계의 불변식 위반은 모두 0건이다.
+
+**정상 경로 30년 step 동등성.** user 4/save 118/run 3과 user 5/save 3882/run 2에 동일한 PII 없는
+character draft와 market world 4/seed `20260101`, policy 7, life 7, credit 5, real-estate 7을 고정했다.
+user 4는 1일 command 10,950회, user 5는 30일 command 365회로 동시에 진행했다.
+
+- 두 run은 약 1,491초 뒤 day 10950/state 10950, cash 9,439,135,950원, debt 0원에 도달했다. 각 run의
+  step은 10,950건, distinct before day 10,950건이며 모든 day/state delta가 1이다. 마지막 command의 exact
+  replay도 상태를 추가하지 않았다.
+- run/state와 identity ID만 제외하고 모든 domain 값을 보존한 recursive canonical API snapshot은 두 run이
+  같은 SHA-256 `a1021ed3a8b9e49416a25b1fdfe6b9138a42bfacabe4fffcebfcd993378692ee`다.
+  server 재시작 뒤 두 hash도 그대로다.
+- `save_id`와 `run_revision`을 함께 가진 125개 table을 전수 비교했을 때 `command_receipt` cardinality만
+  start 포함 10,951건 대 366건으로 달랐고, 나머지 124개 table의 cardinality는 같다. 이 차이는 요청 묶음
+  크기에 따른 의도한 command 이력 차이다.
+- 양쪽 원장은 각각 360 transaction/720 posting이고 balance·cardinality 위반 0건이다. 생활비는 각각
+  360개월, gross/paid 560,864,050원, arrear 0원이며 종료일의 마지막 월만 아직 settlement 전이라 settled
+  359건으로 같다. orphan posting과 열린 외부 InnoDB transaction은 0건이다.
+- current run으로 바뀐 뒤 과거 graph의 교차 노출도 닫혔다. user 4가 과거 corporation 1을, user 5가
+  과거 case 3을 요청하거나 반대 사용자의 graph를 요청한 네 경우는 모두 HTTP 404였다.
+
+최종 production은 migration `51/51`, 실패 0, 내부·public health HTTP 200이고 restart 이후
+warning/error/panic과 열린 외부 transaction은 0건이다. 인수 session 19~21은 user 범위를 함께 확인해 모두
+삭제했고 token·runner 변수를 폐기했다. 원격 임시 파일, dump, 별도 DB artifact와 credential을 남기지 않았다.
+코드 변경이 없었으므로 단위·DOM·network·전체 회귀를 다시 실행하지 않았다.
+
+이 결과로 §13.2의 정상·연체·도산·재기, 1일·30일 step 동등성, exact replay, 원장·projection, 다른 run
+비노출, 재시작 불변식을 모두 충족했다. M4-A~F와 아래 §14의 완료 조건은 전부 완료이며 다음 구현은
+[`m5-expansion.md` §1.1](./m5-expansion.md)의 M5-A다.
+
 ## 14. M4 완료 조건
 
 1. M3에서 취업한 캐릭터의 가구·지역·CPI 기반 생활비가 급여와 같은 원장에서 매월 정산된다.
@@ -3736,6 +3775,9 @@ fixture와 append-only 이력을 그대로 사용했다.
 8. 스타일 없는 기능 화면에서 위 흐름을 조작할 수 있다.
 9. 정상·연체·파산·재기 경로를 포함한 고정 30년 시나리오가 원장 불일치나 음수 현금 없이 끝난다.
 10. 단위/protocol 테스트, 서버·클라이언트 검사와 development production MySQL 8 스모크가 통과한다.
+
+완료 판정: **10/10 충족**. 기능별 구현·검사는 §13.3~§13.23, 전체 30년 production 인수는 §13.24가
+증거다. 스타일링은 M4 완료 조건이 아니며 기능 우선 원칙에 따라 계속 보류한다.
 
 ## 15. 플레이테스트 전까지 의도적으로 남기는 조정값
 
