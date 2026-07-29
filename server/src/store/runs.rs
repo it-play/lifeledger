@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 use sqlx::MySqlPool;
 
@@ -9,11 +9,12 @@ use super::types::RunStore;
 use crate::character::CharacterDraft;
 use crate::finance::ResourceId;
 use crate::runs::{
-    CharacterPresetVersion, LeagueDefinition, PointBudgetCatalog, PointBudgetEvaluation,
-    PointBudgetOption, PointBudgetRules, PointCondition, PointCostKind, PointEffect,
-    PointExclusiveGroup, PointFactComparison, PointFactValue, PointSelection, PointTier,
-    RankedRunContext, RankedRunPreparation, RunManifestSummary, RunMode, RunOptions, SeasonLeagues,
-    SeasonStatus, SeasonSummary, create_point_budget_rules,
+    CharacterPresetVersion, LeagueDefinition, LeagueRankingItem, LeagueRankingPage,
+    PointBudgetCatalog, PointBudgetEvaluation, PointBudgetOption, PointBudgetRules, PointCondition,
+    PointCostKind, PointEffect, PointExclusiveGroup, PointFactComparison, PointFactValue,
+    PointSelection, PointTier, RankedRunContext, RankedRunPreparation, RankingPageCursor,
+    RunManifestSummary, RunMode, RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary,
+    create_point_budget_rules, encode_ranking_cursor,
 };
 
 #[derive(Clone)]
@@ -124,6 +125,31 @@ struct LeagueRow {
     point_budget_version_id: Option<u64>,
     minimum_participants: u32,
     participant_count: u64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct LeagueRankingMetaRow {
+    id: u64,
+    season_id: u64,
+    display_name: String,
+    minimum_participants: u32,
+    season_status: String,
+    finalized_count: u64,
+    failure_count: u64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct LeagueRankingRow {
+    rank_no: u64,
+    save_id: u64,
+    run_revision: u32,
+    run_id: String,
+    character_preset_version_id: Option<u64>,
+    point_budget_version_id: Option<u64>,
+    after_tax_net_worth_krw: i64,
+    insolvency_days: u32,
+    player_command_count: u64,
+    completed_at: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -287,6 +313,209 @@ impl RunStore for MySqlRunStore {
                 operation_close_at: season.operation_close_at,
             },
             leagues,
+        }))
+    }
+
+    async fn league_rankings(
+        &self,
+        league_id: ResourceId,
+        cursor: Option<RankingPageCursor>,
+        limit: u32,
+    ) -> Result<Option<LeagueRankingPage>> {
+        ensure!((1..=100).contains(&limit), "ranking page limit is invalid");
+        let meta = sqlx::query_as::<_, LeagueRankingMetaRow>(
+            "SELECT league.id, league.season_id, league.display_name,
+                    league.minimum_participants, season_row.status AS season_status,
+                    CAST((
+                        SELECT COUNT(*)
+                        FROM run_finalization AS finalization
+                        INNER JOIN run_manifest AS manifest
+                           ON manifest.save_id = finalization.save_id
+                          AND manifest.run_revision = finalization.run_revision
+                        WHERE manifest.league_definition_id = league.id
+                          AND finalization.status = 'completed'
+                    ) AS UNSIGNED) AS finalized_count,
+                    CAST((
+                        SELECT COUNT(*)
+                        FROM run_finalization AS finalization
+                        INNER JOIN run_manifest AS manifest
+                           ON manifest.save_id = finalization.save_id
+                          AND manifest.run_revision = finalization.run_revision
+                        WHERE manifest.league_definition_id = league.id
+                          AND finalization.status = 'failed'
+                    ) AS UNSIGNED) AS failure_count
+             FROM league_definition AS league
+             INNER JOIN season AS season_row ON season_row.id = league.season_id
+             WHERE league.id = ?",
+        )
+        .bind(league_id.get())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(meta) = meta else {
+            return Ok(None);
+        };
+
+        let fetch_limit = u64::from(limit) + 1;
+        let mut rows = match cursor {
+            Some(cursor) => {
+                sqlx::query_as::<_, LeagueRankingRow>(
+                    "SELECT ranked.rank_no, ranked.save_id, ranked.run_revision,
+                            ranked.run_id, ranked.character_preset_version_id,
+                            ranked.point_budget_version_id,
+                            ranked.after_tax_net_worth_krw, ranked.insolvency_days,
+                            ranked.player_command_count, ranked.completed_at
+                     FROM (
+                         SELECT CAST(ROW_NUMBER() OVER (
+                                    ORDER BY finalization.after_tax_net_worth_krw DESC,
+                                             finalization.insolvency_days,
+                                             finalization.player_command_count,
+                                             finalization.save_id,
+                                             finalization.run_revision
+                                ) AS UNSIGNED) AS rank_no,
+                                finalization.save_id, finalization.run_revision,
+                                manifest.manifest_sha256 AS run_id,
+                                manifest.character_preset_version_id,
+                                manifest.point_budget_version_id,
+                                finalization.after_tax_net_worth_krw,
+                                finalization.insolvency_days,
+                                finalization.player_command_count,
+                                DATE_FORMAT(
+                                    finalization.completed_at,
+                                    '%Y-%m-%dT%H:%i:%s.%fZ'
+                                ) AS completed_at
+                         FROM run_finalization AS finalization
+                         INNER JOIN run_manifest AS manifest
+                            ON manifest.save_id = finalization.save_id
+                           AND manifest.run_revision = finalization.run_revision
+                         WHERE manifest.league_definition_id = ?
+                           AND finalization.status = 'completed'
+                     ) AS ranked
+                     CROSS JOIN (
+                         SELECT ? AS after_tax_net_worth_krw,
+                                ? AS insolvency_days,
+                                ? AS player_command_count,
+                                ? AS save_id,
+                                ? AS run_revision
+                     ) AS cursor_row
+                     WHERE ranked.after_tax_net_worth_krw
+                                < cursor_row.after_tax_net_worth_krw
+                        OR (
+                            ranked.after_tax_net_worth_krw
+                                = cursor_row.after_tax_net_worth_krw
+                            AND ranked.insolvency_days > cursor_row.insolvency_days
+                        )
+                        OR (
+                            ranked.after_tax_net_worth_krw
+                                = cursor_row.after_tax_net_worth_krw
+                            AND ranked.insolvency_days = cursor_row.insolvency_days
+                            AND ranked.player_command_count > cursor_row.player_command_count
+                        )
+                        OR (
+                            ranked.after_tax_net_worth_krw
+                                = cursor_row.after_tax_net_worth_krw
+                            AND ranked.insolvency_days = cursor_row.insolvency_days
+                            AND ranked.player_command_count = cursor_row.player_command_count
+                            AND ranked.save_id > cursor_row.save_id
+                        )
+                        OR (
+                            ranked.after_tax_net_worth_krw
+                                = cursor_row.after_tax_net_worth_krw
+                            AND ranked.insolvency_days = cursor_row.insolvency_days
+                            AND ranked.player_command_count = cursor_row.player_command_count
+                            AND ranked.save_id = cursor_row.save_id
+                            AND ranked.run_revision > cursor_row.run_revision
+                        )
+                     ORDER BY ranked.after_tax_net_worth_krw DESC,
+                              ranked.insolvency_days,
+                              ranked.player_command_count,
+                              ranked.save_id,
+                              ranked.run_revision
+                     LIMIT ?",
+                )
+                .bind(meta.id)
+                .bind(cursor.after_tax_net_worth_krw)
+                .bind(cursor.insolvency_days)
+                .bind(cursor.player_command_count)
+                .bind(cursor.save_id)
+                .bind(cursor.run_revision)
+                .bind(fetch_limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as::<_, LeagueRankingRow>(
+                    "SELECT CAST(ROW_NUMBER() OVER (
+                                ORDER BY finalization.after_tax_net_worth_krw DESC,
+                                         finalization.insolvency_days,
+                                         finalization.player_command_count,
+                                         finalization.save_id,
+                                         finalization.run_revision
+                            ) AS UNSIGNED) AS rank_no,
+                            finalization.save_id, finalization.run_revision,
+                            manifest.manifest_sha256 AS run_id,
+                            manifest.character_preset_version_id,
+                            manifest.point_budget_version_id,
+                            finalization.after_tax_net_worth_krw,
+                            finalization.insolvency_days,
+                            finalization.player_command_count,
+                            DATE_FORMAT(
+                                finalization.completed_at,
+                                '%Y-%m-%dT%H:%i:%s.%fZ'
+                            ) AS completed_at
+                     FROM run_finalization AS finalization
+                     INNER JOIN run_manifest AS manifest
+                        ON manifest.save_id = finalization.save_id
+                       AND manifest.run_revision = finalization.run_revision
+                     WHERE manifest.league_definition_id = ?
+                       AND finalization.status = 'completed'
+                     ORDER BY finalization.after_tax_net_worth_krw DESC,
+                              finalization.insolvency_days,
+                              finalization.player_command_count,
+                              finalization.save_id,
+                              finalization.run_revision
+                     LIMIT ?",
+                )
+                .bind(meta.id)
+                .bind(fetch_limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
+        let has_more = rows.len() > usize::try_from(limit)?;
+        rows.truncate(usize::try_from(limit)?);
+        let next_cursor = if has_more {
+            rows.last()
+                .map(ranking_cursor_from_row)
+                .map(encode_ranking_cursor)
+                .transpose()?
+        } else {
+            None
+        };
+        let items = rows
+            .into_iter()
+            .map(|row| LeagueRankingItem {
+                rank: row.rank_no,
+                run_id: row.run_id,
+                display_name: "익명 플레이어".to_owned(),
+                character_preset_version_id: row
+                    .character_preset_version_id
+                    .map(ResourceId::from_u64),
+                point_budget_version_id: row.point_budget_version_id.map(ResourceId::from_u64),
+                after_tax_net_worth_krw: row.after_tax_net_worth_krw,
+                completed_at: row.completed_at,
+            })
+            .collect();
+
+        Ok(Some(LeagueRankingPage {
+            league_id: ResourceId::from_u64(meta.id),
+            season_id: ResourceId::from_u64(meta.season_id),
+            league_display_name: meta.display_name,
+            provisional: meta.season_status != "finalized"
+                || meta.finalized_count < u64::from(meta.minimum_participants)
+                || meta.failure_count > 0,
+            finalized_count: meta.finalized_count,
+            items,
+            next_cursor,
         }))
     }
 
@@ -611,6 +840,16 @@ fn to_run_mode(raw: &str) -> Result<RunMode> {
         "rankedCustom" => Ok(RunMode::RankedCustom),
         "sandbox" => Ok(RunMode::Sandbox),
         _ => bail!("stored run mode is invalid"),
+    }
+}
+
+fn ranking_cursor_from_row(row: &LeagueRankingRow) -> RankingPageCursor {
+    RankingPageCursor {
+        after_tax_net_worth_krw: row.after_tax_net_worth_krw,
+        insolvency_days: row.insolvency_days,
+        player_command_count: row.player_command_count,
+        save_id: row.save_id,
+        run_revision: row.run_revision,
     }
 }
 

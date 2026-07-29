@@ -388,6 +388,28 @@ identity·receipt를 만들지 않고 `modeUnavailable`로 닫는다. sandbox ma
 
 ### 5.2 결산과 세후순자산
 
+#### M5-C 결산 저장·조회 경계 (2026-07-29)
+
+migration `0055`는 `run_finalization`과 `liquidation_line`을 먼저 만든다. finalization은 ranked manifest의
+`(saveId, runRevision, targetGameDay, rankingRuleVersionId, rankingRuleSha256)`에 묶인 `planning` 행으로만
+시작하며, 같은 transaction의 line 작성 뒤 `completed` 또는 `failed`로 한 번만 전이한다. `completed` 전이는
+line 수와 `netKrw` 합계가 header의 `lineCount`와 `afterTaxNetWorthKrw`에 정확히 맞아야 한다. terminal
+finalization과 모든 line은 update/delete할 수 없다.
+
+이 저장 경계만 추가하는 동안에는 **표시용 `snapshot.netWorthKrw`를 세후 청산값으로 복사하지 않는다**.
+§5.2의 금융·부동산·법인·보험·채무 planner가 모두 구현되기 전에는 application이 `completed` 행을 쓰지
+않으며, 공개 랭킹은 올바른 빈 잠정 목록을 반환한다. 이로써 불완전한 자산 범위를 실제 순위처럼 게시하는
+것을 막는다.
+
+`GET /api/leagues/{id}/rankings`는 `completed` finalization만 읽고 아래 정렬 tuple 전체를 base64url
+cursor에 담는다. cursor 이후 keyset만 읽으므로 동점과 새 완료 row가 있어도 한 page 안에서 offset drift가
+없다. 별도 랭킹 표시 이름 기능 전에는 OAuth 정보나 캐릭터명을 노출하지 않고 `익명 플레이어`만 반환한다.
+
+1. `afterTaxNetWorthKrw DESC`
+2. `insolvencyDays ASC`
+3. `playerCommandCount ASC`
+4. `(saveId, runRevision) ASC`
+
 랭킹 지표는 manifest의 고정 목표일(초기 의도는 game 30년 시점)에 만들어진 `run_finalization`의
 `afterTaxNetWorthKrw`다. 목표일 하루 transaction의 모든 정산·사건·세금을 끝낸 뒤 다음 순서로 순수
 liquidation planner를 실행한다.

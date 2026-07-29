@@ -69,6 +69,8 @@ import {
   IsaAccountCloseRequestSchema,
   type IsaAccountCloseResponse,
   IsaAccountCloseResponseSchema,
+  type LeagueRankingPage,
+  LeagueRankingPageSchema,
   type LedgerPage,
   LedgerPageSchema,
   type MarketHistory,
@@ -187,6 +189,13 @@ export interface GameApi {
   listRunOptions(signal?: AbortSignal): Promise<RunOptions>;
   /** Lists one public season and its immutable league definitions. */
   listSeasonLeagues(seasonId: string, signal?: AbortSignal): Promise<SeasonLeagues>;
+  /** Lists completed finalizations in one public league. */
+  listLeagueRankings(
+    leagueId: string,
+    cursor?: string,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<LeagueRankingPage>;
   /** Evaluates one canonical point selection on the server. */
   previewPointBudget(
     request: PointBudgetPreviewRequest,
@@ -273,6 +282,7 @@ const bondProductCatalogDecoder = asDecoder(BondProductCatalogSchema);
 const goldProductCatalogDecoder = asDecoder(GoldProductCatalogSchema);
 const runOptionsDecoder = asDecoder(RunOptionsSchema);
 const seasonLeaguesDecoder = asDecoder(SeasonLeaguesSchema);
+const leagueRankingPageDecoder = asDecoder(LeagueRankingPageSchema);
 
 /** Turns a 422 body into a field-to-message map, or gives up if the shape is unfamiliar. */
 function toFieldErrors(error: unknown): Record<string, string> | undefined {
@@ -362,6 +372,19 @@ export function createGameApi(deps: GameApiDeps): GameApi {
       return http.get(
         `/api/seasons/${id}/leagues`,
         seasonLeaguesDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    listLeagueRankings: (leagueId, cursor, limit, signal) => {
+      const id = ResourceIdSchema.parse(leagueId);
+      const query = new URLSearchParams();
+      if (cursor !== undefined) query.set('cursor', cursor);
+      if (limit !== undefined) query.set('limit', String(limit));
+      const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+      return http.get(
+        `/api/leagues/${id}/rankings${suffix}`,
+        leagueRankingPageDecoder,
         signal === undefined ? undefined : { signal },
       );
     },

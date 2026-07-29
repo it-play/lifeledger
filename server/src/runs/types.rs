@@ -337,6 +337,42 @@ pub struct SeasonLeagues {
     pub leagues: Vec<LeagueDefinition>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RankingPageCursor {
+    pub(crate) after_tax_net_worth_krw: i64,
+    pub(crate) insolvency_days: u32,
+    pub(crate) player_command_count: u64,
+    pub(crate) save_id: u64,
+    pub(crate) run_revision: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeagueRankingItem {
+    pub rank: u64,
+    pub run_id: String,
+    pub display_name: String,
+    #[schema(required = true, nullable)]
+    pub character_preset_version_id: Option<ResourceId>,
+    #[schema(required = true, nullable)]
+    pub point_budget_version_id: Option<ResourceId>,
+    pub after_tax_net_worth_krw: i64,
+    pub completed_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeagueRankingPage {
+    pub league_id: ResourceId,
+    pub season_id: ResourceId,
+    pub league_display_name: String,
+    pub provisional: bool,
+    pub finalized_count: u64,
+    pub items: Vec<LeagueRankingItem>,
+    #[schema(required = true, nullable)]
+    pub next_cursor: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RankedRunContext {
     pub mode: RunMode,

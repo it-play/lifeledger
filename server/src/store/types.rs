@@ -37,8 +37,9 @@ use crate::life::{
 };
 use crate::market::{MarketCalibration, MarketDay, MarketWorld};
 use crate::runs::{
-    PointBudgetEvaluation, PointSelection, RankedRunContext, RankedRunPreparation,
-    RunManifestSummary, RunMode, RunOptions, SeasonLeagues,
+    LeagueRankingPage, PointBudgetEvaluation, PointSelection, RankedRunContext,
+    RankedRunPreparation, RankingPageCursor, RunManifestSummary, RunMode, RunOptions,
+    SeasonLeagues,
 };
 use crate::trading::{PositionState, TradeExecution, TradeFailure, TradeOrder};
 
@@ -3602,6 +3603,13 @@ pub trait RunStore: Send + Sync + 'static {
     async fn run_options(&self) -> Result<RunOptions>;
 
     async fn season_leagues(&self, season_id: ResourceId) -> Result<Option<SeasonLeagues>>;
+
+    async fn league_rankings(
+        &self,
+        league_id: ResourceId,
+        cursor: Option<RankingPageCursor>,
+        limit: u32,
+    ) -> Result<Option<LeagueRankingPage>>;
 
     async fn prepare_ranked_preset(
         &self,

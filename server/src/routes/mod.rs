@@ -40,10 +40,11 @@ use crate::life::{
     LoanProductKind,
 };
 use crate::runs::{
-    CharacterPresetVersion, LeagueDefinition, PointBudgetCatalog, PointBudgetEvaluation,
-    PointBudgetFailure, PointBudgetFailureCode, PointBudgetOption, PointCondition, PointCostKind,
-    PointEffect, PointExclusiveGroup, PointFactComparison, PointFactValue, PointLedgerLine,
-    PointSelection, PointTier, RunMode, RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary,
+    CharacterPresetVersion, LeagueDefinition, LeagueRankingItem, LeagueRankingPage,
+    PointBudgetCatalog, PointBudgetEvaluation, PointBudgetFailure, PointBudgetFailureCode,
+    PointBudgetOption, PointCondition, PointCostKind, PointEffect, PointExclusiveGroup,
+    PointFactComparison, PointFactValue, PointLedgerLine, PointSelection, PointTier, RunMode,
+    RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary, parse_ranking_cursor,
 };
 use crate::state::{
     ActiveHousingLeaseSnapshot, ActiveLeaseTermSnapshot, ActiveMilitarySavingsStatusSnapshot,
@@ -204,6 +205,8 @@ const DEFAULT_LOAN_INSTALLMENT_PAGE_SIZE: u8 = 50;
 const MAX_LOAN_INSTALLMENT_PAGE_SIZE: u8 = 50;
 const DEFAULT_PROPERTY_HISTORY_PAGE_SIZE: u8 = 20;
 const MAX_PROPERTY_HISTORY_PAGE_SIZE: u8 = 20;
+const DEFAULT_RANKING_PAGE_SIZE: u32 = 20;
+const MAX_RANKING_PAGE_SIZE: u32 = 100;
 const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// API docs, mounted under `/api` because that is the prefix nginx forwards.
@@ -218,6 +221,7 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         presets,
         run_options,
         season_leagues,
+        league_rankings,
         preview_point_budget,
         create_run,
         create_character,
@@ -422,6 +426,8 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         SeasonSummary,
         LeagueDefinition,
         SeasonLeagues,
+        LeagueRankingItem,
+        LeagueRankingPage,
         CharacterPresetVersion,
         PointBudgetCatalog,
         PointBudgetOption,
@@ -805,6 +811,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/presets", get(presets))
         .route("/api/run-options", get(run_options))
         .route("/api/seasons/{id}/leagues", get(season_leagues))
+        .route("/api/leagues/{id}/rankings", get(league_rankings))
         .route("/api/runs/point-preview", post(preview_point_budget))
         .route("/api/runs", post(create_run))
         .route("/api/characters", post(create_character))
@@ -1034,6 +1041,53 @@ async fn season_leagues(
     let season_id = parse_run_resource_id(&id)?;
     let response = state
         .season_leagues(season_id)
+        .await?
+        .ok_or(PointBudgetPreviewError::VersionNotFound)?;
+
+    Ok(Json(response))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[into_params(parameter_in = Query)]
+struct RankingPageParams {
+    cursor: Option<String>,
+    limit: Option<u32>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/leagues/{id}/rankings",
+    params(
+        ("id" = String, Path, description = "리그 ID"),
+        RankingPageParams
+    ),
+    responses(
+        (status = 200, description = "완료된 결산만 포함한 공개 랭킹", body = LeagueRankingPage),
+        (status = 400, description = "리그 ID, cursor 또는 limit 형식 오류", body = RunRequestFailure),
+        (status = 404, description = "리그 없음", body = RunRequestFailure),
+        (status = 500, description = "조회 실패")
+    )
+)]
+async fn league_rankings(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    query: Result<Query<RankingPageParams>, QueryRejection>,
+) -> Result<Json<LeagueRankingPage>, PointBudgetPreviewError> {
+    let league_id = parse_run_resource_id(&id)?;
+    let Query(query) = query.map_err(|_| PointBudgetPreviewError::InvalidCommand)?;
+    let limit = query.limit.unwrap_or(DEFAULT_RANKING_PAGE_SIZE);
+    if !(1..=MAX_RANKING_PAGE_SIZE).contains(&limit) {
+        return Err(PointBudgetPreviewError::InvalidCommand);
+    }
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(parse_ranking_cursor)
+        .transpose()
+        .map_err(|_| PointBudgetPreviewError::InvalidCommand)?;
+    let response = state
+        .league_rankings(league_id, cursor, limit)
         .await?
         .ok_or(PointBudgetPreviewError::VersionNotFound)?;
 

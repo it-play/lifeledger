@@ -9928,6 +9928,30 @@ export const SeasonLeaguesSchema = z
   })
   .strict();
 
+export const LeagueRankingItemSchema = z
+  .object({
+    rank: z.number().int().safe().positive(),
+    runId: Sha256Schema,
+    displayName: z.string().min(1),
+    characterPresetVersionId: ResourceIdSchema.nullable(),
+    pointBudgetVersionId: ResourceIdSchema.nullable(),
+    afterTaxNetWorthKrw: z.number().int().safe(),
+    completedAt: z.string().min(1),
+  })
+  .strict();
+
+export const LeagueRankingPageSchema = z
+  .object({
+    leagueId: ResourceIdSchema,
+    seasonId: ResourceIdSchema,
+    leagueDisplayName: z.string().min(1),
+    provisional: z.boolean(),
+    finalizedCount: z.number().int().safe().nonnegative(),
+    items: z.array(LeagueRankingItemSchema),
+    nextCursor: z.string().min(1).nullable(),
+  })
+  .strict();
+
 const RunStartCommandFields = {
   commandId: CanonicalUuidSchema,
   expectedRunRevision: z.number().int().nonnegative(),
@@ -10594,6 +10618,8 @@ export type SeasonStatus = z.infer<typeof SeasonStatusSchema>;
 export type SeasonSummary = z.infer<typeof SeasonSummarySchema>;
 export type LeagueDefinition = z.infer<typeof LeagueDefinitionSchema>;
 export type SeasonLeagues = z.infer<typeof SeasonLeaguesSchema>;
+export type LeagueRankingItem = z.infer<typeof LeagueRankingItemSchema>;
+export type LeagueRankingPage = z.infer<typeof LeagueRankingPageSchema>;
 export type RankedPresetRunStartDraft = z.infer<typeof RankedPresetRunStartDraftSchema>;
 export type RankedCustomRunStartDraft = z.infer<typeof RankedCustomRunStartDraftSchema>;
 export type SandboxRunStartDraft = z.infer<typeof SandboxRunStartDraftSchema>;
