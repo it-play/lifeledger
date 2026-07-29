@@ -9,11 +9,14 @@ COPY vendor ./vendor
 RUN mkdir -p src/bin \
  && echo '' > src/lib.rs \
  && echo 'fn main() {}' > src/main.rs \
+ && echo 'fn main() {}' > src/bin/market-data-sync.rs \
  && echo 'fn main() {}' > src/bin/offline-worker.rs \
  && echo 'fn main() {}' > src/bin/ops-report.rs \
  && cargo build --release --locked \
  && rm -rf src target/release/lifeledger-server target/release/offline-worker \
-      target/release/ops-report target/release/deps/lifeledger_server* \
+      target/release/market-data-sync target/release/ops-report \
+      target/release/deps/lifeledger_server* \
+      target/release/deps/market_data_sync* \
       target/release/deps/offline_worker* target/release/deps/ops_report*
 COPY build.rs ./build.rs
 COPY migrations ./migrations
@@ -28,6 +31,7 @@ RUN useradd --system --create-home --uid 10001 app
 USER app
 WORKDIR /home/app
 COPY --from=builder /build/target/release/lifeledger-server /usr/local/bin/lifeledger-server
+COPY --from=builder /build/target/release/market-data-sync /usr/local/bin/market-data-sync
 COPY --from=builder /build/target/release/offline-worker /usr/local/bin/offline-worker
 COPY --from=builder /build/target/release/ops-report /usr/local/bin/ops-report
 ENV BIND_ADDR=0.0.0.0:8080

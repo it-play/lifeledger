@@ -90,6 +90,25 @@ encrypted location, retention period, and deletion plan.
   manual/online progress remains available.
 - A paused setting is resumed only through its typed control path after the cause is removed.
 
+## Market-data catalog synchronization
+
+Run this only after the keys and service approvals in `plan-docs/market-data-keys.md` are present in
+`app.env`. It is a one-shot tool profile, not a continuously restarted service:
+
+~~~sh
+docker compose --profile tools run --rm market-data-sync
+~~~
+
+The JSON report contains only provider names, stable statuses, row counts, failure codes, the catalog
+version and source date. It must never contain a key, authenticated URL, raw provider response or
+individual quote. A `notConfigured` optional provider does not block the public-data catalog; a failed
+public-data catalog leaves the previous `active` assignment unchanged.
+
+After a successful run, search `/api/equities` through an authenticated QA session and verify the new
+catalog version, source date, exact-code ordering and permanent simulation notice. Do not query the
+providers from the browser or inspect `app.env` to diagnose a failure; use the stable report code and
+provider console instead.
+
 ## Stuck or expired worker lease
 
 ### Confirm
