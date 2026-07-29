@@ -40,6 +40,7 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{InterestRateState, MarketRegime};
+use crate::market_data::{EquitySearchQuery, EquitySearchResult};
 use crate::playtest::{
     ConsentCommand, ConsentUpdate, FeedbackDeletion, FeedbackDraft, FeedbackItem,
     PlaytestFeedbackOverview, PlaytestStore, PlaytestStoreResult,
@@ -8060,6 +8061,13 @@ impl AppState {
                 })
                 .collect(),
         })
+    }
+
+    pub async fn search_equities(
+        self: &Arc<Self>,
+        query: &EquitySearchQuery,
+    ) -> Result<EquitySearchResult> {
+        self.markets.search_equities(query).await
     }
 
     async fn advance_one_day(

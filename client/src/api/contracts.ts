@@ -9051,6 +9051,57 @@ export const MarketHistorySchema = z
     }
   });
 
+export const EquityMarketSchema = z.enum(['kospi', 'kosdaq', 'konex', 'other']);
+export const EquitySearchTextSchema = z.string().trim().min(1).max(80);
+export const EquitySearchLimitSchema = z.number().int().min(1).max(20);
+
+export const EquitySearchItemSchema = z
+  .object({
+    isin: z.string().regex(/^KR[A-Z0-9]{10}$/),
+    shortCode: z.string().regex(/^[0-9A-Z]{6,12}$/),
+    market: EquityMarketSchema,
+    displayName: z.string().min(1).max(160),
+    corporationName: z.string().min(1).max(200),
+    dartCorpCode: z
+      .string()
+      .regex(/^[0-9]{8}$/)
+      .nullable(),
+    industryCode: z.string().min(1).max(16).nullable(),
+    tradable: z.literal(false),
+  })
+  .strict();
+
+export const EquitySearchResultSchema = z
+  .object({
+    availability: z.enum(['available', 'notSynced']),
+    catalogVersion: z.string().min(1).max(96).nullable(),
+    sourceAsOf: z.iso.date().nullable(),
+    source: z.literal('dataGoKr').nullable(),
+    simulationNotice: z.string().min(1),
+    items: z.array(EquitySearchItemSchema).max(20),
+  })
+  .strict()
+  .superRefine((result, context) => {
+    const metadataIsNull =
+      result.catalogVersion === null && result.sourceAsOf === null && result.source === null;
+    const metadataIsComplete =
+      result.catalogVersion !== null && result.sourceAsOf !== null && result.source !== null;
+    if (result.availability === 'notSynced' && (!metadataIsNull || result.items.length > 0)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['availability'],
+        message: 'an unsynchronized equity catalog cannot expose metadata or items',
+      });
+    }
+    if (result.availability === 'available' && !metadataIsComplete) {
+      context.addIssue({
+        code: 'custom',
+        path: ['catalogVersion'],
+        message: 'an available equity catalog must expose its version and source date',
+      });
+    }
+  });
+
 // -- Finance accounts, transfers, and ledger (M2-A) ----------------------
 
 export const FinanceAccountsResponseSchema = z.object({
@@ -11234,6 +11285,9 @@ export type PortfolioOrderFailureCode = z.infer<typeof PortfolioOrderFailureCode
 export type PortfolioOrderFailure = z.infer<typeof PortfolioOrderFailureSchema>;
 export type MarketHistoryPoint = z.infer<typeof MarketHistoryPointSchema>;
 export type MarketHistory = z.infer<typeof MarketHistorySchema>;
+export type EquityMarket = z.infer<typeof EquityMarketSchema>;
+export type EquitySearchItem = z.infer<typeof EquitySearchItemSchema>;
+export type EquitySearchResult = z.infer<typeof EquitySearchResultSchema>;
 export type FinanceAccountsResponse = z.infer<typeof FinanceAccountsResponseSchema>;
 export type FinanceCommandRequest = z.infer<typeof FinanceCommandRequestSchema>;
 export type TransferDirection = z.infer<typeof TransferDirectionSchema>;

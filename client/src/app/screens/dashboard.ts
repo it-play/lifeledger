@@ -105,6 +105,7 @@ import {
   createPensionWithdrawalRetryPolicy,
   createTaxAccountOpenRetryPolicy,
 } from '../tax-account-retry/index.js';
+import { createEquitySearchPanel } from './equity-search.js';
 
 export interface DashboardDeps {
   readonly store: Store<AppState>;
@@ -459,6 +460,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
       mount(host, ctx) {
         const { store, snapshots, api, auth, toasts, createOrderId } = deps;
         const h = createHooks(ctx.bag);
+        const equitySearchPanel = createEquitySearchPanel({ api, bag: ctx.bag });
 
         const snapshot = h.useStoreValue(store, paths.gameSnapshot, (s) => s.game.snapshot);
         const advancing = h.useStoreValue(store, paths.gameAdvancing, (s) => s.game.advancing);
@@ -1442,6 +1444,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
             offlineProgressButton,
           ),
           el('section', {}, el('h2', {}, 'LLX 계좌별 보유'), llxPositionsValue),
+          equitySearchPanel,
           orderFieldset,
           el(
             'section',

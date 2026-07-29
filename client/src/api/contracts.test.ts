@@ -18,6 +18,7 @@ import {
   CashProductCatalogSchema,
   CharacterStartRequestSchema,
   CreditResponseSchema,
+  EquitySearchResultSchema,
   EssentialArrearPaymentRequestSchema,
   FinanceFailureCodeSchema,
   FinanceSnapshotSchema,
@@ -794,6 +795,64 @@ describe('시장 히스토리 응답 계약', () => {
       history.throughGameDay = 1;
 
       const result = MarketHistorySchema.safeParse(history);
+
+      expect(result.success).toBe(false);
+    });
+  });
+});
+
+describe('국내 상장 종목 검색 응답 계약', () => {
+  describe('맥락: 발행된 카탈로그에서 실제 종목 식별자를 찾은 경우', () => {
+    it('given 시뮬레이션 고지와 거래불가 종목, when 검증하면, then 응답을 허용한다', () => {
+      const response = {
+        availability: 'available',
+        catalogVersion: 'krx-listed-20260729-a1b2c3d4e5f6',
+        sourceAsOf: '2026-07-29',
+        source: 'dataGoKr',
+        simulationNotice: '실제 종목 식별자와 시뮬레이션 가격을 사용합니다.',
+        items: [
+          {
+            isin: 'KR7005930003',
+            shortCode: '005930',
+            market: 'kospi',
+            displayName: '삼성전자',
+            corporationName: '삼성전자',
+            dartCorpCode: '00126380',
+            industryCode: '264',
+            tradable: false,
+          },
+        ],
+      };
+
+      const result = EquitySearchResultSchema.safeParse(response);
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('맥락: 아직 발행된 카탈로그가 없는 경우', () => {
+    it('given notSynced와 종목 행, when 검증하면, then 모순된 응답을 거절한다', () => {
+      const response = {
+        availability: 'notSynced',
+        catalogVersion: null,
+        sourceAsOf: null,
+        source: null,
+        simulationNotice: '시뮬레이션 가격입니다.',
+        items: [
+          {
+            isin: 'KR7005930003',
+            shortCode: '005930',
+            market: 'kospi',
+            displayName: '삼성전자',
+            corporationName: '삼성전자',
+            dartCorpCode: null,
+            industryCode: null,
+            tradable: false,
+          },
+        ],
+      };
+
+      const result = EquitySearchResultSchema.safeParse(response);
 
       expect(result.success).toBe(false);
     });

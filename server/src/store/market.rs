@@ -17,6 +17,10 @@ use crate::market::{
     IndexProductTerms, MarketCalibration, MarketDay, MarketGeneratorRegistry, MarketParameters,
     MarketWorld, NullableInterestRateState, NullableM2MarketState,
 };
+use crate::market_data::{
+    EquityCatalogAvailability, EquityMarket, EquitySearchItem, EquitySearchQuery,
+    EquitySearchResult, simulation_notice,
+};
 
 /// History is paged above this layer; one query cannot expose an unbounded shared path.
 pub const MAX_MARKET_HISTORY_ROWS: u32 = 3_660;
@@ -171,6 +175,127 @@ impl MarketStore for MySqlMarketStore {
                 .collect::<Result<Vec<_>>>()?,
         })
     }
+
+    async fn search_equities(&self, query: &EquitySearchQuery) -> Result<EquitySearchResult> {
+        let catalog: Option<EquityCatalogRow> = sqlx::query_as(
+            "SELECT catalog.id, catalog.version,
+                    DATE_FORMAT(catalog.source_as_of, '%Y-%m-%d') AS source_as_of,
+                    catalog.source
+             FROM equity_catalog_assignment AS assignment
+             INNER JOIN equity_catalog_version AS catalog
+                 ON catalog.id = assignment.equity_catalog_version_id
+                AND catalog.published_at IS NOT NULL
+             WHERE BINARY assignment.assignment_key = BINARY 'active'",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(catalog) = catalog else {
+            return Ok(EquitySearchResult::not_synced());
+        };
+
+        let escaped = escape_like_pattern(&query.text);
+        let contains = format!("%{escaped}%");
+        let prefix = format!("{escaped}%");
+        let exact_code = query.text.to_ascii_uppercase();
+        let rows: Vec<EquitySearchRow> = sqlx::query_as(
+            "SELECT isin, short_code, market, display_name, corporation_name,
+                    dart_corp_code, industry_code
+             FROM equity_instrument_version
+             WHERE equity_catalog_version_id = ?
+               AND (? IS NULL OR BINARY market = BINARY ?)
+               AND (
+                    BINARY short_code = BINARY ?
+                    OR BINARY isin = BINARY ?
+                    OR short_code LIKE ? ESCAPE '='
+                    OR isin LIKE ? ESCAPE '='
+                    OR display_name LIKE ? ESCAPE '='
+                    OR corporation_name LIKE ? ESCAPE '='
+               )
+             ORDER BY
+               CASE
+                 WHEN BINARY short_code = BINARY ? THEN 0
+                 WHEN BINARY isin = BINARY ? THEN 1
+                 WHEN display_name LIKE ? ESCAPE '=' THEN 2
+                 WHEN corporation_name LIKE ? ESCAPE '=' THEN 3
+                 ELSE 4
+               END,
+               display_name, short_code
+             LIMIT ?",
+        )
+        .bind(catalog.id)
+        .bind(query.market.map(EquityMarket::as_str))
+        .bind(query.market.map(EquityMarket::as_str))
+        .bind(&exact_code)
+        .bind(&exact_code)
+        .bind(&contains)
+        .bind(&contains)
+        .bind(&contains)
+        .bind(&contains)
+        .bind(&exact_code)
+        .bind(&exact_code)
+        .bind(&prefix)
+        .bind(&prefix)
+        .bind(query.limit)
+        .fetch_all(&self.pool)
+        .await?;
+        let items = rows
+            .into_iter()
+            .map(EquitySearchRow::into_item)
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(EquitySearchResult {
+            availability: EquityCatalogAvailability::Available,
+            catalog_version: Some(catalog.version),
+            source_as_of: Some(catalog.source_as_of),
+            source: Some(catalog.source),
+            simulation_notice: simulation_notice().to_owned(),
+            items,
+        })
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct EquityCatalogRow {
+    id: u64,
+    version: String,
+    source_as_of: String,
+    source: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct EquitySearchRow {
+    isin: String,
+    short_code: String,
+    market: String,
+    display_name: String,
+    corporation_name: String,
+    dart_corp_code: Option<String>,
+    industry_code: Option<String>,
+}
+
+impl EquitySearchRow {
+    fn into_item(self) -> Result<EquitySearchItem> {
+        Ok(EquitySearchItem {
+            isin: self.isin,
+            short_code: self.short_code,
+            market: self
+                .market
+                .parse()
+                .map_err(|()| anyhow::anyhow!("equity catalog contains an invalid market"))?,
+            display_name: self.display_name,
+            corporation_name: self.corporation_name,
+            dart_corp_code: self.dart_corp_code,
+            industry_code: self.industry_code,
+            tradable: false,
+        })
+    }
+}
+
+fn escape_like_pattern(value: &str) -> String {
+    value
+        .replace('=', "==")
+        .replace('%', "=%")
+        .replace('_', "=_")
 }
 
 impl MySqlMarketStore {

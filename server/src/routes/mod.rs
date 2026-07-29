@@ -39,6 +39,11 @@ use crate::life::{
     HousingLeaseOfferKind, InsolvencyProcedureKind, LifeRegionKey, LivingCostCategory,
     LoanProductKind,
 };
+use crate::market_data::{
+    EquityCatalogAvailability, EquityMarket, EquitySearchItem,
+    EquitySearchQuery as DomainEquitySearchQuery, EquitySearchResult, MAX_EQUITY_SEARCH_LIMIT,
+    normalize_search_text,
+};
 use crate::playtest::{
     AnalyticsCollection, ConsentAction, ConsentCommand, ConsentDisplayStatus,
     ConsentPolicy as DomainConsentPolicy, ConsentState as DomainConsentState,
@@ -347,6 +352,7 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         open_military_savings,
         close_military_savings,
         market_history,
+        search_equities,
         clock,
         stream,
         auth::providers,
@@ -840,6 +846,10 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         auth::AccountDeletionRequest,
         auth::AccountDeletionFailure,
         crate::auth::ProviderKind,
+        EquitySearchResult,
+        EquitySearchItem,
+        EquityMarket,
+        EquityCatalogAvailability,
     )),
     modifiers(&SecurityAddon)
 )]
@@ -1063,6 +1073,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(close_military_savings),
         )
         .route("/api/markets/LLX/history", get(market_history))
+        .route("/api/equities", get(search_equities))
         .route("/api/clock", post(clock))
         .route("/api/stream", get(stream))
         .merge(auth::router())
@@ -8596,6 +8607,89 @@ struct MarketHistoryQuery {
 enum MarketHistoryRouteError {
     InvalidDays,
     Internal(AppError),
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+struct EquitySearchParams {
+    #[param(min_length = 1, max_length = 80)]
+    q: String,
+    #[param(required = false, value_type = Option<String>, pattern = "^(kospi|kosdaq|konex|other)$")]
+    market: Option<String>,
+    #[param(required = false, value_type = Option<u8>, default = 20, minimum = 1, maximum = 20)]
+    limit: Option<String>,
+}
+
+enum EquitySearchRouteError {
+    InvalidQuery,
+    Internal(AppError),
+}
+
+impl From<anyhow::Error> for EquitySearchRouteError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(AppError::from(error))
+    }
+}
+
+impl axum::response::IntoResponse for EquitySearchRouteError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::InvalidQuery => (
+                StatusCode::BAD_REQUEST,
+                Json(GameCommandFailure {
+                    code: GameCommandFailureCode::InvalidCommand,
+                    message: "검색어 또는 시장 필터가 올바르지 않습니다",
+                }),
+            )
+                .into_response(),
+            Self::Internal(error) => error.into_response(),
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/equities",
+    params(EquitySearchParams),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "활성 국내 상장 종목 카탈로그의 로컬 검색 결과", body = EquitySearchResult),
+        (status = 400, description = "검색어나 시장 필터가 잘못됨", body = GameCommandFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "종목 카탈로그 조회 실패")
+    )
+)]
+async fn search_equities(
+    State(state): State<Arc<AppState>>,
+    AuthUser(_user): AuthUser,
+    query: Result<Query<EquitySearchParams>, QueryRejection>,
+) -> Result<Json<EquitySearchResult>, EquitySearchRouteError> {
+    let Query(query) = query.map_err(|_| EquitySearchRouteError::InvalidQuery)?;
+    let text = normalize_search_text(&query.q).ok_or(EquitySearchRouteError::InvalidQuery)?;
+    let market = query
+        .market
+        .as_deref()
+        .map(str::parse::<EquityMarket>)
+        .transpose()
+        .map_err(|()| EquitySearchRouteError::InvalidQuery)?;
+    let limit = query
+        .limit
+        .as_deref()
+        .unwrap_or("20")
+        .parse::<u8>()
+        .ok()
+        .filter(|limit| (1..=MAX_EQUITY_SEARCH_LIMIT).contains(limit))
+        .ok_or(EquitySearchRouteError::InvalidQuery)?;
+    Ok(Json(
+        state
+            .search_equities(&DomainEquitySearchQuery {
+                text,
+                market,
+                limit,
+            })
+            .await?,
+    ))
 }
 
 impl From<anyhow::Error> for MarketHistoryRouteError {

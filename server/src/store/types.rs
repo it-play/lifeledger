@@ -4853,4 +4853,12 @@ pub trait MarketStore: Send + Sync + 'static {
 
     /// Reads only the authenticated account's assigned world through its current game day.
     async fn history_for_user(&self, user_id: u64, limit: u32) -> Result<MarketHistoryState>;
+
+    /// Searches the locally published KRX catalog without making a remote provider call.
+    async fn search_equities(
+        &self,
+        _query: &crate::market_data::EquitySearchQuery,
+    ) -> Result<crate::market_data::EquitySearchResult> {
+        Ok(crate::market_data::EquitySearchResult::not_synced())
+    }
 }

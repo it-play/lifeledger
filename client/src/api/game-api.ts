@@ -34,6 +34,12 @@ import {
   DepositOpenRequestSchema,
   type DepositOpenResponse,
   DepositOpenResponseSchema,
+  type EquityMarket,
+  EquityMarketSchema,
+  EquitySearchLimitSchema,
+  type EquitySearchResult,
+  EquitySearchResultSchema,
+  EquitySearchTextSchema,
   type FinanceAccountsResponse,
   FinanceAccountsResponseSchema,
   type FinanceFailureCode,
@@ -300,6 +306,13 @@ export interface GameApi {
   getFinanceLedger(before?: string, limit?: number, signal?: AbortSignal): Promise<LedgerPage>;
   /** Reads LLX history no later than the authenticated save's current game day. */
   getMarketHistory(days: number, signal?: AbortSignal): Promise<MarketHistory>;
+  /** Searches the last atomically published KRX catalog without calling a provider live. */
+  searchEquities(
+    query: string,
+    market?: EquityMarket,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<EquitySearchResult>;
   /** Subscribes to ticks, validating each payload against the contract first. */
   onTick(handler: (snapshot: GameSnapshot) => void): Unsubscribe;
   connectStream(): void;
@@ -317,6 +330,7 @@ const snapshotDecoder = asDecoder(GameSnapshotSchema);
 const healthDecoder = asDecoder(HealthSchema);
 const presetListDecoder = asDecoder(PresetListSchema);
 const marketHistoryDecoder = asDecoder(MarketHistorySchema);
+const equitySearchResultDecoder = asDecoder(EquitySearchResultSchema);
 const financeAccountsDecoder = asDecoder(FinanceAccountsResponseSchema);
 const cashProductCatalogDecoder = asDecoder(CashProductCatalogSchema);
 const bondProductCatalogDecoder = asDecoder(BondProductCatalogSchema);
@@ -1047,6 +1061,21 @@ export function createGameApi(deps: GameApiDeps): GameApi {
       const validDays = MarketHistoryDaysSchema.parse(days);
       const path = `/api/markets/LLX/history?days=${validDays}`;
       return http.get(path, marketHistoryDecoder, signal === undefined ? undefined : { signal });
+    },
+
+    searchEquities(query, market, limit = 20, signal) {
+      const validQuery = EquitySearchTextSchema.parse(query);
+      const validLimit = EquitySearchLimitSchema.parse(limit);
+      const parameters = new URLSearchParams({
+        q: validQuery,
+        limit: String(validLimit),
+      });
+      if (market !== undefined) parameters.set('market', EquityMarketSchema.parse(market));
+      return http.get(
+        `/api/equities?${parameters.toString()}`,
+        equitySearchResultDecoder,
+        signal === undefined ? undefined : { signal },
+      );
     },
 
     onTick(handler) {

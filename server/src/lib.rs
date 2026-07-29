@@ -6,6 +6,7 @@ mod error;
 pub mod finance;
 pub mod life;
 pub mod market;
+pub mod market_data;
 pub mod offline;
 mod operations;
 pub mod playtest;
@@ -128,6 +129,16 @@ pub async fn run_offline_worker() -> anyhow::Result<()> {
 pub async fn run_ops_report(require_clean_migrations: bool) -> anyhow::Result<()> {
     init_tracing();
     operations::run(connect_database().await?, require_clean_migrations).await
+}
+
+pub async fn run_market_data_sync() -> anyhow::Result<()> {
+    init_tracing();
+    let pool = connect_database().await?;
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .context("failed to apply migrations before market-data sync")?;
+    market_data::synchronize_market_data(pool).await
 }
 
 fn init_tracing() {
