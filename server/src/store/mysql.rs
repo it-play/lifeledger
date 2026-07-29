@@ -611,14 +611,17 @@ impl SaveStore for MySqlSaveStore {
         .bind(expected.rule_bundle.assignment_revision)
         .execute(&mut *tx)
         .await?;
+        let manifest_hashes = RunManifestHashes {
+            content_bundle: &content_bundle_sha256,
+            offline_policy: &offline_policy_sha256,
+            business_catalog: &business_catalog_sha256,
+        };
         write_run_manifest_in_tx(
             &mut tx,
             save_id,
             new_run_revision,
             &expected,
-            &content_bundle_sha256,
-            &offline_policy_sha256,
-            &business_catalog_sha256,
+            manifest_hashes,
             &command.manifest_kind,
         )
         .await?;
@@ -2047,14 +2050,18 @@ fn validate_advance_steps(
     Ok(())
 }
 
+struct RunManifestHashes<'a> {
+    content_bundle: &'a str,
+    offline_policy: &'a str,
+    business_catalog: &'a str,
+}
+
 async fn write_run_manifest_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     save_id: u64,
     run_revision: u32,
     configuration: &ActiveRunConfiguration,
-    content_bundle_sha256: &str,
-    offline_policy_sha256: &str,
-    business_catalog_sha256: &str,
+    hashes: RunManifestHashes<'_>,
     manifest_kind: &StartGameManifestKind,
 ) -> Result<()> {
     match manifest_kind {
@@ -2068,9 +2075,9 @@ async fn write_run_manifest_in_tx(
                 save_id,
                 run_revision,
                 configuration,
-                content_bundle_sha256,
-                offline_policy_sha256,
-                business_catalog_sha256,
+                hashes.content_bundle,
+                hashes.offline_policy,
+                hashes.business_catalog,
                 ranking_ineligibility_reason,
             )?;
             sqlx::query(
@@ -2096,11 +2103,11 @@ async fn write_run_manifest_in_tx(
             .bind(configuration.rule_bundle.credit_model_version_id.get())
             .bind(configuration.rule_bundle.real_estate_model_version_id.get())
             .bind(configuration.content_bundle.bundle_id.get())
-            .bind(content_bundle_sha256)
+            .bind(hashes.content_bundle)
             .bind(configuration.offline_policy.policy_version_id.get())
-            .bind(offline_policy_sha256)
+            .bind(hashes.offline_policy)
             .bind(configuration.business_catalog.catalog_version_id.get())
-            .bind(business_catalog_sha256)
+            .bind(hashes.business_catalog)
             .bind(crate::ENGINE_VERSION)
             .bind(ranking_ineligibility_reason)
             .bind(manifest_canonical_json)
@@ -2112,7 +2119,7 @@ async fn write_run_manifest_in_tx(
                 save_id,
                 run_revision,
                 configuration,
-                content_bundle_sha256,
+                hashes.content_bundle,
                 context,
             )?;
             let mode = run_mode_db_value(context.mode)?;
@@ -2152,7 +2159,7 @@ async fn write_run_manifest_in_tx(
             .bind(configuration.rule_bundle.credit_model_version_id.get())
             .bind(configuration.rule_bundle.real_estate_model_version_id.get())
             .bind(configuration.content_bundle.bundle_id.get())
-            .bind(content_bundle_sha256)
+            .bind(hashes.content_bundle)
             .bind(context.offline_policy_version_id.map(ResourceId::get))
             .bind(context.offline_policy_sha256.as_deref())
             .bind(context.business_catalog_version_id.map(ResourceId::get))

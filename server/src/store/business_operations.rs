@@ -2111,7 +2111,7 @@ async fn hire_position(
     if row.status != "vacant" {
         return Ok(None);
     }
-    insert_staff_transition(tx, scope, row.id, "vacant", "hired", command, profile, 1).await?;
+    insert_staff_transition(tx, scope, row.id, ("vacant", "hired"), command, profile, 1).await?;
     let updated = sqlx::query(
         "UPDATE corporation_staff_position
          SET status = 'hired', effective_year = ?, effective_month = ?, hired_command_id = ?
@@ -2151,8 +2151,7 @@ async fn terminate_position(
         tx,
         scope,
         row.id,
-        &row.status,
-        "terminated",
+        (&row.status, "terminated"),
         command,
         profile,
         transition_no,
@@ -2304,12 +2303,12 @@ async fn insert_staff_transition(
     tx: &mut Transaction<'_, MySql>,
     scope: &OperationScopeRow,
     position_id: u64,
-    from_status: &str,
-    to_status: &str,
+    status_transition: (&str, &str),
     command: &ManageBusinessOperationsCommand,
     profile: &BusinessProfileRow,
     transition_no: u16,
 ) -> Result<()> {
+    let (from_status, to_status) = status_transition;
     sqlx::query(
         "INSERT INTO corporation_staff_transition
              (save_id, run_revision, corporation_id, position_id, transition_no,

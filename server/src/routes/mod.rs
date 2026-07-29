@@ -2238,7 +2238,7 @@ async fn create_run(
                 cursor,
                 draft: preparation.draft,
                 starting_loans: None,
-                manifest_kind: StartGameManifestKind::Ranked(preparation.context),
+                manifest_kind: StartGameManifestKind::Ranked(Box::new(preparation.context)),
             }
         }
         RunStartAction::RankedCustom {
@@ -2256,7 +2256,7 @@ async fn create_run(
                 cursor,
                 draft: preparation.draft,
                 starting_loans: None,
-                manifest_kind: StartGameManifestKind::Ranked(preparation.context),
+                manifest_kind: StartGameManifestKind::Ranked(Box::new(preparation.context)),
             }
         }
     };

@@ -3502,7 +3502,7 @@ pub struct StartingLoanCommand {
 pub enum StartGameManifestKind {
     LegacySandbox,
     Sandbox,
-    Ranked(RankedRunContext),
+    Ranked(Box<RankedRunContext>),
 }
 
 impl StartGameManifestKind {
