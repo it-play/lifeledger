@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4 production 완료, **M5-A server 실행 생성 production 완료, 스타일 없는 client 연결 다음**
+- 상태: M4 production 완료, **M5-A 전체 production 완료, M5-B content bundle 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -40,12 +40,12 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
 2. **완료** — option ID를 canonical 정렬해 fixed/perUnit/tiered와 exclusive/requires/forbids를 i64 checked arithmetic로
    평가하는 순수 point ledger를 만들고 `GET /api/run-options`, `POST /api/runs/point-preview`를 strict API로
    공개한다. preview 합계는 시작 transaction에서 다시 계산한다.
-3. **server 완료, client 다음** — `rankedPreset · rankedCustom · sandbox`의 필수·금지 필드, immutable manifest
-   hash, command replay를 `POST /api/runs`에 연결해 production에서 인수했다. 다음은 기존 캐릭터 생성 흐름을
-   이 API로 옮기는 스타일 없는 생성 화면이다. ranked season·league의 실제 게시와 랭킹 계산은 M5-C가
-   소유하므로 현재 두 ranked variant는 `modeUnavailable`로 닫혀 있다.
+3. **완료** — `rankedPreset · rankedCustom · sandbox`의 필수·금지 필드, immutable manifest hash, command
+   replay를 `POST /api/runs`와 스타일 없는 `/new` 화면에 연결해 server/client production에서 인수했다.
+   ranked season·league의 실제 게시와 랭킹 계산은 M5-C가 소유하므로 현재 두 ranked start는
+   `modeUnavailable`로 닫고 catalog 확인과 point preview만 허용한다.
 
-2026-07-29 현재 1·2단계와 3단계의 server 구현·development production 인수를 마쳤다.
+2026-07-29 현재 세 단계의 server/client 구현·development production 인수를 마쳐 **M5-A를 완료**했다.
 
 - `0052_m5a_run_modes_point_budget.sql`은 sealed preset 5개, point budget 1개, exclusive group 5개,
   option 12개, tier 3개, 활성 assignment 1개와 immutable `run_manifest`를 추가했다. 기존
@@ -90,21 +90,39 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
   replay/conflict, point materializer의 production 조합과 unknown path를 작은 BDD로 확인하고
   check·clippy·fmt와 실제 production HTTP/DB smoke를 실행했다. DOM/network/DB 단위 테스트와 전체 회귀는
   추가하지 않았다.
+- `6eaccdd`는 `client/src/api/contracts.ts`, `client/src/api/game-api.ts`에 run options·point preview·mode별
+  start의 strict zod 경계와 response-command 상관 검증을 추가하고, `game-command-retry`에 mode·payload·최초
+  cursor·UUID를 보존하는 run start seam을 추가했다. `9494dc0`은 기존 `/new` 화면을 세 mode 선택,
+  versioned preset, option 수량·server preview, ranked season 부재 고지, sandbox start로 전환했다. 다른 모드
+  필드는 client union에서도 거절하며 unknown 결과만 같은 request로 재시도한다.
+- client는 `client-foundation`의 hook·bag·form·HTTP 경계를 사용한다. catalog와 대출 조회는 화면 생명주기에
+  묶어 취소하고, server response를 zod로 검증하기 전에는 store에 쓰지 않는다. active season이 null인 동안
+  ranked 설정과 point preview는 볼 수 있지만 두 start button은 비활성이고 sandbox만 `/api/runs`를 호출한다.
+  DOM interaction/rendering test나 시각 스타일은 추가하지 않았다.
+- client typecheck·lint·production build와 계약/API/retry 3개 targeted suite 251건이 통과했다. production
+  bundle은 기존 크기 권고만 남은 681,784 bytes이며 local/Vercel SHA-256이
+  `c6044641657b8167df184c66f6b0a640056dbadb1c667979c2595feeeb44918e`로 일치했다. canonical `/new`는
+  HTTP 200, app script 1개였고 bundle에서 새 화면과 세 API 경로를 확인했다.
+- Vercel same-origin `/api/health`는 200, run options는 mode 3·season null·preset 5·budget 1·group 5·option
+  12를 반환했다. 기준 point request는 total 100·spent 10·remaining 90·line 5·failure 0이었다. 비로그인
+  브라우저의 `/new`는 OAuth 버튼이 있는 login view로 보호됐고 `/api/auth/me`, `/api/state`는 401이었다.
+  사용자의 OAuth를 대신 진행하거나 새 session/run을 만들지 않았으므로 server 인수의 DB 10/10 상태는
+  그대로 보존했다.
 
-다음 재개는 **M5-A 스타일 없는 client 실행 생성 연결**이다. 먼저 `client-foundation` 스킬 전체와 이 문서
-§2, §3.1, §3.2, §8을 읽는다. 그다음 아래 순서와 파일을 기준으로 진행한다.
+다음 재개는 **M5-B 콘텐츠 seed·versioning·게시의 첫 vertical slice**다. 먼저 `database-schema`와
+`migration-guide` 스킬, 이 문서 §4.1·§4.2·§10을 읽고 아래 순서로 진행한다.
 
-1. `client/src/api/contracts.ts`, `client/src/api/zod-adapters.ts`, `client/src/api/game-api.ts`에
-   `GET /api/run-options`, `POST /api/runs/point-preview`, strict tagged `POST /api/runs`의 zod 계약과 API를
-   추가한다. 서버 응답은 화면 전에 검증하고, 다른 모드 필드를 섞는 union을 만들지 않는다.
-2. `client/src/app/character-start/`, `client/src/app/game-command-retry/`의 기존 draft builder와 UUID/cursor
-   재사용 규칙을 run start에 맞게 확장한다. 알 수 없는 응답에서는 같은 request를 보존하고 성공 또는
-   stable conflict에서만 비운다. 순수 retry/materialization 규칙이 새로 생길 때만 작은 BDD를 추가한다.
-3. `client/src/app/screens/character-create.ts`, `client/src/app/state.ts`, `client/src/main.ts`의 기존
-   `/character` 흐름을 세 mode 선택·point preview·start로 연결한다. active season null이면 두 ranked mode를
-   이유와 함께 비활성화하고 sandbox가 실제 생성되어 dashboard로 이동하는 기능만 먼저 완성한다. DOM
-   rendering/interaction 테스트와 시각 스타일링은 하지 않고 typecheck·lint·build와 production HTTP smoke만
-   통과시킨 뒤 M5-A를 닫는다. 그 전에는 M5-B로 넘어가지 않는다.
+1. migration `0017_m3a_career_catalog.sql`, `0024_m4a_rule_bundle.sql`, M4의 `life_catalog_set`·사건·복지·보험·
+   법인 typed catalog, `0052_m5a_run_modes_point_budget.sql`을 대조해 현재 published/sealed authority와
+   assignment를 표로 만든다. `content_bundle`이 pin할 exact ID·key/version·source note·canonical ordering과
+   hash 입력을 이 문서 §4.1에 먼저 확정한다. 기존 typed authority를 버리고 generic JSON으로 복제하지 않는다.
+2. 그 설계 뒤 migration `0053`에 immutable bundle header·exact membership·publish/retire 상태·`newRun`
+   assignment를 추가하고 현재 M3/M4 development 콘텐츠로 sealed bundle 하나를 게시한다. 기존 10개
+   `run_manifest`는 hash가 고정된 역사이므로 update/backfill하지 않고 `contentBundleId=null`을 유지한다.
+3. store reader와 start transaction이 새 run에 활성 sealed `content_bundle_id`와 canonical hash를 함께 pin하게
+   연결한다. 참조 존재·sealed 상태·중복·canonical hash처럼 순수 publish 규칙만 작은 BDD로 검증하고,
+   migration `53/53`, 기존 run 10건 보존, 새 sandbox 한 건의 bundle pin과 replay를 production DB/HTTP에서
+   확인한다. 별도 DB·schema·recovery dump와 시각 스타일링은 만들지 않는다.
 
 새 `POST /api/runs`가 client에 연결되기 전에도 manifest 없는 run을 허용하지 않는다. 기존
 `POST /api/characters` v1/v2는 호환 기간 동안 **sandbox 전용 legacy start**로 해석하고, 기존 command
