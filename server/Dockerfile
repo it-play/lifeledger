@@ -6,10 +6,13 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY vendor ./vendor
-RUN mkdir src \
+RUN mkdir -p src/bin \
+ && echo '' > src/lib.rs \
  && echo 'fn main() {}' > src/main.rs \
+ && echo 'fn main() {}' > src/bin/offline-worker.rs \
  && cargo build --release --locked \
- && rm -rf src target/release/lifeledger-server target/release/deps/lifeledger_server*
+ && rm -rf src target/release/lifeledger-server target/release/offline-worker \
+      target/release/deps/lifeledger_server* target/release/deps/offline_worker*
 COPY build.rs ./build.rs
 COPY migrations ./migrations
 COPY src ./src
@@ -23,6 +26,7 @@ RUN useradd --system --create-home --uid 10001 app
 USER app
 WORKDIR /home/app
 COPY --from=builder /build/target/release/lifeledger-server /usr/local/bin/lifeledger-server
+COPY --from=builder /build/target/release/offline-worker /usr/local/bin/offline-worker
 ENV BIND_ADDR=0.0.0.0:8080
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
