@@ -932,6 +932,59 @@ migration 58·실패 0, API/worker healthy, 운영 경고 0을 반환했고 runb
 정상 backlog를 장애로 단정하지 않는다. 배포 hook은 새 API와 worker가 healthy이고 migration 실패가 0인지만
 release gate로 사용한다.
 
+### 9.4 M5-F 동의·피드백 권위 (2026-07-30)
+
+첫 동의 scope는 `feedbackSubmission` 하나다. 사용 분석은 이 동의에 묶어 암묵적으로 켜지 않으며
+`usageAnalytics` 수집은 계속 **disabled**다. 나중에 analytics가 필요하면 수집 항목·목적·보존 기간을 담은 새
+policy version과 별도 명시 동의를 먼저 설계한다. 현재 고지문은 실제 재산·소득·건강·캐릭터 값, 원 단위
+금액, OAuth profile, session·command ID를 피드백에 쓰지 말라고 명시한다.
+
+migration `0059`는 다음 네 권위를 만든다.
+
+1. `playtest_consent_policy_version`은 scope, version, schema, 한국어 표시 이름·고지문과 canonical manifest
+   SHA-256을 봉인한다. sealed version은 update/delete하지 않는다.
+2. `playtest_consent_policy_assignment`의 `feedbackSubmission` 한 행만 현재 고지 version을 가리키며 revision을
+   가진다. assignment 변경은 기존 동의를 소급 변경하지 않는다.
+3. `playtest_consent`는 계정별 현재 status(`granted|withdrawn`)와 revision, grant/withdraw 시각을 보관하고,
+   `playtest_consent_event`는 각 revision의 action과 policy version만 append한다. session·game command ID,
+   OAuth profile과 캐릭터 상태를 복사하지 않는다.
+4. `playtest_feedback`은 서버가 만든 공개 UUID, 내부 owner, 동의 event, stable category·severity, 500자 이하
+   본문과 선택적인 owned run reference만 가진다. category는 `bug|balance|usability|performance|rules|other`,
+   severity는 `blocking|major|minor|suggestion`으로 고정한다. 한 계정의 active feedback은 20건으로 제한한다.
+
+이 경계에서 “익명”은 외부 공개 attribution이 없고 profile·캐릭터·금액을 복제하지 않는다는 뜻이다. 인증된
+owner 연결 자체를 없앴다고 주장하지 않는다. owner 연결은 본인 조회·철회·삭제를 위해 DB 안에만 남고 API는
+user/save ID를 반환하지 않는다. 선택한 `runRevision`은 서버가 그 계정의 `run_manifest`를 직접 조회해 manifest
+SHA-256을 붙이고, 같은 run에 completed finalization이 있으면 그 canonical liquidation SHA-256도 붙인다.
+클라이언트가 hash나 save ID를 제출할 수 없고 다른 계정의 run은 존재하지 않는 것처럼 거절한다.
+
+보존과 삭제는 다음처럼 닫는다.
+
+- 현재 외부 참가자를 받지 않는 development 단계에는 달력 기반 자동 보존 기간을 약속하지 않는다. 동의가
+  유지되는 동안만 active 본문을 보관하고, 외부 모집 전에 고정 최대 보존 기간을 별도 승인받아 새 policy
+  version에 넣는다.
+- 피드백 한 건 삭제와 전체 동의 철회는 hard delete 대신 같은 transaction에서 tombstone으로 전이한다.
+  category·severity·본문·run reference·두 hash를 즉시 null로 지우고 공개 UUID, owner, 생성·철회 시각만 남겨
+  삭제 재요청이 내용을 되살리지 않게 한다. 동의 철회는 그 owner의 active feedback 전부를 지운다.
+- 동의 event는 account가 존재하는 동안 action·policy·시각만 감사 근거로 남고, account 삭제 시 consent,
+  event, feedback은 FK cascade로 함께 삭제된다. 별도 dump나 분석 저장소로 복제하지 않는다.
+
+strict owner API는 다음 네 개다.
+
+| Method | Path | Contract |
+|---|---|---|
+| `GET` | `/api/playtest/feedback` | 활성 policy, 현재 consent revision/status와 active feedback 최대 20건을 읽는다. |
+| `PUT` | `/api/playtest/consent` | `{policyVersionId, expectedRevision, action}`만 받고 exact active policy와 revision 아래 grant/withdraw한다. |
+| `POST` | `/api/playtest/feedback` | `{expectedConsentRevision, category, severity, message, privacyConfirmed, runRevision?}`만 받고 현재 grant를 재검증한다. |
+| `DELETE` | `/api/playtest/feedback/{feedbackId}` | 본인 active row만 tombstone 처리하며 이미 철회된 본인 row에는 같은 결과를 반환한다. |
+
+모든 request는 unknown field를 거절한다. `privacyConfirmed`는 반드시 `true`여야 하고 본문은 trim 뒤
+1~500자다. stale revision과 동의 없음은 `409`, policy 불가·capacity 초과도 stable code로 닫으며 foreign
+run/feedback은 `404`로 owner 존재 여부를 숨긴다. 이 API는 game command ID를 받거나 저장하지 않고 client도
+알 수 없는 POST 결과를 자동 재전송하지 않는다. 대신 목록을 먼저 새로 읽어 사용자가 중복 제출 여부를
+확인한다. 핵심 동의 전이와 feedback eligibility·정규화만 순수 BDD로 검증하고 DOM·network·DB 단위 테스트는
+추가하지 않는다.
+
 ## 10. 테스트와 검증
 
 ### 10.1 순수 규칙·protocol
