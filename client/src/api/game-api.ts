@@ -103,6 +103,8 @@ import {
   RunStartRequestSchema,
   type RunStartResponse,
   RunStartResponseSchema,
+  type SeasonLeagues,
+  SeasonLeaguesSchema,
   type TaxAccountOpenRequest,
   TaxAccountOpenRequestSchema,
   type TaxAccountOpenResponse,
@@ -183,6 +185,8 @@ export interface GameApi {
   createCharacter(request: CharacterStartRequest): Promise<CharacterStartResponse>;
   /** Lists immutable run-start catalogs and the currently published season. */
   listRunOptions(signal?: AbortSignal): Promise<RunOptions>;
+  /** Lists one public season and its immutable league definitions. */
+  listSeasonLeagues(seasonId: string, signal?: AbortSignal): Promise<SeasonLeagues>;
   /** Evaluates one canonical point selection on the server. */
   previewPointBudget(
     request: PointBudgetPreviewRequest,
@@ -268,6 +272,7 @@ const cashProductCatalogDecoder = asDecoder(CashProductCatalogSchema);
 const bondProductCatalogDecoder = asDecoder(BondProductCatalogSchema);
 const goldProductCatalogDecoder = asDecoder(GoldProductCatalogSchema);
 const runOptionsDecoder = asDecoder(RunOptionsSchema);
+const seasonLeaguesDecoder = asDecoder(SeasonLeaguesSchema);
 
 /** Turns a 422 body into a field-to-message map, or gives up if the shape is unfamiliar. */
 function toFieldErrors(error: unknown): Record<string, string> | undefined {
@@ -351,6 +356,15 @@ export function createGameApi(deps: GameApiDeps): GameApi {
         runOptionsDecoder,
         signal === undefined ? undefined : { signal },
       ),
+
+    listSeasonLeagues: (seasonId, signal) => {
+      const id = ResourceIdSchema.parse(seasonId);
+      return http.get(
+        `/api/seasons/${id}/leagues`,
+        seasonLeaguesDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
 
     async previewPointBudget(request, signal) {
       const body = PointBudgetPreviewRequestSchema.parse(request);

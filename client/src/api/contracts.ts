@@ -9881,6 +9881,51 @@ export const RunOptionsSchema = z
   })
   .strict();
 
+export const SeasonStatusSchema = z.enum([
+  'draft',
+  'registrationOpen',
+  'active',
+  'locked',
+  'finalized',
+  'archived',
+]);
+
+export const SeasonSummarySchema = z
+  .object({
+    id: ResourceIdSchema,
+    seasonKey: z.string().min(1),
+    version: z.number().int().positive(),
+    displayName: z.string().min(1),
+    status: SeasonStatusSchema,
+    targetGameDay: z.number().int().safe().positive(),
+    registrationOpenAt: z.string().min(1),
+    registrationCloseAt: z.string().min(1),
+    operationCloseAt: z.string().min(1),
+  })
+  .strict();
+
+export const LeagueDefinitionSchema = z
+  .object({
+    id: ResourceIdSchema,
+    seasonId: ResourceIdSchema,
+    leagueKey: z.string().min(1),
+    displayName: z.string().min(1),
+    mode: RunModeSchema,
+    characterPresetVersionId: ResourceIdSchema.nullable(),
+    pointBudgetVersionId: ResourceIdSchema.nullable(),
+    minimumParticipants: z.number().int().safe().positive(),
+    participantCount: z.number().int().safe().nonnegative(),
+    provisional: z.boolean(),
+  })
+  .strict();
+
+export const SeasonLeaguesSchema = z
+  .object({
+    season: SeasonSummarySchema,
+    leagues: z.array(LeagueDefinitionSchema),
+  })
+  .strict();
+
 const RunStartCommandFields = {
   commandId: CanonicalUuidSchema,
   expectedRunRevision: z.number().int().nonnegative(),
@@ -10543,6 +10588,10 @@ export type PointLedgerLine = z.infer<typeof PointLedgerLineSchema>;
 export type PointBudgetEvaluation = z.infer<typeof PointBudgetEvaluationSchema>;
 export type CharacterPresetVersion = z.infer<typeof CharacterPresetVersionSchema>;
 export type RunOptions = z.infer<typeof RunOptionsSchema>;
+export type SeasonStatus = z.infer<typeof SeasonStatusSchema>;
+export type SeasonSummary = z.infer<typeof SeasonSummarySchema>;
+export type LeagueDefinition = z.infer<typeof LeagueDefinitionSchema>;
+export type SeasonLeagues = z.infer<typeof SeasonLeaguesSchema>;
 export type RankedPresetRunStartDraft = z.infer<typeof RankedPresetRunStartDraftSchema>;
 export type RankedCustomRunStartDraft = z.infer<typeof RankedCustomRunStartDraftSchema>;
 export type SandboxRunStartDraft = z.infer<typeof SandboxRunStartDraftSchema>;

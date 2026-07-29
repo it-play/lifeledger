@@ -8,6 +8,7 @@ import {
   type RunMode,
   type RunOptions,
   type RunStartDraft,
+  type SeasonLeagues,
 } from '../../api/contracts.js';
 import {
   CharacterRejectedError,
@@ -153,7 +154,9 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
         const h = createHooks(ctx.bag);
         const mode = h.useSignal<RunMode>('sandbox');
         const runOptions = h.useSignal<RunOptions | undefined>(undefined);
+        const seasonLeagues = h.useSignal<SeasonLeagues | undefined>(undefined);
         const catalogFailed = h.useSignal(false);
+        const seasonFailed = h.useSignal(false);
         const selectedPresetId = h.useSignal('');
         const selectedBudgetId = h.useSignal('');
         const rankedBusy = h.useSignal(false);
@@ -172,6 +175,15 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
         );
         modeSelect.value = 'sandbox';
         const modeStatus = el('p', {}, '실행 설정을 불러오는 중…');
+        const seasonStatus = el('p', {}, '시즌 정보를 불러오는 중…');
+        const leagueList = el('ul');
+        const seasonSection = el(
+          'section',
+          {},
+          el('h2', {}, '시즌과 리그'),
+          seasonStatus,
+          leagueList,
+        );
 
         const presetSelect = el(
           'select',
@@ -226,6 +238,7 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
           el('h1', {}, '새 실행 만들기'),
           el('label', {}, '실행 모드 ', modeSelect),
           modeStatus,
+          seasonSection,
           rankedPresetSection,
           rankedCustomSection,
           sandboxSection,
@@ -322,6 +335,14 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
           return catalogFailed.get()
             ? '실행 설정을 불러오지 못했습니다.'
             : runModeStatus(mode.get(), runOptions.get());
+        });
+        h.bindText(seasonStatus, () => {
+          if (seasonFailed.get()) return '시즌·리그 정보를 불러오지 못했습니다.';
+          const catalog = seasonLeagues.get();
+          if (catalog !== undefined) return formatSeasonStatus(catalog);
+          return runOptions.get()?.activeSeasonId === null
+            ? '현재 등록 가능한 랭크 시즌이 없습니다.'
+            : '시즌 정보를 불러오는 중…';
         });
 
         h.useEventListener(presetStartButton, 'click', () => {
@@ -466,6 +487,27 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
         };
 
         let catalogsBuilt = false;
+        let seasonBuilt = false;
+        const seasonCatalog = h.useAsync((signal) => {
+          const seasonId = runOptions.peek()?.activeSeasonId;
+          if (seasonId === undefined || seasonId === null) {
+            return Promise.reject(new Error('active season is unavailable'));
+          }
+          return api.listSeasonLeagues(seasonId, signal);
+        });
+        h.useEffect(() => {
+          const state = seasonCatalog.state.get();
+          if (state.status === 'error') {
+            seasonFailed.set(true);
+            return;
+          }
+          if (state.status !== 'success') return;
+          seasonFailed.set(false);
+          seasonLeagues.set(state.value);
+          if (seasonBuilt) return;
+          seasonBuilt = true;
+          appendLeagueStatuses(leagueList, state.value);
+        });
         const catalogs = h.useAsync((signal) => api.listRunOptions(signal));
         h.useEffect(() => {
           const state = catalogs.state.get();
@@ -476,6 +518,7 @@ export function createCharacterCreateView(deps: CharacterCreateDeps): ViewFactor
           if (state.status !== 'success') return;
           catalogFailed.set(false);
           runOptions.set(state.value);
+          loadActiveSeason(state.value, () => seasonCatalog.run());
           if (catalogsBuilt) return;
           catalogsBuilt = true;
           buildPresetCatalog(state.value);
@@ -602,6 +645,39 @@ function runModeStatus(mode: RunMode, options: RunOptions | undefined): string {
   return options.activeSeasonId === null
     ? '게시된 랭크 시즌이 없어 설정 확인과 포인트 미리보기만 가능하다.'
     : `활성 시즌 ${options.activeSeasonId}에 고정해 시작한다.`;
+}
+
+function formatSeasonStatus(catalog: SeasonLeagues): string {
+  const statusLabels: Readonly<Record<SeasonLeagues['season']['status'], string>> = {
+    draft: '준비 중',
+    registrationOpen: '참가 등록 중',
+    active: '진행 중',
+    locked: '잠김',
+    finalized: '결산 완료',
+    archived: '보관됨',
+  };
+  const season = catalog.season;
+  return `${season.displayName} · ${statusLabels[season.status]} · 목표 게임일 ${String(season.targetGameDay)}일`;
+}
+
+function formatLeagueStatus(league: SeasonLeagues['leagues'][number]): string {
+  const modeLabel = league.mode === 'rankedPreset' ? '프리셋' : '커스텀';
+  const publication = league.provisional ? '잠정 집계' : '공식 집계';
+  return `${league.displayName} · ${modeLabel} · 참가 ${String(league.participantCount)}명 / 최소 ${String(league.minimumParticipants)}명 · ${publication}`;
+}
+
+function appendLeagueStatuses(list: HTMLUListElement, catalog: SeasonLeagues): void {
+  if (catalog.leagues.length === 0) {
+    list.appendChild(el('li', {}, '게시된 리그가 없습니다.'));
+    return;
+  }
+  for (const league of catalog.leagues) {
+    list.appendChild(el('li', {}, formatLeagueStatus(league)));
+  }
+}
+
+function loadActiveSeason(options: RunOptions, load: () => void): void {
+  if (options.activeSeasonId !== null) load();
 }
 
 function readPointSelections(
