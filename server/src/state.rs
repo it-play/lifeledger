@@ -4123,6 +4123,8 @@ pub struct AdvanceCommandSnapshot {
     )]
     pub command_id: String,
     pub requested_days: u32,
+    pub committed_days: u32,
+    pub truncated_days: u32,
     pub initial_cursor: GameCommandCursorSnapshot,
     pub committed_cursor: GameCommandCursorSnapshot,
     pub replayed: bool,
@@ -7572,6 +7574,10 @@ impl AppState {
         match self.games.advance_one_day(user_id).await? {
             DailyAdvanceResult::Advanced(state) => Ok(self.broadcast(&state, runtime)?),
             DailyAdvanceResult::CharacterRequired => Err(GameLoopError::CharacterRequired),
+            DailyAdvanceResult::TargetReached(state) => {
+                runtime.pause();
+                Ok(self.broadcast(&state, runtime)?)
+            }
         }
     }
 
@@ -7668,6 +7674,8 @@ fn to_advance_response(receipt: AdvanceCommandReceipt, snapshot: GameSnapshot) -
         advance: AdvanceCommandSnapshot {
             command_id: receipt.command_id.to_string(),
             requested_days: receipt.requested_days,
+            committed_days: receipt.committed_days,
+            truncated_days: receipt.truncated_days,
             initial_cursor: receipt.initial_cursor.into(),
             committed_cursor: receipt.committed_cursor.into(),
             replayed: receipt.replayed,
@@ -14168,6 +14176,8 @@ mod tests {
                 let receipt = AdvanceCommandReceipt {
                     command_id: command.command_id.clone(),
                     requested_days: command.days,
+                    committed_days: command.days,
+                    truncated_days: 0,
                     initial_cursor,
                     committed_cursor: GameCommandCursor::from(&committed.save),
                     replayed: false,
@@ -15434,6 +15444,8 @@ mod tests {
 
             assert_eq!(response.snapshot.game_day, 3);
             assert_eq!(response.advance.requested_days, 3);
+            assert_eq!(response.advance.committed_days, 3);
+            assert_eq!(response.advance.truncated_days, 0);
             assert_eq!(store.committed_days(), vec![1, 2, 3]);
             assert_eq!(pushed_days, vec![1, 2, 3]);
         }

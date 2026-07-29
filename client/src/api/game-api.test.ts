@@ -250,6 +250,8 @@ describe('수동 진행 명령 검증', () => {
         advance: {
           commandId: request.commandId,
           requestedDays: request.days,
+          committedDays: request.days,
+          truncatedDays: 0,
           initialCursor: { runRevision: 3, stateRevision: 42, gameDay: 17 },
           committedCursor: { runRevision: 3, stateRevision: 48, gameDay: 23 },
           replayed: false,
@@ -261,6 +263,29 @@ describe('수동 진행 명령 검증', () => {
       const result = api.advance(request);
 
       await expect(result).rejects.toBeDefined();
+    });
+  });
+
+  describe('맥락: 랭크 목표일까지 남은 날보다 많이 요청한 경우', () => {
+    it('given 7일 요청과 6일 커밋, when 1일 절단 영수증을 읽으면, then 정상 결과로 받는다', async () => {
+      const request = givenAdvance();
+      const response = {
+        advance: {
+          commandId: request.commandId,
+          requestedDays: request.days,
+          committedDays: 6,
+          truncatedDays: 1,
+          initialCursor: { runRevision: 3, stateRevision: 42, gameDay: 17 },
+          committedCursor: { runRevision: 3, stateRevision: 48, gameDay: 23 },
+          replayed: false,
+        },
+        snapshot: givenSnapshot(),
+      };
+      const api = createGameApi({ http: givenRespondingHttp(response), stream: givenStream() });
+
+      const result = await api.advance(request);
+
+      expect(result.advance).toEqual(response.advance);
     });
   });
 });

@@ -676,6 +676,13 @@ impl SaveStore for MySqlSaveStore {
             tx.commit().await?;
             return Ok(AdvanceDayResult::Stale(current));
         }
+        if ranked_target_game_day_in_tx(&mut tx, save_id, current.run_revision)
+            .await?
+            .is_some_and(|target| current.game_day >= target)
+        {
+            tx.commit().await?;
+            return Ok(AdvanceDayResult::TargetReached(current));
+        }
         let target_game_day = expected
             .game_day
             .checked_add(1)
@@ -789,6 +796,19 @@ impl SaveStore for MySqlSaveStore {
             Vec::new()
         };
         validate_advance_steps(command, &steps)?;
+        let effective_days = ranked_target_game_day_in_tx(&mut tx, save_id, current.run_revision)
+            .await?
+            .map_or(command.days, |target| {
+                target
+                    .saturating_sub(command.cursor.expected_game_day)
+                    .min(command.days)
+            });
+        if effective_days == 0 {
+            tx.commit().await?;
+            return Ok(AdvanceCommandStepResult::Rejected(
+                GameCommandRejection::InvalidCommand,
+            ));
+        }
         let expected_current_cursor = steps
             .last()
             .map(AdvanceCommandStepRow::after_cursor)
@@ -805,7 +825,7 @@ impl SaveStore for MySqlSaveStore {
             .checked_add(1)
             .context("advance command step number overflowed")?;
         ensure!(
-            step_no <= command.days,
+            step_no <= effective_days,
             "completed advance steps have no final receipt"
         );
         let target_game_day = current
@@ -892,10 +912,12 @@ impl SaveStore for MySqlSaveStore {
         )
         .await?;
 
-        let receipt = if step_no == command.days {
+        let receipt = if step_no == effective_days {
             let receipt = AdvanceCommandReceipt {
                 command_id: command.command_id.clone(),
                 requested_days: command.days,
+                committed_days: effective_days,
+                truncated_days: command.days - effective_days,
                 initial_cursor: GameCommandCursor::from(command.cursor),
                 committed_cursor: after_cursor,
                 replayed: false,
@@ -1775,6 +1797,23 @@ async fn lock_save(tx: &mut sqlx::Transaction<'_, sqlx::MySql>, save_id: u64) ->
         .fetch_one(&mut **tx)
         .await?;
     Ok(())
+}
+
+async fn ranked_target_game_day_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    save_id: u64,
+    run_revision: u32,
+) -> Result<Option<u32>> {
+    sqlx::query_scalar(
+        "SELECT target_game_day
+         FROM run_manifest
+         WHERE save_id = ? AND run_revision = ? AND ranking_eligible = TRUE",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to read the ranked run target day")
 }
 
 async fn read_game_command_receipt(
@@ -3468,24 +3507,31 @@ impl GameCommandReceiptRow {
         let mut stored: AdvanceCommandReceipt = serde_json::from_str(&self.result_json)
             .context("stored advance command result is invalid")?;
         let initial_cursor = GameCommandCursor::from(command.cursor);
-        let expected_committed_cursor = GameCommandCursor {
-            run_revision: initial_cursor.run_revision,
-            state_revision: initial_cursor
-                .state_revision
-                .checked_add(u64::from(command.days))
-                .context("stored advance state revision overflowed")?,
-            game_day: initial_cursor
-                .game_day
-                .checked_add(command.days)
-                .context("stored advance game day overflowed")?,
-        };
+        let committed_days = stored
+            .committed_cursor
+            .game_day
+            .checked_sub(initial_cursor.game_day)
+            .context("stored advance committed before its initial game day")?;
+        let expected_state_revision = initial_cursor
+            .state_revision
+            .checked_add(u64::from(committed_days))
+            .context("stored advance state revision overflowed")?;
+        let truncated_days = command
+            .days
+            .checked_sub(committed_days)
+            .context("stored advance committed more days than requested")?;
+        let legacy_receipt = stored.committed_days == 0 && stored.truncated_days == 0;
         ensure!(
             self.command_kind == COMMAND_KIND_ADVANCE
                 && self.payload_sha256 == fingerprint
                 && stored.command_id == command.command_id
                 && stored.requested_days == command.days
                 && stored.initial_cursor == initial_cursor
-                && stored.committed_cursor == expected_committed_cursor
+                && stored.committed_cursor.run_revision == initial_cursor.run_revision
+                && stored.committed_cursor.state_revision == expected_state_revision
+                && (legacy_receipt
+                    || (stored.committed_days == committed_days
+                        && stored.truncated_days == truncated_days))
                 && !stored.replayed
                 && stored.committed_cursor.run_revision == self.run_revision
                 && stored.committed_cursor.state_revision == self.state_revision
@@ -3493,6 +3539,8 @@ impl GameCommandReceiptRow {
                 && self.ledger_transaction_id.is_none(),
             "stored advance receipt disagrees with its command result"
         );
+        stored.committed_days = committed_days;
+        stored.truncated_days = truncated_days;
         stored.replayed = replayed;
 
         Ok(stored)

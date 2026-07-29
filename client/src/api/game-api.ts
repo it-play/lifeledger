@@ -436,12 +436,14 @@ export function createGameApi(deps: GameApiDeps): GameApi {
           if (
             result.commandId !== body.commandId ||
             result.requestedDays !== body.days ||
+            result.committedDays + result.truncatedDays !== body.days ||
             result.initialCursor.runRevision !== body.expectedRunRevision ||
             result.initialCursor.stateRevision !== body.expectedStateRevision ||
             result.initialCursor.gameDay !== body.expectedGameDay ||
             result.committedCursor.runRevision !== body.expectedRunRevision ||
-            result.committedCursor.stateRevision !== body.expectedStateRevision + body.days ||
-            result.committedCursor.gameDay !== body.expectedGameDay + body.days
+            result.committedCursor.stateRevision !==
+              body.expectedStateRevision + result.committedDays ||
+            result.committedCursor.gameDay !== body.expectedGameDay + result.committedDays
           ) {
             context.addIssue({
               code: 'custom',

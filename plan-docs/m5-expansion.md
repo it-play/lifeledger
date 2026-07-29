@@ -344,6 +344,12 @@ ranked run은 목표 day를 넘어 전진할 수 없으며 마지막 advance는 
 요청을 거절하는 정책 중 **고정 기본값으로 remaining days까지만 실행**하고 receipt에 truncated days를
 명시한다.
 
+수동 전진 receipt는 원래 요청을 식별하는 `requestedDays`를 유지하고 실제 commit한 `committedDays`와
+`truncatedDays = requestedDays - committedDays`를 함께 반환한다. 목표일 직전 요청은 남은 날만 같은 command
+identity 아래 commit하고, 이미 목표일에 도달한 뒤 들어온 새 전진 요청은 `invalidCommand`로 거절한다.
+자동 시계는 목표일을 감지하면 추가 day를 commit하지 않고 paused 상태를 방송한다. 기존 비랭크 receipt는
+재조회할 때 cursor 차이로 두 값을 복원한다.
+
 #### M5-C 첫 ranked authority 계약 (2026-07-29)
 
 M5-B의 `dev-unranked-m5-content-2026` v1과 그 12개 원본 authority를 이름만 바꿔 복제하지 않는다. 이미

@@ -139,6 +139,11 @@ impl DailyPipeline for DefaultDailyPipeline {
                 AdvanceDayResult::CharacterRequired => {
                     return Ok(DailyAdvanceResult::CharacterRequired);
                 }
+                AdvanceDayResult::TargetReached(save) => {
+                    return Ok(DailyAdvanceResult::TargetReached(Box::new(
+                        self.assemble(save).await?,
+                    )));
+                }
                 AdvanceDayResult::Stale(_) => continue,
             }
         }
@@ -521,6 +526,8 @@ mod tests {
                     receipt: AdvanceCommandReceipt {
                         command_id: command.command_id.clone(),
                         requested_days: command.days,
+                        committed_days: command.days,
+                        truncated_days: 0,
                         initial_cursor: initial,
                         committed_cursor: GameCommandCursor::from(&*state),
                         replayed: true,
@@ -537,6 +544,8 @@ mod tests {
             let receipt = (completed + 1 == command.days).then(|| AdvanceCommandReceipt {
                 command_id: command.command_id.clone(),
                 requested_days: command.days,
+                committed_days: command.days,
+                truncated_days: 0,
                 initial_cursor: initial,
                 committed_cursor,
                 replayed: false,

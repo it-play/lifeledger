@@ -7007,6 +7007,8 @@ export const AdvanceRequestSchema = z.object({
 export const AdvanceResultSchema = z.object({
   commandId: CanonicalUuidSchema,
   requestedDays: z.number().int().min(1).max(30),
+  committedDays: z.number().int().min(1).max(30),
+  truncatedDays: z.number().int().min(0).max(29),
   initialCursor: GameCommandCursorSchema,
   committedCursor: GameCommandCursorSchema,
   replayed: z.boolean(),

@@ -3288,6 +3288,10 @@ pub struct StartGameReceipt {
 pub struct AdvanceCommandReceipt {
     pub command_id: CommandId,
     pub requested_days: u32,
+    #[serde(default)]
+    pub committed_days: u32,
+    #[serde(default)]
+    pub truncated_days: u32,
     pub initial_cursor: GameCommandCursor,
     pub committed_cursor: GameCommandCursor,
     pub replayed: bool,
@@ -3370,6 +3374,8 @@ pub enum AdvanceDayResult {
     Advanced(SaveState),
     /// A save exists, but its character has not been created yet.
     CharacterRequired,
+    /// A ranked run already reached the immutable target day.
+    TargetReached(SaveState),
     /// Another process changed the save after the market target was selected.
     Stale(SaveState),
 }

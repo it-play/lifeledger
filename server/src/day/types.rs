@@ -19,6 +19,7 @@ pub struct CommittedGameState {
 pub enum DailyAdvanceResult {
     Advanced(Box<CommittedGameState>),
     CharacterRequired,
+    TargetReached(Box<CommittedGameState>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
