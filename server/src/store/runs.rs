@@ -189,6 +189,8 @@ struct RankedContextRow {
     ranking_rule_version_id: u64,
     ranking_rule_sha256: String,
     target_game_day: u32,
+    offline_policy_version_id: Option<u64>,
+    offline_policy_sha256: Option<String>,
     character_preset_version_id: Option<u64>,
     point_budget_version_id: Option<u64>,
 }
@@ -767,6 +769,7 @@ async fn read_ranked_context(
                 release_row.release_sha256 AS ranked_ruleset_release_sha256,
                 ranking_rule.id AS ranking_rule_version_id,
                 ranking_rule.ranking_rule_sha256, ranking_rule.target_game_day,
+                release_row.offline_policy_version_id, release_row.offline_policy_sha256,
                 league.character_preset_version_id, league.point_budget_version_id
          FROM season_assignment AS assignment
          INNER JOIN season AS season_row ON season_row.id = assignment.season_id
@@ -811,6 +814,8 @@ fn to_ranked_context(
         ranking_rule_version_id: ResourceId::from_u64(row.ranking_rule_version_id),
         ranking_rule_sha256: row.ranking_rule_sha256,
         target_game_day: row.target_game_day,
+        offline_policy_version_id: row.offline_policy_version_id.map(ResourceId::from_u64),
+        offline_policy_sha256: row.offline_policy_sha256,
         character_preset_version_id: row.character_preset_version_id.map(ResourceId::from_u64),
         point_budget_version_id: row.point_budget_version_id.map(ResourceId::from_u64),
         canonical_selections_json,

@@ -11,8 +11,8 @@ use super::types::{
 use crate::market::{MarketDay, MarketWorld};
 use crate::store::{
     AdvanceCommandStepResult, AdvanceDayResult, ManualAdvanceCommand, MarketStore,
-    RealEstateDailyPreparationStore, RecruitmentPostingStore, SaveCursor, SaveState, SaveStore,
-    StartGameCommand, StartGameResult,
+    ProgressStepContext, RealEstateDailyPreparationStore, RecruitmentPostingStore, SaveCursor,
+    SaveState, SaveStore, StartGameCommand, StartGameResult,
 };
 
 const MAX_CURSOR_RETRIES: usize = 3;
@@ -100,7 +100,11 @@ impl DailyPipeline for DefaultDailyPipeline {
         bail!("active market world kept changing while starting a game")
     }
 
-    async fn advance_one_day(&self, user_id: u64) -> Result<DailyAdvanceResult> {
+    async fn advance_one_day(
+        &self,
+        user_id: u64,
+        progress: &ProgressStepContext,
+    ) -> Result<DailyAdvanceResult> {
         for _ in 0..MAX_CURSOR_RETRIES {
             let current = self.saves.load(user_id).await?;
             if current.character.is_none() {
@@ -123,7 +127,7 @@ impl DailyPipeline for DefaultDailyPipeline {
 
             match self
                 .saves
-                .advance_one_day(user_id, SaveCursor::from(&current), &market)
+                .advance_one_day(user_id, progress, SaveCursor::from(&current), &market)
                 .await?
             {
                 AdvanceDayResult::Advanced(save) => {
@@ -144,6 +148,11 @@ impl DailyPipeline for DefaultDailyPipeline {
                         self.assemble(save).await?,
                     )));
                 }
+                AdvanceDayResult::ProgressBusy(save) => {
+                    return Ok(DailyAdvanceResult::ProgressBusy(Box::new(
+                        self.assemble(save).await?,
+                    )));
+                }
                 AdvanceDayResult::Stale(_) => continue,
             }
         }
@@ -154,6 +163,7 @@ impl DailyPipeline for DefaultDailyPipeline {
     async fn advance_command_step(
         &self,
         user_id: u64,
+        progress: &ProgressStepContext,
         command: &ManualAdvanceCommand,
     ) -> Result<DailyCommandAdvanceResult> {
         for _ in 0..MAX_CURSOR_RETRIES {
@@ -205,7 +215,7 @@ impl DailyPipeline for DefaultDailyPipeline {
             phase_started = Instant::now();
             match self
                 .saves
-                .advance_command_step(user_id, command, &market)
+                .advance_command_step(user_id, progress, command, &market)
                 .await?
             {
                 AdvanceCommandStepResult::Advanced { save, receipt } => {
@@ -235,6 +245,11 @@ impl DailyPipeline for DefaultDailyPipeline {
                 }
                 AdvanceCommandStepResult::Rejected(rejection) => {
                     return Ok(DailyCommandAdvanceResult::Rejected(rejection));
+                }
+                AdvanceCommandStepResult::ProgressBusy(save) => {
+                    return Ok(DailyCommandAdvanceResult::ProgressBusy(Box::new(
+                        self.assemble(*save).await?,
+                    )));
                 }
                 AdvanceCommandStepResult::Stale(_) => continue,
             }
@@ -324,7 +339,8 @@ mod tests {
     use crate::store::{
         ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt, CareerCatalogAssignment,
         ContentBundleAssignment, EmploymentPolicyAssignment, GameCommandCursor,
-        GameCommandRejection, MarketWorldState, StartGameReceipt,
+        GameCommandRejection, MarketWorldState, OfflinePolicyAssignment, ProgressHolderKind,
+        ProgressLeaseGuard, StartGameReceipt,
     };
 
     const USER_ID: u64 = 7;
@@ -455,6 +471,7 @@ mod tests {
         async fn advance_one_day(
             &self,
             _user_id: u64,
+            _progress: &ProgressStepContext,
             expected: SaveCursor,
             market: &MarketDay,
         ) -> Result<AdvanceDayResult> {
@@ -498,6 +515,7 @@ mod tests {
         async fn advance_command_step(
             &self,
             _user_id: u64,
+            _progress: &ProgressStepContext,
             command: &ManualAdvanceCommand,
             market: &MarketDay,
         ) -> Result<AdvanceCommandStepResult> {
@@ -809,6 +827,10 @@ mod tests {
                 bundle_id: ResourceId::from_u64(1),
                 assignment_revision: 1,
             },
+            offline_policy: OfflinePolicyAssignment {
+                policy_version_id: ResourceId::from_u64(1),
+                assignment_revision: 1,
+            },
         }
     }
 
@@ -944,7 +966,10 @@ mod tests {
     }
 
     async fn when_advancing_one_day(fixture: &TestFixture) -> Result<DailyAdvanceResult> {
-        fixture.pipeline.advance_one_day(USER_ID).await
+        fixture
+            .pipeline
+            .advance_one_day(USER_ID, &given_progress())
+            .await
     }
 
     async fn when_advancing_command_step(
@@ -953,8 +978,22 @@ mod tests {
     ) -> Result<DailyCommandAdvanceResult> {
         fixture
             .pipeline
-            .advance_command_step(USER_ID, &given_advance_command(game_day))
+            .advance_command_step(USER_ID, &given_progress(), &given_advance_command(game_day))
             .await
+    }
+
+    fn given_progress() -> ProgressStepContext {
+        ProgressStepContext {
+            lease: ProgressLeaseGuard {
+                save_id: SAVE_ID,
+                run_revision: RUN_REVISION,
+                holder_kind: ProgressHolderKind::Online,
+                holder_token_sha256:
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+                generation: 1,
+            },
+            offline_attempt: None,
+        }
     }
 
     async fn when_loading(fixture: &TestFixture) -> Result<CommittedGameState> {

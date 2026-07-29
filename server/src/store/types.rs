@@ -3345,6 +3345,13 @@ pub struct ContentBundleAssignment {
     pub assignment_revision: u64,
 }
 
+/// Immutable offline policy selected for a newly started sandbox run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OfflinePolicyAssignment {
+    pub policy_version_id: ResourceId,
+    pub assignment_revision: u64,
+}
+
 impl From<&SaveState> for SaveCursor {
     fn from(state: &SaveState) -> Self {
         Self {
@@ -3367,6 +3374,7 @@ pub struct ActiveRunConfiguration {
     pub employment_policy: EmploymentPolicyAssignment,
     pub rule_bundle: RunRuleBundleAssignment,
     pub content_bundle: ContentBundleAssignment,
+    pub offline_policy: OfflinePolicyAssignment,
 }
 
 /// Result of one committed daily pipeline attempt.
@@ -3377,6 +3385,8 @@ pub enum AdvanceDayResult {
     CharacterRequired,
     /// A ranked run already reached the immutable target day.
     TargetReached(SaveState),
+    /// The DB-time lease was lost or an online intent requires the worker to yield.
+    ProgressBusy(SaveState),
     /// Another process changed the save after the market target was selected.
     Stale(SaveState),
 }
@@ -3410,6 +3420,7 @@ pub enum AdvanceCommandStepResult {
         receipt: AdvanceCommandReceipt,
     },
     Rejected(GameCommandRejection),
+    ProgressBusy(Box<SaveState>),
     /// The same command advanced after its market target was prepared. Retry from DB.
     Stale(Box<SaveState>),
 }
@@ -3582,6 +3593,134 @@ pub struct AccountUser {
     pub display_name: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfflinePolicyState {
+    pub id: ResourceId,
+    pub canonical_sha256: String,
+    pub engine_version: String,
+    pub cadence_seconds: u32,
+    pub absence_window_cap_days: u32,
+    pub max_worker_batch_days: u16,
+    pub lease_seconds: u16,
+    pub presence_ttl_seconds: u16,
+    pub heartbeat_seconds: u16,
+    pub online_intent_ttl_seconds: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfflineProgressSettingStatus {
+    Active,
+    PausedBySystem,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressLeaseState {
+    pub holder_kind: ProgressHolderKind,
+    pub generation: u64,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfflineProgressState {
+    pub run_revision: u32,
+    pub policy: Option<OfflinePolicyState>,
+    pub enabled: bool,
+    pub setting_status: OfflineProgressSettingStatus,
+    pub absence_started_at: Option<String>,
+    pub accrued_through: Option<String>,
+    pub accrual_limit_at: Option<String>,
+    pub window_accrued_days: u32,
+    pub pending_days: u32,
+    pub processed_days: u64,
+    pub cancelled_pending_days: u64,
+    pub revision: u64,
+    pub last_error_code: Option<String>,
+    pub online: bool,
+    pub lease: Option<ProgressLeaseState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfflineProgressFailure {
+    CharacterRequired,
+    PolicyUnavailable,
+    RevisionConflict,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OfflineProgressUpdateResult {
+    Updated(Box<OfflineProgressState>),
+    Rejected(OfflineProgressFailure),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgressHolderKind {
+    Online,
+    Worker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressLeaseGuard {
+    pub save_id: u64,
+    pub run_revision: u32,
+    pub holder_kind: ProgressHolderKind,
+    pub holder_token_sha256: String,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfflineAttemptIdentity {
+    pub attempt_key: String,
+    pub retry_no: u16,
+    pub engine_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressStepContext {
+    pub lease: ProgressLeaseGuard,
+    pub offline_attempt: Option<OfflineAttemptIdentity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgressLeaseAcquireResult {
+    Acquired(ProgressLeaseGuard),
+    Busy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OnlinePresenceRegistration {
+    pub heartbeat_seconds: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfflineWorkClaim {
+    pub user_id: u64,
+    pub save_id: u64,
+    pub run_revision: u32,
+    pub next_game_day: u32,
+    pub max_batch_days: u16,
+    pub retry_no: u16,
+    pub lease: ProgressLeaseGuard,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfflineAttemptEventKind {
+    Started,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfflineAttemptEvent<'a> {
+    pub attempt_key: &'a str,
+    pub event_kind: OfflineAttemptEventKind,
+    pub save_id: u64,
+    pub run_revision: u32,
+    pub game_day: u32,
+    pub lease_generation: u64,
+    pub retry_no: u16,
+    pub engine_version: &'a str,
+    pub error_code: Option<&'a str>,
+}
+
 /// Accounts and sessions.
 #[async_trait]
 pub trait UserStore: Send + Sync + 'static {
@@ -3596,6 +3735,54 @@ pub trait UserStore: Send + Sync + 'static {
 
     /// Closes one session (logout).
     async fn close_session(&self, token_hash: &str) -> Result<()>;
+}
+
+#[async_trait]
+pub trait OfflineProgressStore: Send + Sync + 'static {
+    async fn status(&self, user_id: u64) -> Result<OfflineProgressState>;
+
+    async fn set_enabled(
+        &self,
+        user_id: u64,
+        expected_revision: u64,
+        enabled: bool,
+    ) -> Result<OfflineProgressUpdateResult>;
+
+    async fn register_online_presence(
+        &self,
+        user_id: u64,
+        connection_token_sha256: &str,
+    ) -> Result<Option<OnlinePresenceRegistration>>;
+
+    async fn heartbeat_online_presence(
+        &self,
+        user_id: u64,
+        connection_token_sha256: &str,
+    ) -> Result<()>;
+
+    async fn close_online_presence(&self, connection_token_sha256: &str) -> Result<()>;
+
+    async fn acquire_online_lease(
+        &self,
+        user_id: u64,
+        holder_token_sha256: &str,
+    ) -> Result<ProgressLeaseAcquireResult>;
+
+    async fn release_lease(&self, lease: &ProgressLeaseGuard) -> Result<()>;
+
+    async fn claim_offline_work(
+        &self,
+        holder_token_sha256: &str,
+        engine_version: &str,
+    ) -> Result<Option<OfflineWorkClaim>>;
+
+    async fn record_attempt(&self, event: OfflineAttemptEvent<'_>) -> Result<()>;
+
+    async fn pause_after_permanent_failure(
+        &self,
+        lease: &ProgressLeaseGuard,
+        error_code: &str,
+    ) -> Result<bool>;
 }
 
 #[async_trait]
@@ -3662,6 +3849,7 @@ pub trait SaveStore: Send + Sync + 'static {
     async fn advance_one_day(
         &self,
         user_id: u64,
+        progress: &ProgressStepContext,
         expected: SaveCursor,
         market: &MarketDay,
     ) -> Result<AdvanceDayResult>;
@@ -3670,6 +3858,7 @@ pub trait SaveStore: Send + Sync + 'static {
     async fn advance_command_step(
         &self,
         user_id: u64,
+        progress: &ProgressStepContext,
         command: &ManualAdvanceCommand,
         market: &MarketDay,
     ) -> Result<AdvanceCommandStepResult>;

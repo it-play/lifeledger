@@ -5,10 +5,10 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, bail, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use tokio::sync::{Mutex, broadcast, watch};
+use tokio::sync::{Mutex, broadcast, oneshot, watch};
 use utoipa::ToSchema;
 
-use crate::auth::{Providers, token_hash_of};
+use crate::auth::{Providers, random_token, token_hash_of};
 use crate::career::{
     ActivityStatus, ArtifactKind, CareerFailureCode, EvidenceKind, Industry, LifeStatus,
 };
@@ -134,6 +134,15 @@ use crate::store::{
     WelfareConditionOutcomeState, WelfareConditionResultState, WelfareEvaluationStatusState,
     WelfarePaymentState, WelfarePaymentStatusState, WelfareProgramState, WelfareProgramsState,
     WithdrawCareerApplicationCommand,
+};
+#[cfg(test)]
+use crate::store::{
+    OfflineAttemptEvent, OfflineProgressFailure, OfflineProgressSettingStatus, OfflineWorkClaim,
+    OnlinePresenceRegistration, ProgressHolderKind, ProgressLeaseGuard,
+};
+use crate::store::{
+    OfflineProgressState, OfflineProgressStore, OfflineProgressUpdateResult,
+    ProgressLeaseAcquireResult, ProgressStepContext,
 };
 use crate::trading::{
     Portfolio, TradeExecution, TradeFailure, TradeOrder, checked_net_worth_krw, value_portfolio,
@@ -5046,6 +5055,7 @@ pub enum GameLoopError {
     InvalidCharacter(Vec<crate::character::ValidationError>),
     IdempotencyConflict,
     Busy,
+    ProgressBusy,
     CharacterRequired,
     ModeUnavailable,
     ActiveStreamRequired,
@@ -5241,10 +5251,11 @@ impl SaveRuntime {
         Some(last_committed)
     }
 
-    fn connect(self: &Arc<Self>) -> StreamConnection {
+    fn connect(self: &Arc<Self>, online_presence: Option<OnlinePresenceGuard>) -> StreamConnection {
         self.control().active_streams += 1;
         StreamConnection {
             runtime: Arc::clone(self),
+            _online_presence: online_presence,
         }
     }
 
@@ -5283,11 +5294,54 @@ impl SaveRuntime {
 /// Keeps an SSE connection counted until Axum drops its response body.
 pub(crate) struct StreamConnection {
     runtime: Arc<SaveRuntime>,
+    _online_presence: Option<OnlinePresenceGuard>,
 }
 
 impl Drop for StreamConnection {
     fn drop(&mut self) {
         self.runtime.disconnect();
+    }
+}
+
+struct OnlinePresenceGuard {
+    stop: Option<oneshot::Sender<()>>,
+}
+
+impl OnlinePresenceGuard {
+    fn spawn(
+        store: Arc<dyn OfflineProgressStore>,
+        user_id: u64,
+        token_sha256: String,
+        heartbeat_seconds: u16,
+    ) -> Self {
+        let (stop, mut stopped) = oneshot::channel();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(u64::from(heartbeat_seconds))) => {
+                        if let Err(error) = store
+                            .heartbeat_online_presence(user_id, &token_sha256)
+                            .await
+                        {
+                            tracing::warn!(user_id, error = ?error, "online presence heartbeat failed");
+                        }
+                    }
+                    _ = &mut stopped => break,
+                }
+            }
+            if let Err(error) = store.close_online_presence(&token_sha256).await {
+                tracing::warn!(user_id, error = ?error, "online presence close failed");
+            }
+        });
+        Self { stop: Some(stop) }
+    }
+}
+
+impl Drop for OnlinePresenceGuard {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
     }
 }
 
@@ -5324,6 +5378,7 @@ pub struct AppState {
     lives: Arc<dyn LifeStore>,
     markets: Arc<dyn MarketStore>,
     runs: Arc<dyn RunStore>,
+    offline_progress: Arc<dyn OfflineProgressStore>,
     users: Arc<dyn UserStore>,
     pub providers: Providers,
     runtimes: StdMutex<HashMap<u64, Arc<SaveRuntime>>>,
@@ -5341,6 +5396,7 @@ pub struct AppStores {
     lives: Arc<dyn LifeStore>,
     markets: Arc<dyn MarketStore>,
     runs: Arc<dyn RunStore>,
+    offline_progress: Arc<dyn OfflineProgressStore>,
     users: Arc<dyn UserStore>,
 }
 
@@ -5355,6 +5411,7 @@ pub struct AppStoreDependencies {
     pub lives: Arc<dyn LifeStore>,
     pub markets: Arc<dyn MarketStore>,
     pub runs: Arc<dyn RunStore>,
+    pub offline_progress: Arc<dyn OfflineProgressStore>,
     pub users: Arc<dyn UserStore>,
 }
 
@@ -5370,6 +5427,7 @@ pub fn create_app_stores(dependencies: AppStoreDependencies) -> AppStores {
         lives,
         markets,
         runs,
+        offline_progress,
         users,
     } = dependencies;
     AppStores {
@@ -5383,6 +5441,7 @@ pub fn create_app_stores(dependencies: AppStoreDependencies) -> AppStores {
         lives,
         markets,
         runs,
+        offline_progress,
         users,
     }
 }
@@ -5420,6 +5479,7 @@ impl AppState {
             lives: dependencies.stores.lives,
             markets: dependencies.stores.markets,
             runs: dependencies.stores.runs,
+            offline_progress: dependencies.stores.offline_progress,
             users: dependencies.stores.users,
             providers: dependencies.providers,
             runtimes: StdMutex::new(HashMap::new()),
@@ -5469,6 +5529,21 @@ impl AppState {
         run_revision: u32,
     ) -> Result<Option<RunFinalization>> {
         self.runs.run_finalization(user_id, run_revision).await
+    }
+
+    pub async fn offline_progress_status(&self, user_id: u64) -> Result<OfflineProgressState> {
+        self.offline_progress.status(user_id).await
+    }
+
+    pub async fn set_offline_progress(
+        &self,
+        user_id: u64,
+        expected_revision: u64,
+        enabled: bool,
+    ) -> Result<OfflineProgressUpdateResult> {
+        self.offline_progress
+            .set_enabled(user_id, expected_revision, enabled)
+            .await
     }
 
     pub async fn prepare_ranked_preset(
@@ -5552,7 +5627,20 @@ impl AppState {
         let _operation = runtime.operation.lock().await;
         let receiver = runtime.subscribe();
         let state = self.games.load(user_id).await?;
-        let connection = runtime.connect();
+        let presence_token_sha256 = token_hash_of(&random_token()?);
+        let online_presence = self
+            .offline_progress
+            .register_online_presence(user_id, &presence_token_sha256)
+            .await?
+            .map(|registration| {
+                OnlinePresenceGuard::spawn(
+                    Arc::clone(&self.offline_progress),
+                    user_id,
+                    presence_token_sha256,
+                    registration.heartbeat_seconds,
+                )
+            });
+        let connection = runtime.connect(online_presence);
         let auto_speed = runtime.record_committed(&state);
 
         Ok(StreamSubscription {
@@ -5570,42 +5658,55 @@ impl AppState {
     ) -> Result<AdvanceResponse, GameLoopError> {
         let runtime = self.runtime(user_id);
         let _operation = runtime.operation.lock().await;
+        let progress = self.acquire_online_progress(user_id).await?;
         let mut paused_state = runtime.pause();
-        for _ in 0..command.days.max(1) {
-            let outcome = match self.games.advance_command_step(user_id, command).await {
-                Ok(outcome) => outcome,
-                Err(error) => {
-                    if let Some(state) = paused_state.take() {
-                        self.broadcast(&state, &runtime)?;
+        let result = async {
+            for _ in 0..command.days.max(1) {
+                let outcome = match self
+                    .games
+                    .advance_command_step(user_id, &progress, command)
+                    .await
+                {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        if let Some(state) = paused_state.take() {
+                            self.broadcast(&state, &runtime)?;
+                        }
+                        return Err(error.into());
                     }
-                    return Err(error.into());
-                }
-            };
-            match outcome {
-                DailyCommandAdvanceResult::Advanced { state, receipt } => {
-                    // The first daily tick carries the externally visible paused state.
-                    paused_state = None;
-                    let snapshot = self.broadcast(&state, &runtime)?;
-                    if let Some(receipt) = receipt {
+                };
+                match outcome {
+                    DailyCommandAdvanceResult::Advanced { state, receipt } => {
+                        // The first daily tick carries the externally visible paused state.
+                        paused_state = None;
+                        let snapshot = self.broadcast(&state, &runtime)?;
+                        if let Some(receipt) = receipt {
+                            return Ok(to_advance_response(receipt, snapshot));
+                        }
+                    }
+                    DailyCommandAdvanceResult::Replayed { state, receipt } => {
+                        let snapshot = to_snapshot(&state, runtime.auto_speed())?;
                         return Ok(to_advance_response(receipt, snapshot));
                     }
-                }
-                DailyCommandAdvanceResult::Replayed { state, receipt } => {
-                    let snapshot = to_snapshot(&state, runtime.auto_speed())?;
-                    return Ok(to_advance_response(receipt, snapshot));
-                }
-                DailyCommandAdvanceResult::Rejected(rejection) => {
-                    if let Some(state) = paused_state.take() {
-                        self.broadcast(&state, &runtime)?;
+                    DailyCommandAdvanceResult::Rejected(rejection) => {
+                        if let Some(state) = paused_state.take() {
+                            self.broadcast(&state, &runtime)?;
+                        }
+                        return Err(rejection.into());
                     }
-                    return Err(rejection.into());
+                    DailyCommandAdvanceResult::ProgressBusy(state) => {
+                        self.broadcast(&state, &runtime)?;
+                        return Err(GameLoopError::ProgressBusy);
+                    }
                 }
             }
-        }
 
-        Err(GameLoopError::Internal(anyhow::anyhow!(
-            "manual advance exhausted its requested steps without a receipt"
-        )))
+            Err(GameLoopError::Internal(anyhow::anyhow!(
+                "manual advance exhausted its requested steps without a receipt"
+            )))
+        }
+        .await;
+        self.release_online_progress(&progress, result).await
     }
 
     pub async fn set_clock(
@@ -5641,32 +5742,37 @@ impl AppState {
     ) -> Result<CharacterStartResponse, GameLoopError> {
         let runtime = self.runtime(user_id);
         let _operation = runtime.operation.lock().await;
+        let progress = self.acquire_online_progress(user_id).await?;
         let paused_state = runtime.pause();
-        let outcome = match self.games.start_game(user_id, command).await {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                if let Some(state) = paused_state {
-                    self.broadcast(&state, &runtime)?;
+        let result = async {
+            let outcome = match self.games.start_game(user_id, command).await {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    if let Some(state) = paused_state {
+                        self.broadcast(&state, &runtime)?;
+                    }
+                    return Err(error.into());
                 }
-                return Err(error.into());
-            }
-        };
-        match outcome {
-            DailyStartGameResult::Applied { state, receipt } => {
-                let snapshot = self.broadcast(&state, &runtime)?;
-                Ok(to_character_start_response(receipt, snapshot))
-            }
-            DailyStartGameResult::Replayed { state, receipt } => {
-                let snapshot = to_snapshot(&state, runtime.auto_speed())?;
-                Ok(to_character_start_response(receipt, snapshot))
-            }
-            DailyStartGameResult::Rejected(rejection) => {
-                if let Some(state) = paused_state {
-                    self.broadcast(&state, &runtime)?;
+            };
+            match outcome {
+                DailyStartGameResult::Applied { state, receipt } => {
+                    let snapshot = self.broadcast(&state, &runtime)?;
+                    Ok(to_character_start_response(receipt, snapshot))
                 }
-                Err(rejection.into())
+                DailyStartGameResult::Replayed { state, receipt } => {
+                    let snapshot = to_snapshot(&state, runtime.auto_speed())?;
+                    Ok(to_character_start_response(receipt, snapshot))
+                }
+                DailyStartGameResult::Rejected(rejection) => {
+                    if let Some(state) = paused_state {
+                        self.broadcast(&state, &runtime)?;
+                    }
+                    Err(rejection.into())
+                }
             }
         }
+        .await;
+        self.release_online_progress(&progress, result).await
     }
 
     /// Executes one idempotent order while sharing the save's runtime mutation lock.
@@ -7588,14 +7694,51 @@ impl AppState {
         user_id: u64,
         runtime: &SaveRuntime,
     ) -> Result<GameSnapshot, GameLoopError> {
-        match self.games.advance_one_day(user_id).await? {
+        let progress = self.acquire_online_progress(user_id).await?;
+        let result = match self.games.advance_one_day(user_id, &progress).await? {
             DailyAdvanceResult::Advanced(state) => Ok(self.broadcast(&state, runtime)?),
             DailyAdvanceResult::CharacterRequired => Err(GameLoopError::CharacterRequired),
             DailyAdvanceResult::TargetReached(state) => {
                 runtime.pause();
                 Ok(self.broadcast(&state, runtime)?)
             }
+            DailyAdvanceResult::ProgressBusy(state) => {
+                self.broadcast(&state, runtime)?;
+                Err(GameLoopError::ProgressBusy)
+            }
+        };
+        self.release_online_progress(&progress, result).await
+    }
+
+    async fn acquire_online_progress(
+        &self,
+        user_id: u64,
+    ) -> Result<ProgressStepContext, GameLoopError> {
+        let holder_token_sha256 = token_hash_of(&random_token()?);
+        match self
+            .offline_progress
+            .acquire_online_lease(user_id, &holder_token_sha256)
+            .await?
+        {
+            ProgressLeaseAcquireResult::Acquired(lease) => Ok(ProgressStepContext {
+                lease,
+                offline_attempt: None,
+            }),
+            ProgressLeaseAcquireResult::Busy => Err(GameLoopError::ProgressBusy),
         }
+    }
+
+    async fn release_online_progress<T>(
+        &self,
+        progress: &ProgressStepContext,
+        result: Result<T, GameLoopError>,
+    ) -> Result<T, GameLoopError> {
+        if let Err(error) = self.offline_progress.release_lease(&progress.lease).await
+            && result.is_ok()
+        {
+            return Err(GameLoopError::Internal(error));
+        }
+        result
     }
 
     fn broadcast(&self, state: &CommittedGameState, runtime: &SaveRuntime) -> Result<GameSnapshot> {
@@ -14060,7 +14203,11 @@ mod tests {
             })
         }
 
-        async fn advance_one_day(&self, _user_id: u64) -> Result<DailyAdvanceResult> {
+        async fn advance_one_day(
+            &self,
+            _user_id: u64,
+            _progress: &ProgressStepContext,
+        ) -> Result<DailyAdvanceResult> {
             if self.state().character.is_none() {
                 return Ok(DailyAdvanceResult::CharacterRequired);
             }
@@ -14093,6 +14240,7 @@ mod tests {
         async fn advance_command_step(
             &self,
             _user_id: u64,
+            _progress: &ProgressStepContext,
             command: &ManualAdvanceCommand,
         ) -> Result<DailyCommandAdvanceResult> {
             if let Some(receipt) = self
@@ -14236,6 +14384,100 @@ mod tests {
     }
 
     struct FakeUserStore;
+
+    struct FakeOfflineProgressStore;
+
+    #[async_trait]
+    impl OfflineProgressStore for FakeOfflineProgressStore {
+        async fn status(&self, _user_id: u64) -> Result<OfflineProgressState> {
+            Ok(OfflineProgressState {
+                run_revision: 0,
+                policy: None,
+                enabled: false,
+                setting_status: OfflineProgressSettingStatus::Active,
+                absence_started_at: None,
+                accrued_through: None,
+                accrual_limit_at: None,
+                window_accrued_days: 0,
+                pending_days: 0,
+                processed_days: 0,
+                cancelled_pending_days: 0,
+                revision: 0,
+                last_error_code: None,
+                online: false,
+                lease: None,
+            })
+        }
+
+        async fn set_enabled(
+            &self,
+            _user_id: u64,
+            _expected_revision: u64,
+            _enabled: bool,
+        ) -> Result<OfflineProgressUpdateResult> {
+            Ok(OfflineProgressUpdateResult::Rejected(
+                OfflineProgressFailure::PolicyUnavailable,
+            ))
+        }
+
+        async fn register_online_presence(
+            &self,
+            _user_id: u64,
+            _connection_token_sha256: &str,
+        ) -> Result<Option<OnlinePresenceRegistration>> {
+            Ok(None)
+        }
+
+        async fn heartbeat_online_presence(
+            &self,
+            _user_id: u64,
+            _connection_token_sha256: &str,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn close_online_presence(&self, _connection_token_sha256: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn acquire_online_lease(
+            &self,
+            _user_id: u64,
+            holder_token_sha256: &str,
+        ) -> Result<ProgressLeaseAcquireResult> {
+            Ok(ProgressLeaseAcquireResult::Acquired(ProgressLeaseGuard {
+                save_id: SAVE_ID,
+                run_revision: 0,
+                holder_kind: ProgressHolderKind::Online,
+                holder_token_sha256: holder_token_sha256.to_owned(),
+                generation: 1,
+            }))
+        }
+
+        async fn release_lease(&self, _lease: &ProgressLeaseGuard) -> Result<()> {
+            Ok(())
+        }
+
+        async fn claim_offline_work(
+            &self,
+            _holder_token_sha256: &str,
+            _engine_version: &str,
+        ) -> Result<Option<OfflineWorkClaim>> {
+            Ok(None)
+        }
+
+        async fn record_attempt(&self, _event: OfflineAttemptEvent<'_>) -> Result<()> {
+            Ok(())
+        }
+
+        async fn pause_after_permanent_failure(
+            &self,
+            _lease: &ProgressLeaseGuard,
+            _error_code: &str,
+        ) -> Result<bool> {
+            Ok(true)
+        }
+    }
 
     struct FakeRunStore;
 
@@ -15051,6 +15293,7 @@ mod tests {
         let markets: Arc<dyn MarketStore> = Arc::new(FakeMarketStore);
         let runs: Arc<dyn RunStore> = Arc::new(FakeRunStore);
         let users: Arc<dyn UserStore> = Arc::new(FakeUserStore);
+        let offline_progress: Arc<dyn OfflineProgressStore> = Arc::new(FakeOfflineProgressStore);
         let timer = Arc::new(ManualTimer::new());
         let game_timer: Arc<dyn GameTimer> = timer.clone();
         let providers = Providers::from_env("http://localhost:8080".to_owned())
@@ -15068,6 +15311,7 @@ mod tests {
                     lives,
                     markets,
                     runs,
+                    offline_progress,
                     users,
                 }),
                 providers,
@@ -15203,7 +15447,7 @@ mod tests {
                         let committed = committed.clone();
                         scope.spawn(move || {
                             for iteration in 0..500 {
-                                let connection = runtime.connect();
+                                let connection = runtime.connect(None);
                                 let speed = if (worker + iteration) % 2 == 0 {
                                     AutoSpeed::X2
                                 } else {
@@ -15324,6 +15568,7 @@ mod tests {
                         markets,
                         runs,
                         users,
+                        offline_progress: Arc::new(FakeOfflineProgressStore),
                     }),
                     providers,
                 },

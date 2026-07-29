@@ -1,4 +1,4 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    lifeledger_server::run_api().await
+    lifeledger_server::run_offline_worker().await
 }

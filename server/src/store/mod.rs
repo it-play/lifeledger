@@ -20,6 +20,7 @@ mod m2d_assets;
 mod market;
 mod military;
 mod mysql;
+mod offline;
 mod properties;
 mod property_tax;
 mod recruitment;
@@ -35,6 +36,7 @@ pub use finance::create_mysql_finance_store;
 pub use life::create_mysql_life_store;
 pub use market::create_mysql_market_store;
 pub use mysql::create_mysql_save_store;
+pub use offline::create_mysql_offline_progress_store;
 pub use runs::create_mysql_run_store;
 pub use types::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
@@ -106,36 +108,40 @@ pub use types::{
     MilitaryServiceState, MonthlyRentTerminationReviewTermsState, MonthlyRentTermsState,
     MortgageExecutionReceipt, MortgageLtvRegionClassState, MortgageQuoteDecisionState,
     MortgageQuoteReasonState, MortgageQuoteReceipt, MortgageStressTreatmentState,
-    NextLoanInstallmentState, OpenMilitarySavingsCommand, OpenTaxAccountCommand,
-    OpenTaxAccountReceipt, PayCorporationDividendCommand, PayEssentialArrearCommand,
-    PayLeaseArrearCommand, PendingInsuranceClaimState, PendingLifeEventState, PensionAccountState,
+    NextLoanInstallmentState, OfflineAttemptEvent, OfflineAttemptEventKind, OfflineAttemptIdentity,
+    OfflineProgressFailure, OfflineProgressSettingStatus, OfflineProgressState,
+    OfflineProgressStore, OfflineProgressUpdateResult, OfflineWorkClaim,
+    OpenMilitarySavingsCommand, OpenTaxAccountCommand, OpenTaxAccountReceipt,
+    PayCorporationDividendCommand, PayEssentialArrearCommand, PayLeaseArrearCommand,
+    PendingInsuranceClaimState, PendingLifeEventState, PensionAccountState,
     PensionWithdrawalCommand, PensionWithdrawalReceipt, PrepareInsolvencyCaseCommand,
-    PrepayLoanCommand, PropertyHoldingPurposeState, PropertyHoldingState,
-    PropertyHoldingStatusState, PropertyPurchaseReceipt, PropertySaleExecutionState,
-    PropertySaleOrderCancellationReceipt, PropertySaleOrderListingReceipt,
-    PropertySaleOrderPageQuery, PropertySaleOrderPageState, PropertySaleOrderRejectionReasonState,
-    PropertySaleOrderRevisionKindState, PropertySaleOrderStatusState,
-    PropertySaleOrderSummaryState, PropertyTaxComponentState, PropertyTaxEventKindState,
-    PropertyTaxEventPageQuery, PropertyTaxEventPageState, PropertyTaxEventState,
-    PropertyTaxEventStatusState, PropertyTaxPaymentState, PropertyTaxPaymentStatusState,
-    PublishCareerArtifactCommand, PurchasePropertyCommand, RealEstateDailyPreparationStore,
-    RecruitmentPostingStore, RepaidDepositLoanReceipt, RepricePropertySaleOrderCommand,
-    ResidenceTenureKind, ResolveLifeEventCommand, RunStore, SaveCursor, SaveState, SaveStore,
-    StartCareerActivityCommand, StartGameCommand, StartGameManifestKind, StartGameReceipt,
-    StartGameResult, StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
-    StartPensionReceipt, StartingLoanCommand, TaxAccountStore, TaxAccountStoreResult,
-    TradeStoreResult, TradingStore, UpdateCorporationSettingsCommand, UpdateLifeBudgetCommand,
-    UpdateLifeBudgetReceipt, UserStore, VerifiedIncomeSourceState, WelfareApplicationReceipt,
-    WelfareApplicationStatusState, WelfareApplicationSummaryState, WelfareConditionOutcomeState,
-    WelfareConditionResultState, WelfareEvaluationStatusState, WelfarePaymentState,
-    WelfarePaymentStatusState, WelfareProgramState, WelfareProgramsState,
-    WithdrawCareerApplicationCommand,
+    PrepayLoanCommand, ProgressHolderKind, ProgressLeaseAcquireResult, ProgressStepContext,
+    PropertyHoldingPurposeState, PropertyHoldingState, PropertyHoldingStatusState,
+    PropertyPurchaseReceipt, PropertySaleExecutionState, PropertySaleOrderCancellationReceipt,
+    PropertySaleOrderListingReceipt, PropertySaleOrderPageQuery, PropertySaleOrderPageState,
+    PropertySaleOrderRejectionReasonState, PropertySaleOrderRevisionKindState,
+    PropertySaleOrderStatusState, PropertySaleOrderSummaryState, PropertyTaxComponentState,
+    PropertyTaxEventKindState, PropertyTaxEventPageQuery, PropertyTaxEventPageState,
+    PropertyTaxEventState, PropertyTaxEventStatusState, PropertyTaxPaymentState,
+    PropertyTaxPaymentStatusState, PublishCareerArtifactCommand, PurchasePropertyCommand,
+    RealEstateDailyPreparationStore, RecruitmentPostingStore, RepaidDepositLoanReceipt,
+    RepricePropertySaleOrderCommand, ResidenceTenureKind, ResolveLifeEventCommand, RunStore,
+    SaveCursor, SaveState, SaveStore, StartCareerActivityCommand, StartGameCommand,
+    StartGameManifestKind, StartGameReceipt, StartGameResult, StartHousingLeaseCommand,
+    StartMilitaryServiceCommand, StartPensionCommand, StartPensionReceipt, StartingLoanCommand,
+    TaxAccountStore, TaxAccountStoreResult, TradeStoreResult, TradingStore,
+    UpdateCorporationSettingsCommand, UpdateLifeBudgetCommand, UpdateLifeBudgetReceipt, UserStore,
+    VerifiedIncomeSourceState, WelfareApplicationReceipt, WelfareApplicationStatusState,
+    WelfareApplicationSummaryState, WelfareConditionOutcomeState, WelfareConditionResultState,
+    WelfareEvaluationStatusState, WelfarePaymentState, WelfarePaymentStatusState,
+    WelfareProgramState, WelfareProgramsState, WithdrawCareerApplicationCommand,
 };
 #[cfg(test)]
 pub use types::{
     ActiveMarketWorld, ActiveRunConfiguration, CareerActivityReceipt, CareerArtifactReceipt,
     CareerCatalogAssignment, CareerSnapshotState, ContentBundleAssignment,
     EmploymentPolicyAssignment, FocusCareerReceipt, MarketHistoryState, MarketWorldState,
+    OfflinePolicyAssignment, OnlinePresenceRegistration, ProgressLeaseGuard,
     RunRuleBundleAssignment,
 };
 pub use user::create_mysql_user_store;

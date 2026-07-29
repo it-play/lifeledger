@@ -3,8 +3,8 @@ use async_trait::async_trait;
 
 use crate::market::{MarketDay, MarketWorld};
 use crate::store::{
-    AdvanceCommandReceipt, GameCommandRejection, ManualAdvanceCommand, SaveState, StartGameCommand,
-    StartGameReceipt,
+    AdvanceCommandReceipt, GameCommandRejection, ManualAdvanceCommand, ProgressStepContext,
+    SaveState, StartGameCommand, StartGameReceipt,
 };
 
 /// The player state and immutable market close committed for the same game day.
@@ -20,6 +20,7 @@ pub enum DailyAdvanceResult {
     Advanced(Box<CommittedGameState>),
     CharacterRequired,
     TargetReached(Box<CommittedGameState>),
+    ProgressBusy(Box<CommittedGameState>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +47,7 @@ pub enum DailyCommandAdvanceResult {
         receipt: AdvanceCommandReceipt,
     },
     Rejected(GameCommandRejection),
+    ProgressBusy(Box<CommittedGameState>),
 }
 
 /// Composes the shared market layer with account-owned player transactions (§4.2).
@@ -60,12 +62,17 @@ pub trait DailyPipeline: Send + Sync + 'static {
     ) -> Result<DailyStartGameResult>;
 
     /// Runtime-owned automatic tick. It deliberately has no durable command identity.
-    async fn advance_one_day(&self, user_id: u64) -> Result<DailyAdvanceResult>;
+    async fn advance_one_day(
+        &self,
+        user_id: u64,
+        progress: &ProgressStepContext,
+    ) -> Result<DailyAdvanceResult>;
 
     /// Commits or replays the next missing step of a durable manual command.
     async fn advance_command_step(
         &self,
         user_id: u64,
+        progress: &ProgressStepContext,
         command: &ManualAdvanceCommand,
     ) -> Result<DailyCommandAdvanceResult>;
 }

@@ -71,6 +71,7 @@ use super::military::{
     MilitarySettlementContext, advance_military_lifecycle_in_tx, settle_military_by_id_in_tx,
     validate_military_settlement_envelope,
 };
+use super::offline::{authorize_progress_step_in_tx, complete_progress_step_in_tx};
 use super::properties::{close_property_sales_for_new_run_in_tx, execute_due_property_sales_in_tx};
 use super::property_tax::{
     PropertyTaxRunContext, close_property_tax_for_new_run_in_tx,
@@ -88,8 +89,9 @@ use super::tax_accounts::{
 use super::types::{
     ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt, AdvanceCommandStepResult,
     AdvanceDayResult, ContentBundleAssignment, GameCommandCursor, GameCommandRejection,
-    ManualAdvanceCommand, SaveCursor, SaveState, SaveStore, StartGameCommand,
-    StartGameManifestKind, StartGameReceipt, StartGameResult, TradeStoreResult, TradingStore,
+    ManualAdvanceCommand, OfflinePolicyAssignment, ProgressStepContext, SaveCursor, SaveState,
+    SaveStore, StartGameCommand, StartGameManifestKind, StartGameReceipt, StartGameResult,
+    TradeStoreResult, TradingStore,
 };
 use super::welfare::{
     close_welfare_for_new_run_in_tx, ensure_welfare_evaluations_for_target_day_in_tx,
@@ -121,7 +123,6 @@ const INITIAL_CASH_KRW: i64 = 10_000_000;
 const COMMAND_KIND_START_GAME: &str = "startGame";
 const COMMAND_KIND_ADVANCE: &str = "advance";
 const COMMAND_KIND_TRADE: &str = "trade";
-const M5A_ENGINE_VERSION: &str = "m5a-dev-v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CommandIdentityState {
@@ -158,6 +159,27 @@ struct DailySettlementRules {
     property: Arc<dyn PropertyRules>,
     property_tax: Arc<dyn PropertyTaxRules>,
     corporation: Arc<dyn crate::life::CorporationRules>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ActiveRunConfigurationRow {
+    market_world_id: u64,
+    market_assignment_revision: u64,
+    policy_set_id: u64,
+    finance_assignment_revision: u64,
+    product_bundle_id: Option<u64>,
+    career_catalog_bundle_id: u64,
+    career_assignment_revision: u64,
+    employment_policy_set_id: u64,
+    employment_assignment_revision: u64,
+    life_catalog_set_id: u64,
+    credit_model_version_id: u64,
+    real_estate_model_version_id: u64,
+    rule_bundle_assignment_revision: u64,
+    content_bundle_id: u64,
+    content_assignment_revision: u64,
+    offline_policy_version_id: u64,
+    offline_assignment_revision: u64,
 }
 
 pub fn create_mysql_save_store(
@@ -366,6 +388,16 @@ impl SaveStore for MySqlSaveStore {
         .fetch_one(&mut *tx)
         .await
         .context("active content bundle is not sealed")?;
+        let offline_policy_sha256: String = sqlx::query_scalar(
+            "SELECT canonical_sha256
+             FROM offline_policy_version
+             WHERE id = ? AND status = 'sealed'
+             FOR SHARE",
+        )
+        .bind(expected.offline_policy.policy_version_id.get())
+        .fetch_one(&mut *tx)
+        .await
+        .context("active offline policy is not sealed")?;
 
         if let StartGameManifestKind::Ranked(context) = &command.manifest_kind
             && !ranked_context_is_active(&mut tx, context, &expected, &content_bundle_sha256)
@@ -573,6 +605,7 @@ impl SaveStore for MySqlSaveStore {
             new_run_revision,
             &expected,
             &content_bundle_sha256,
+            &offline_policy_sha256,
             &command.manifest_kind,
         )
         .await?;
@@ -663,12 +696,20 @@ impl SaveStore for MySqlSaveStore {
     async fn advance_one_day(
         &self,
         user_id: u64,
+        progress: &ProgressStepContext,
         expected: SaveCursor,
         market: &MarketDay,
     ) -> Result<AdvanceDayResult> {
         let mut tx = self.pool.begin().await?;
         let save_id = ensure_save(&mut tx, user_id).await?;
         lock_save(&mut tx, save_id).await?;
+        if save_id != progress.lease.save_id
+            || !authorize_progress_step_in_tx(&mut tx, progress).await?
+        {
+            let current = read_state(&mut tx, save_id).await?;
+            tx.commit().await?;
+            return Ok(AdvanceDayResult::ProgressBusy(current));
+        }
         let current = read_state(&mut tx, save_id).await?;
 
         if current.character.is_none() {
@@ -741,6 +782,7 @@ impl SaveStore for MySqlSaveStore {
             market,
         )
         .await?;
+        complete_progress_step_in_tx(&mut tx, progress, state.game_day).await?;
         tx.commit().await?;
 
         Ok(AdvanceDayResult::Advanced(state))
@@ -749,6 +791,7 @@ impl SaveStore for MySqlSaveStore {
     async fn advance_command_step(
         &self,
         user_id: u64,
+        progress: &ProgressStepContext,
         command: &ManualAdvanceCommand,
         market: &MarketDay,
     ) -> Result<AdvanceCommandStepResult> {
@@ -763,6 +806,13 @@ impl SaveStore for MySqlSaveStore {
         let mut tx = self.pool.begin().await?;
         let save_id = ensure_save(&mut tx, user_id).await?;
         lock_save(&mut tx, save_id).await?;
+        if save_id != progress.lease.save_id
+            || !authorize_progress_step_in_tx(&mut tx, progress).await?
+        {
+            let current = read_state(&mut tx, save_id).await?;
+            tx.commit().await?;
+            return Ok(AdvanceCommandStepResult::ProgressBusy(Box::new(current)));
+        }
         let identity_state = inspect_command_identity(&mut tx, save_id, &identity).await?;
         if identity_state == CommandIdentityState::Conflict {
             tx.commit().await?;
@@ -959,6 +1009,7 @@ impl SaveStore for MySqlSaveStore {
             market,
         )
         .await?;
+        complete_progress_step_in_tx(&mut tx, progress, save.game_day).await?;
         ensure!(
             GameCommandCursor::from(&save) == after_cursor,
             "committed advance step cursor disagrees with the save"
@@ -1988,6 +2039,7 @@ async fn write_run_manifest_in_tx(
     run_revision: u32,
     configuration: &ActiveRunConfiguration,
     content_bundle_sha256: &str,
+    offline_policy_sha256: &str,
     manifest_kind: &StartGameManifestKind,
 ) -> Result<()> {
     match manifest_kind {
@@ -2002,6 +2054,7 @@ async fn write_run_manifest_in_tx(
                 run_revision,
                 configuration,
                 content_bundle_sha256,
+                offline_policy_sha256,
                 ranking_ineligibility_reason,
             )?;
             sqlx::query(
@@ -2010,9 +2063,10 @@ async fn write_run_manifest_in_tx(
                       career_catalog_bundle_id, employment_policy_set_id, life_catalog_set_id,
                       credit_model_version_id, real_estate_model_version_id,
                       content_bundle_id, content_bundle_sha256,
+                      offline_policy_version_id, offline_policy_sha256,
                       canonical_selections_json, engine_version, start_game_day,
                       ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
-                 VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
+                 VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
                          FALSE, ?, ?)",
             )
             .bind(save_id)
@@ -2026,7 +2080,9 @@ async fn write_run_manifest_in_tx(
             .bind(configuration.rule_bundle.real_estate_model_version_id.get())
             .bind(configuration.content_bundle.bundle_id.get())
             .bind(content_bundle_sha256)
-            .bind(M5A_ENGINE_VERSION)
+            .bind(configuration.offline_policy.policy_version_id.get())
+            .bind(offline_policy_sha256)
+            .bind(crate::ENGINE_VERSION)
             .bind(ranking_ineligibility_reason)
             .bind(manifest_canonical_json)
             .execute(&mut **tx)
@@ -2050,11 +2106,12 @@ async fn write_run_manifest_in_tx(
                       career_catalog_bundle_id, employment_policy_set_id,
                       life_catalog_set_id, credit_model_version_id,
                       real_estate_model_version_id, content_bundle_id, content_bundle_sha256,
+                      offline_policy_version_id, offline_policy_sha256,
                       character_preset_version_id, point_budget_version_id,
                       canonical_selections_json, engine_version, start_game_day,
                       target_game_day, ranking_eligible, ranking_ineligibility_reason,
                       manifest_canonical_json)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                          0, ?, TRUE, NULL, ?)",
             )
             .bind(save_id)
@@ -2076,10 +2133,12 @@ async fn write_run_manifest_in_tx(
             .bind(configuration.rule_bundle.real_estate_model_version_id.get())
             .bind(configuration.content_bundle.bundle_id.get())
             .bind(content_bundle_sha256)
+            .bind(context.offline_policy_version_id.map(ResourceId::get))
+            .bind(context.offline_policy_sha256.as_deref())
             .bind(context.character_preset_version_id.map(ResourceId::get))
             .bind(context.point_budget_version_id.map(ResourceId::get))
             .bind(&context.canonical_selections_json)
-            .bind(M5A_ENGINE_VERSION)
+            .bind(crate::ENGINE_VERSION)
             .bind(context.target_game_day)
             .bind(manifest_canonical_json)
             .execute(&mut **tx)
@@ -2112,6 +2171,8 @@ fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
                 "rankingRuleVersionId={}\n",
                 "rankingRuleSha256={}\n",
                 "targetGameDay={}\n",
+                "offlinePolicyVersionId={}\n",
+                "offlinePolicySha256={}\n",
                 "characterPresetVersionId={}\n",
                 "pointBudgetVersionId={}\n",
                 "selections={}\n",
@@ -2126,6 +2187,8 @@ fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
             context.ranking_rule_version_id.get(),
             context.ranking_rule_sha256,
             context.target_game_day,
+            optional_resource_id(context.offline_policy_version_id),
+            context.offline_policy_sha256.as_deref().unwrap_or("null"),
             optional_resource_id(context.character_preset_version_id),
             optional_resource_id(context.point_budget_version_id),
             context.canonical_selections_json,
@@ -2153,11 +2216,13 @@ fn ranked_manifest_canonical(
         "contentBundleSha256": content_bundle_sha256,
         "creditModelVersionId": configuration.rule_bundle.credit_model_version_id.get().to_string(),
         "employmentPolicySetId": configuration.employment_policy.policy_set_id.get().to_string(),
-        "engineVersion": M5A_ENGINE_VERSION,
+        "engineVersion": crate::ENGINE_VERSION,
         "leagueDefinitionId": context.league_definition_id.get().to_string(),
         "lifeCatalogSetId": configuration.rule_bundle.life_catalog_set_id.get().to_string(),
         "marketWorldId": configuration.market_world.world_id.to_string(),
         "mode": run_mode_db_value(context.mode)?,
+        "offlinePolicySha256": context.offline_policy_sha256.as_deref(),
+        "offlinePolicyVersionId": context.offline_policy_version_id.map(|id| id.get().to_string()),
         "pointBudgetVersionId": context.point_budget_version_id.map(|id| id.get().to_string()),
         "policySetId": configuration.policy_set.policy_set_id.get().to_string(),
         "rankedRulesetReleaseId": context.ranked_ruleset_release_id.get().to_string(),
@@ -2169,7 +2234,7 @@ fn ranked_manifest_canonical(
         "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
         "runRevision": run_revision,
         "saveId": save_id.to_string(),
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "seasonAssignmentRevision": context.season_assignment_revision,
         "seasonId": context.season_id.get().to_string(),
         "selections": selections,
@@ -2196,6 +2261,7 @@ fn sandbox_manifest_canonical(
     run_revision: u32,
     configuration: &ActiveRunConfiguration,
     content_bundle_sha256: &str,
+    offline_policy_sha256: &str,
     ranking_ineligibility_reason: &str,
 ) -> Result<String> {
     serde_json::to_string(&serde_json::json!({
@@ -2204,17 +2270,19 @@ fn sandbox_manifest_canonical(
         "contentBundleSha256": content_bundle_sha256,
         "creditModelVersionId": configuration.rule_bundle.credit_model_version_id.get().to_string(),
         "employmentPolicySetId": configuration.employment_policy.policy_set_id.get().to_string(),
-        "engineVersion": M5A_ENGINE_VERSION,
+        "engineVersion": crate::ENGINE_VERSION,
         "lifeCatalogSetId": configuration.rule_bundle.life_catalog_set_id.get().to_string(),
         "marketWorldId": configuration.market_world.world_id.to_string(),
         "mode": "sandbox",
+        "offlinePolicySha256": offline_policy_sha256,
+        "offlinePolicyVersionId": configuration.offline_policy.policy_version_id.get().to_string(),
         "policySetId": configuration.policy_set.policy_set_id.get().to_string(),
         "rankingEligible": false,
         "rankingIneligibilityReason": ranking_ineligibility_reason,
         "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
         "runRevision": run_revision,
         "saveId": save_id.to_string(),
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "selections": [],
         "startGameDay": 0
     }))
@@ -2501,31 +2569,19 @@ pub(super) async fn write_ledger_transaction(
 }
 
 async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConfiguration> {
-    type ActiveRunConfigurationRow = (
-        u64,
-        u64,
-        u64,
-        u64,
-        Option<u64>,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-    );
     let row: Option<ActiveRunConfigurationRow> = sqlx::query_as(
         "SELECT assignment.market_world_id, assignment.market_assignment_revision,
-                assignment.policy_set_id, assignment.finance_assignment_revision, bundle.id,
+                assignment.policy_set_id, assignment.finance_assignment_revision,
+                bundle.id AS product_bundle_id,
                 assignment.career_catalog_bundle_id, assignment.career_assignment_revision,
                 assignment.employment_policy_set_id, assignment.employment_assignment_revision,
                 assignment.life_catalog_set_id, assignment.credit_model_version_id,
-                assignment.real_estate_model_version_id, assignment.assignment_revision,
-                content.id, content_assignment.assignment_revision
+                assignment.real_estate_model_version_id,
+                assignment.assignment_revision AS rule_bundle_assignment_revision,
+                content.id AS content_bundle_id, content_assignment.assignment_revision
+                    AS content_assignment_revision,
+                offline_assignment.offline_policy_version_id,
+                offline_assignment.assignment_revision AS offline_assignment_revision
          FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
            ON bundle.market_world_id = assignment.market_world_id
@@ -2535,63 +2591,20 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
          INNER JOIN content_bundle AS content
            ON content.id = content_assignment.content_bundle_id
           AND content.status = 'sealed'
+         INNER JOIN offline_policy_assignment AS offline_assignment
+           ON offline_assignment.assignment_key = 'newSandboxRun'
+         INNER JOIN offline_policy_version AS offline_policy
+           ON offline_policy.id = offline_assignment.offline_policy_version_id
+          AND BINARY offline_policy.canonical_sha256
+                = BINARY offline_assignment.offline_policy_sha256
+          AND offline_policy.status = 'sealed'
          WHERE assignment.assignment_key = 'newRun'",
     )
     .fetch_optional(pool)
     .await?;
 
-    row.map(
-        |(
-            world_id,
-            world_revision,
-            policy_set_id,
-            policy_revision,
-            product_bundle_id,
-            career_bundle_id,
-            career_revision,
-            employment_policy_set_id,
-            employment_policy_revision,
-            life_catalog_set_id,
-            credit_model_version_id,
-            real_estate_model_version_id,
-            bundle_assignment_revision,
-            content_bundle_id,
-            content_assignment_revision,
-        )| {
-            ActiveRunConfiguration {
-                market_world: ActiveMarketWorld {
-                    world_id,
-                    assignment_revision: world_revision,
-                },
-                policy_set: PolicySetAssignment {
-                    policy_set_id: ResourceId::from_u64(policy_set_id),
-                    assignment_revision: policy_revision,
-                },
-                product_bundle_id: product_bundle_id.map(ResourceId::from_u64),
-                career_catalog: super::types::CareerCatalogAssignment {
-                    bundle_id: ResourceId::from_u64(career_bundle_id),
-                    assignment_revision: career_revision,
-                },
-                employment_policy: super::types::EmploymentPolicyAssignment {
-                    policy_set_id: ResourceId::from_u64(employment_policy_set_id),
-                    assignment_revision: employment_policy_revision,
-                },
-                rule_bundle: super::types::RunRuleBundleAssignment {
-                    life_catalog_set_id: ResourceId::from_u64(life_catalog_set_id),
-                    credit_model_version_id: ResourceId::from_u64(credit_model_version_id),
-                    real_estate_model_version_id: ResourceId::from_u64(
-                        real_estate_model_version_id,
-                    ),
-                    assignment_revision: bundle_assignment_revision,
-                },
-                content_bundle: ContentBundleAssignment {
-                    bundle_id: ResourceId::from_u64(content_bundle_id),
-                    assignment_revision: content_assignment_revision,
-                },
-            }
-        },
-    )
-    .context("an active run assignment is missing")
+    row.map(active_run_configuration_from_row)
+        .context("an active run assignment is missing")
 }
 
 async fn ranked_context_is_active(
@@ -2611,7 +2624,8 @@ async fn ranked_context_is_active(
                 && context.point_budget_version_id.is_some()
         }
         RunMode::Sandbox => false,
-    };
+    } && context.offline_policy_version_id.is_some()
+        == context.offline_policy_sha256.is_some();
     if !valid_shape {
         return Ok(false);
     }
@@ -2650,6 +2664,8 @@ async fn ranked_context_is_active(
            AND release_row.content_bundle_id = ?
            AND BINARY release_row.content_bundle_sha256 = BINARY ?
            AND BINARY release_row.engine_version = BINARY ?
+           AND release_row.offline_policy_version_id <=> ?
+           AND BINARY release_row.offline_policy_sha256 <=> BINARY ?
            AND league.mode = ?
            AND league.character_preset_version_id <=> ?
            AND league.point_budget_version_id <=> ?
@@ -2672,7 +2688,9 @@ async fn ranked_context_is_active(
     .bind(configuration.rule_bundle.real_estate_model_version_id.get())
     .bind(configuration.content_bundle.bundle_id.get())
     .bind(content_bundle_sha256)
-    .bind(M5A_ENGINE_VERSION)
+    .bind(crate::ENGINE_VERSION)
+    .bind(context.offline_policy_version_id.map(ResourceId::get))
+    .bind(context.offline_policy_sha256.as_deref())
     .bind(run_mode_db_value(context.mode)?)
     .bind(context.character_preset_version_id.map(ResourceId::get))
     .bind(context.point_budget_version_id.map(ResourceId::get))
@@ -2685,31 +2703,19 @@ async fn ranked_context_is_active(
 async fn lock_active_run_configuration(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
 ) -> Result<ActiveRunConfiguration> {
-    type ActiveRunConfigurationRow = (
-        u64,
-        u64,
-        u64,
-        u64,
-        Option<u64>,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-    );
     let row: Option<ActiveRunConfigurationRow> = sqlx::query_as(
         "SELECT assignment.market_world_id, assignment.market_assignment_revision,
-                assignment.policy_set_id, assignment.finance_assignment_revision, bundle.id,
+                assignment.policy_set_id, assignment.finance_assignment_revision,
+                bundle.id AS product_bundle_id,
                 assignment.career_catalog_bundle_id, assignment.career_assignment_revision,
                 assignment.employment_policy_set_id, assignment.employment_assignment_revision,
                 assignment.life_catalog_set_id, assignment.credit_model_version_id,
-                assignment.real_estate_model_version_id, assignment.assignment_revision,
-                content.id, content_assignment.assignment_revision
+                assignment.real_estate_model_version_id,
+                assignment.assignment_revision AS rule_bundle_assignment_revision,
+                content.id AS content_bundle_id, content_assignment.assignment_revision
+                    AS content_assignment_revision,
+                offline_assignment.offline_policy_version_id,
+                offline_assignment.assignment_revision AS offline_assignment_revision
          FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
            ON bundle.market_world_id = assignment.market_world_id
@@ -2719,64 +2725,57 @@ async fn lock_active_run_configuration(
          INNER JOIN content_bundle AS content
            ON content.id = content_assignment.content_bundle_id
           AND content.status = 'sealed'
+         INNER JOIN offline_policy_assignment AS offline_assignment
+           ON offline_assignment.assignment_key = 'newSandboxRun'
+         INNER JOIN offline_policy_version AS offline_policy
+           ON offline_policy.id = offline_assignment.offline_policy_version_id
+          AND BINARY offline_policy.canonical_sha256
+                = BINARY offline_assignment.offline_policy_sha256
+          AND offline_policy.status = 'sealed'
          WHERE assignment.assignment_key = 'newRun'
          FOR SHARE",
     )
     .fetch_optional(&mut **tx)
     .await?;
 
-    row.map(
-        |(
-            world_id,
-            world_revision,
-            policy_set_id,
-            policy_revision,
-            product_bundle_id,
-            career_bundle_id,
-            career_revision,
-            employment_policy_set_id,
-            employment_policy_revision,
-            life_catalog_set_id,
-            credit_model_version_id,
-            real_estate_model_version_id,
-            bundle_assignment_revision,
-            content_bundle_id,
-            content_assignment_revision,
-        )| {
-            ActiveRunConfiguration {
-                market_world: ActiveMarketWorld {
-                    world_id,
-                    assignment_revision: world_revision,
-                },
-                policy_set: PolicySetAssignment {
-                    policy_set_id: ResourceId::from_u64(policy_set_id),
-                    assignment_revision: policy_revision,
-                },
-                product_bundle_id: product_bundle_id.map(ResourceId::from_u64),
-                career_catalog: super::types::CareerCatalogAssignment {
-                    bundle_id: ResourceId::from_u64(career_bundle_id),
-                    assignment_revision: career_revision,
-                },
-                employment_policy: super::types::EmploymentPolicyAssignment {
-                    policy_set_id: ResourceId::from_u64(employment_policy_set_id),
-                    assignment_revision: employment_policy_revision,
-                },
-                rule_bundle: super::types::RunRuleBundleAssignment {
-                    life_catalog_set_id: ResourceId::from_u64(life_catalog_set_id),
-                    credit_model_version_id: ResourceId::from_u64(credit_model_version_id),
-                    real_estate_model_version_id: ResourceId::from_u64(
-                        real_estate_model_version_id,
-                    ),
-                    assignment_revision: bundle_assignment_revision,
-                },
-                content_bundle: ContentBundleAssignment {
-                    bundle_id: ResourceId::from_u64(content_bundle_id),
-                    assignment_revision: content_assignment_revision,
-                },
-            }
+    row.map(active_run_configuration_from_row)
+        .context("an active run assignment is missing")
+}
+
+fn active_run_configuration_from_row(row: ActiveRunConfigurationRow) -> ActiveRunConfiguration {
+    ActiveRunConfiguration {
+        market_world: ActiveMarketWorld {
+            world_id: row.market_world_id,
+            assignment_revision: row.market_assignment_revision,
         },
-    )
-    .context("an active run assignment is missing")
+        policy_set: PolicySetAssignment {
+            policy_set_id: ResourceId::from_u64(row.policy_set_id),
+            assignment_revision: row.finance_assignment_revision,
+        },
+        product_bundle_id: row.product_bundle_id.map(ResourceId::from_u64),
+        career_catalog: super::types::CareerCatalogAssignment {
+            bundle_id: ResourceId::from_u64(row.career_catalog_bundle_id),
+            assignment_revision: row.career_assignment_revision,
+        },
+        employment_policy: super::types::EmploymentPolicyAssignment {
+            policy_set_id: ResourceId::from_u64(row.employment_policy_set_id),
+            assignment_revision: row.employment_assignment_revision,
+        },
+        rule_bundle: super::types::RunRuleBundleAssignment {
+            life_catalog_set_id: ResourceId::from_u64(row.life_catalog_set_id),
+            credit_model_version_id: ResourceId::from_u64(row.credit_model_version_id),
+            real_estate_model_version_id: ResourceId::from_u64(row.real_estate_model_version_id),
+            assignment_revision: row.rule_bundle_assignment_revision,
+        },
+        content_bundle: ContentBundleAssignment {
+            bundle_id: ResourceId::from_u64(row.content_bundle_id),
+            assignment_revision: row.content_assignment_revision,
+        },
+        offline_policy: OfflinePolicyAssignment {
+            policy_version_id: ResourceId::from_u64(row.offline_policy_version_id),
+            assignment_revision: row.offline_assignment_revision,
+        },
+    }
 }
 
 #[async_trait]
@@ -4276,6 +4275,10 @@ mod tests {
                 bundle_id: ResourceId::from_u64(18),
                 assignment_revision: 1,
             },
+            offline_policy: OfflinePolicyAssignment {
+                policy_version_id: ResourceId::from_u64(19),
+                assignment_revision: 1,
+            },
         }
     }
 
@@ -4367,7 +4370,7 @@ mod tests {
         use super::*;
 
         #[test]
-        fn given_active_content_when_projected_then_bundle_identity_is_in_schema_two() {
+        fn given_active_content_when_projected_then_offline_policy_is_in_schema_three() {
             let configuration = given_active_run_configuration();
 
             let when = sandbox_manifest_canonical(
@@ -4375,6 +4378,7 @@ mod tests {
                 3,
                 &configuration,
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                 "sandboxMode",
             )
             .expect("sandbox manifest를 직렬화할 수 있어야 한다");
@@ -4386,7 +4390,8 @@ mod tests {
                 parsed["contentBundleSha256"],
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             );
-            assert_eq!(parsed["schemaVersion"], 2);
+            assert_eq!(parsed["schemaVersion"], 3);
+            assert_eq!(parsed["offlinePolicyVersionId"], "19");
         }
     }
 
@@ -4408,6 +4413,10 @@ mod tests {
                 ranking_rule_sha256:
                     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_owned(),
                 target_game_day: 10_950,
+                offline_policy_version_id: Some(ResourceId::from_u64(19)),
+                offline_policy_sha256: Some(
+                    "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_owned(),
+                ),
                 character_preset_version_id: Some(ResourceId::from_u64(7)),
                 point_budget_version_id: None,
                 canonical_selections_json: "[]".to_owned(),
@@ -4424,13 +4433,14 @@ mod tests {
             let parsed: serde_json::Value =
                 serde_json::from_str(&when).expect("manifest는 JSON이어야 한다");
 
-            assert_eq!(parsed["schemaVersion"], 3);
+            assert_eq!(parsed["schemaVersion"], 4);
             assert_eq!(parsed["mode"], "rankedPreset");
             assert_eq!(parsed["seasonId"], "2");
             assert_eq!(parsed["leagueDefinitionId"], "3");
             assert_eq!(parsed["rankedRulesetReleaseId"], "5");
             assert_eq!(parsed["rankingRuleVersionId"], "6");
             assert_eq!(parsed["targetGameDay"], 10_950);
+            assert_eq!(parsed["offlinePolicyVersionId"], "19");
             assert_eq!(parsed["rankingEligible"], true);
         }
     }

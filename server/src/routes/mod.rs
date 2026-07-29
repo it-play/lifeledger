@@ -187,6 +187,10 @@ use crate::store::{
     StartPensionCommand, StartingLoanCommand, UpdateCorporationSettingsCommand,
     UpdateLifeBudgetCommand, WithdrawCareerApplicationCommand,
 };
+use crate::store::{
+    OfflineProgressFailure, OfflineProgressSettingStatus, OfflineProgressState,
+    OfflineProgressUpdateResult, ProgressHolderKind,
+};
 use crate::trading::{
     OrderSide, Portfolio, PortfolioPosition, TradeExecution, TradeFailure, TradeFailureCode,
     TradeOrder, TradeOrderRequest,
@@ -224,6 +228,8 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         season_leagues,
         league_rankings,
         run_finalization,
+        offline_progress_status,
+        set_offline_progress,
         preview_point_budget,
         create_run,
         create_character,
@@ -815,6 +821,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/seasons/{id}/leagues", get(season_leagues))
         .route("/api/leagues/{id}/rankings", get(league_rankings))
         .route("/api/runs/{id}/finalization", get(run_finalization))
+        .route("/api/offline-progress", put(set_offline_progress))
+        .route("/api/offline-progress/status", get(offline_progress_status))
         .route("/api/runs/point-preview", post(preview_point_budget))
         .route("/api/runs", post(create_run))
         .route("/api/characters", post(create_character))
@@ -1123,6 +1131,258 @@ async fn run_finalization(
         .await?
         .ok_or(PointBudgetPreviewError::VersionNotFound)?;
     Ok(Json(response))
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum OfflineSettingStatusSnapshot {
+    Active,
+    PausedBySystem,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum ProgressHolderKindSnapshot {
+    Online,
+    Worker,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct OfflinePolicySnapshot {
+    id: String,
+    canonical_sha256: String,
+    engine_version: String,
+    cadence_seconds: u32,
+    absence_window_cap_days: u32,
+    max_worker_batch_days: u16,
+    lease_seconds: u16,
+    presence_ttl_seconds: u16,
+    heartbeat_seconds: u16,
+    online_intent_ttl_seconds: u16,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ProgressLeaseSnapshot {
+    holder_kind: ProgressHolderKindSnapshot,
+    generation: String,
+    expires_at: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct OfflineProgressResponse {
+    run_revision: u32,
+    available: bool,
+    #[schema(required = true, nullable)]
+    policy: Option<OfflinePolicySnapshot>,
+    enabled: bool,
+    status: OfflineSettingStatusSnapshot,
+    #[schema(required = true, nullable)]
+    absence_started_at: Option<String>,
+    #[schema(required = true, nullable)]
+    accrued_through: Option<String>,
+    #[schema(required = true, nullable)]
+    accrual_limit_at: Option<String>,
+    window_accrued_days: u32,
+    pending_days: u32,
+    processed_days: String,
+    cancelled_pending_days: String,
+    revision: String,
+    #[schema(required = true, nullable)]
+    last_error_code: Option<String>,
+    online: bool,
+    #[schema(required = true, nullable)]
+    lease: Option<ProgressLeaseSnapshot>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OfflineProgressUpdateRequest {
+    #[schema(pattern = "^(0|[1-9][0-9]{0,19})$")]
+    expected_revision: String,
+    enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum OfflineProgressFailureCode {
+    InvalidCommand,
+    CharacterRequired,
+    PolicyUnavailable,
+    RevisionConflict,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct OfflineProgressFailureResponse {
+    code: OfflineProgressFailureCode,
+    message: &'static str,
+}
+
+enum OfflineProgressApiError {
+    InvalidCommand,
+    Rejected(OfflineProgressFailure),
+    Internal(AppError),
+}
+
+impl From<anyhow::Error> for OfflineProgressApiError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(AppError::from(error))
+    }
+}
+
+impl axum::response::IntoResponse for OfflineProgressApiError {
+    fn into_response(self) -> axum::response::Response {
+        let (status, code, message) = match self {
+            Self::InvalidCommand => (
+                StatusCode::BAD_REQUEST,
+                OfflineProgressFailureCode::InvalidCommand,
+                "오프라인 진행 요청 형식이 올바르지 않습니다",
+            ),
+            Self::Rejected(OfflineProgressFailure::CharacterRequired) => (
+                StatusCode::CONFLICT,
+                OfflineProgressFailureCode::CharacterRequired,
+                "먼저 실행을 시작해야 합니다",
+            ),
+            Self::Rejected(OfflineProgressFailure::PolicyUnavailable) => (
+                StatusCode::CONFLICT,
+                OfflineProgressFailureCode::PolicyUnavailable,
+                "현재 실행은 오프라인 진행 정책을 허용하지 않습니다",
+            ),
+            Self::Rejected(OfflineProgressFailure::RevisionConflict) => (
+                StatusCode::CONFLICT,
+                OfflineProgressFailureCode::RevisionConflict,
+                "오프라인 진행 설정이 이미 변경되었습니다",
+            ),
+            Self::Internal(error) => return error.into_response(),
+        };
+        (
+            status,
+            Json(OfflineProgressFailureResponse { code, message }),
+        )
+            .into_response()
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/offline-progress/status",
+    responses(
+        (status = 200, description = "현재 실행의 오프라인 진행·presence·lease 상태", body = OfflineProgressResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 500, description = "조회 실패")
+    ),
+    security(("sessionCookie" = []))
+)]
+async fn offline_progress_status(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<OfflineProgressResponse>, OfflineProgressApiError> {
+    Ok(Json(to_offline_progress_response(
+        state.offline_progress_status(user.id).await?,
+    )?))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/offline-progress",
+    request_body = OfflineProgressUpdateRequest,
+    responses(
+        (status = 200, description = "revision 조건으로 갱신한 opt-in/out 상태", body = OfflineProgressResponse),
+        (status = 400, description = "strict 요청 형식 오류", body = OfflineProgressFailureResponse),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 409, description = "실행·정책·revision 충돌", body = OfflineProgressFailureResponse),
+        (status = 500, description = "갱신 실패")
+    ),
+    security(("sessionCookie" = []))
+)]
+async fn set_offline_progress(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<OfflineProgressUpdateRequest>, JsonRejection>,
+) -> Result<Json<OfflineProgressResponse>, OfflineProgressApiError> {
+    let request = request
+        .map_err(|_| OfflineProgressApiError::InvalidCommand)?
+        .0;
+    let expected_revision = parse_revision(&request.expected_revision)
+        .ok_or(OfflineProgressApiError::InvalidCommand)?;
+    match state
+        .set_offline_progress(user.id, expected_revision, request.enabled)
+        .await?
+    {
+        OfflineProgressUpdateResult::Updated(status) => {
+            Ok(Json(to_offline_progress_response(*status)?))
+        }
+        OfflineProgressUpdateResult::Rejected(failure) => {
+            Err(OfflineProgressApiError::Rejected(failure))
+        }
+    }
+}
+
+fn to_offline_progress_response(
+    state: OfflineProgressState,
+) -> Result<OfflineProgressResponse, OfflineProgressApiError> {
+    let available = state.policy.is_some();
+    let policy = state.policy.map(|policy| OfflinePolicySnapshot {
+        id: policy.id.get().to_string(),
+        canonical_sha256: policy.canonical_sha256,
+        engine_version: policy.engine_version,
+        cadence_seconds: policy.cadence_seconds,
+        absence_window_cap_days: policy.absence_window_cap_days,
+        max_worker_batch_days: policy.max_worker_batch_days,
+        lease_seconds: policy.lease_seconds,
+        presence_ttl_seconds: policy.presence_ttl_seconds,
+        heartbeat_seconds: policy.heartbeat_seconds,
+        online_intent_ttl_seconds: policy.online_intent_ttl_seconds,
+    });
+    let status = match state.setting_status {
+        OfflineProgressSettingStatus::Active => OfflineSettingStatusSnapshot::Active,
+        OfflineProgressSettingStatus::PausedBySystem => {
+            OfflineSettingStatusSnapshot::PausedBySystem
+        }
+    };
+    let lease = state.lease.map(|lease| ProgressLeaseSnapshot {
+        holder_kind: match lease.holder_kind {
+            ProgressHolderKind::Online => ProgressHolderKindSnapshot::Online,
+            ProgressHolderKind::Worker => ProgressHolderKindSnapshot::Worker,
+        },
+        generation: lease.generation.to_string(),
+        expires_at: lease.expires_at,
+    });
+    Ok(OfflineProgressResponse {
+        run_revision: state.run_revision,
+        available,
+        policy,
+        enabled: state.enabled,
+        status,
+        absence_started_at: state.absence_started_at,
+        accrued_through: state.accrued_through,
+        accrual_limit_at: state.accrual_limit_at,
+        window_accrued_days: state.window_accrued_days,
+        pending_days: state.pending_days,
+        processed_days: state.processed_days.to_string(),
+        cancelled_pending_days: state.cancelled_pending_days.to_string(),
+        revision: state.revision.to_string(),
+        last_error_code: state.last_error_code,
+        online: state.online,
+        lease,
+    })
+}
+
+fn parse_revision(raw: &str) -> Option<u64> {
+    if raw == "0" {
+        return Some(0);
+    }
+    if raw.is_empty()
+        || raw.len() > 20
+        || raw.starts_with('0')
+        || !raw.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    raw.parse().ok()
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -1872,6 +2132,7 @@ enum GameCommandFailureCode {
     InvalidCommand,
     IdempotencyConflict,
     Busy,
+    ProgressBusy,
     CharacterRequired,
     ModeUnavailable,
 }
@@ -1915,6 +2176,11 @@ impl axum::response::IntoResponse for GameCommandError {
                 StatusCode::CONFLICT,
                 GameCommandFailureCode::Busy,
                 "게임 상태가 요청의 최초 커서와 다릅니다",
+            ),
+            GameLoopError::ProgressBusy => (
+                StatusCode::CONFLICT,
+                GameCommandFailureCode::ProgressBusy,
+                "다른 진행 주체가 처리 중입니다. 같은 명령으로 다시 시도하세요",
             ),
             GameLoopError::CharacterRequired => (
                 StatusCode::CONFLICT,
