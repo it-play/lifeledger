@@ -13,8 +13,9 @@ use crate::runs::{
     PointBudgetCatalog, PointBudgetEvaluation, PointBudgetOption, PointBudgetRules, PointCondition,
     PointCostKind, PointEffect, PointExclusiveGroup, PointFactComparison, PointFactValue,
     PointSelection, PointTier, RankedRunContext, RankedRunPreparation, RankingPageCursor,
-    RunManifestSummary, RunMode, RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary,
-    create_point_budget_rules, encode_ranking_cursor,
+    RunFinalization, RunFinalizationLine, RunFinalizationStatus, RunManifestSummary, RunMode,
+    RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary, create_point_budget_rules,
+    encode_ranking_cursor,
 };
 
 #[derive(Clone)]
@@ -150,6 +151,31 @@ struct LeagueRankingRow {
     insolvency_days: u32,
     player_command_count: u64,
     completed_at: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct RunFinalizationRow {
+    target_game_day: u32,
+    status: Option<String>,
+    after_tax_net_worth_krw: Option<i64>,
+    insolvency_days: Option<u32>,
+    player_command_count: Option<u64>,
+    liquidation_sha256: Option<String>,
+    failure_code: Option<String>,
+    completed_at: Option<String>,
+    finalization_id: Option<u64>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct RunFinalizationLineRow {
+    line_no: u32,
+    component_key: String,
+    gross_krw: i64,
+    cost_krw: i64,
+    tax_krw: i64,
+    net_krw: i64,
+    policy_reference: String,
+    line_sha256: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -516,6 +542,82 @@ impl RunStore for MySqlRunStore {
             finalized_count: meta.finalized_count,
             items,
             next_cursor,
+        }))
+    }
+
+    async fn run_finalization(
+        &self,
+        user_id: u64,
+        run_revision: u32,
+    ) -> Result<Option<RunFinalization>> {
+        let row = sqlx::query_as::<_, RunFinalizationRow>(
+            "SELECT manifest.target_game_day, finalization.status,
+                    finalization.after_tax_net_worth_krw, finalization.insolvency_days,
+                    finalization.player_command_count, finalization.liquidation_sha256,
+                    finalization.failure_code,
+                    DATE_FORMAT(finalization.completed_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS completed_at,
+                    finalization.id AS finalization_id
+             FROM save
+             INNER JOIN run_manifest AS manifest ON manifest.save_id = save.id
+             LEFT JOIN run_finalization AS finalization
+               ON finalization.save_id = manifest.save_id
+              AND finalization.run_revision = manifest.run_revision
+              AND finalization.target_game_day = manifest.target_game_day
+              AND finalization.ranking_rule_version_id = manifest.ranking_rule_version_id
+             WHERE save.user_id = ? AND manifest.run_revision = ?
+               AND manifest.ranking_eligible = TRUE",
+        )
+        .bind(user_id)
+        .bind(run_revision)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let status = match row.status.as_deref() {
+            None | Some("planning") => RunFinalizationStatus::Pending,
+            Some("completed") => RunFinalizationStatus::Completed,
+            Some("failed") => RunFinalizationStatus::Failed,
+            Some(_) => bail!("stored finalization status is invalid"),
+        };
+        let lines = if status == RunFinalizationStatus::Completed {
+            let id = row
+                .finalization_id
+                .context("completed finalization has no id")?;
+            sqlx::query_as::<_, RunFinalizationLineRow>(
+                "SELECT line_no, component_key, gross_krw, cost_krw, tax_krw, net_krw,
+                        policy_reference, line_sha256
+                 FROM liquidation_line WHERE run_finalization_id = ? ORDER BY line_no",
+            )
+            .bind(id)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|line| RunFinalizationLine {
+                line_no: line.line_no,
+                component_key: line.component_key,
+                gross_krw: line.gross_krw,
+                cost_krw: line.cost_krw,
+                tax_krw: line.tax_krw,
+                net_krw: line.net_krw,
+                policy_reference: line.policy_reference,
+                line_sha256: line.line_sha256,
+            })
+            .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(Some(RunFinalization {
+            run_revision,
+            target_game_day: row.target_game_day,
+            status,
+            after_tax_net_worth_krw: row.after_tax_net_worth_krw,
+            insolvency_days: row.insolvency_days,
+            player_command_count: row.player_command_count,
+            liquidation_sha256: row.liquidation_sha256,
+            failure_code: row.failure_code,
+            completed_at: row.completed_at,
+            lines,
         }))
     }
 

@@ -36,6 +36,7 @@ use super::employment_tax::{
     lock_annual_employment_contract_in_tx, prepare_employment_annual_tax_boundary,
     settle_employment_reconciliation_by_id_in_tx,
 };
+use super::finalization::finalize_ranked_run_if_target_in_tx;
 use super::insolvency::recover_due_cases_in_tx;
 use super::insurance::{
     close_insurance_for_new_run_in_tx, expire_insurance_claims_in_tx,
@@ -109,7 +110,7 @@ use crate::life::{
     create_property_tax_rules, create_welfare_rules,
 };
 use crate::market::MarketDay;
-use crate::runs::{RankedRunContext, RunMode};
+use crate::runs::{LiquidationPlanner, RankedRunContext, RunMode, create_liquidation_planner};
 use crate::trading::{
     AccountId, LLX_SYMBOL, OrderSide, PositionState, TradeCharges, TradeExecution, TradeFailure,
     TradeOrder, apply_trade_with_charges, checked_net_worth_krw, value_portfolio,
@@ -146,6 +147,7 @@ pub struct MySqlSaveStore {
     property_tax_rules: Arc<dyn PropertyTaxRules>,
     welfare_rules: Arc<dyn WelfareRules>,
     corporation_rules: Arc<dyn crate::life::CorporationRules>,
+    liquidation_planner: Arc<dyn LiquidationPlanner>,
 }
 
 struct DailySettlementRules {
@@ -171,6 +173,7 @@ pub fn create_mysql_save_store(
         property_tax_rules: create_property_tax_rules(),
         welfare_rules: create_welfare_rules(),
         corporation_rules: crate::life::create_corporation_rules(),
+        liquidation_planner: create_liquidation_planner(),
     }
 }
 
@@ -731,6 +734,13 @@ impl SaveStore for MySqlSaveStore {
         }
 
         let state = read_state(&mut tx, save_id).await?;
+        finalize_ranked_run_if_target_in_tx(
+            &mut tx,
+            self.liquidation_planner.as_ref(),
+            &state,
+            market,
+        )
+        .await?;
         tx.commit().await?;
 
         Ok(AdvanceDayResult::Advanced(state))
@@ -942,6 +952,13 @@ impl SaveStore for MySqlSaveStore {
         };
 
         let save = read_state(&mut tx, save_id).await?;
+        finalize_ranked_run_if_target_in_tx(
+            &mut tx,
+            self.liquidation_planner.as_ref(),
+            &save,
+            market,
+        )
+        .await?;
         ensure!(
             GameCommandCursor::from(&save) == after_cursor,
             "committed advance step cursor disagrees with the save"

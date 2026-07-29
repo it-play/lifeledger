@@ -4,6 +4,88 @@ use utoipa::ToSchema;
 use crate::character::CharacterDraft;
 use crate::finance::ResourceId;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiquidationComponentInput {
+    pub component_key: String,
+    pub gross_krw: i64,
+    pub cost_krw: i64,
+    pub tax_krw: i64,
+    pub policy_reference: String,
+    pub detail: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiquidationLine {
+    pub line_no: u32,
+    pub component_key: String,
+    pub gross_krw: i64,
+    pub cost_krw: i64,
+    pub tax_krw: i64,
+    pub net_krw: i64,
+    pub policy_reference: String,
+    pub canonical_json: String,
+    pub canonical_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiquidationPlan {
+    pub after_tax_net_worth_krw: i64,
+    pub canonical_json: String,
+    pub canonical_sha256: String,
+    pub lines: Vec<LiquidationLine>,
+}
+
+pub trait LiquidationPlanner: Send + Sync + 'static {
+    fn plan(
+        &self,
+        policy_key: &str,
+        target_game_day: u32,
+        components: Vec<LiquidationComponentInput>,
+    ) -> anyhow::Result<LiquidationPlan>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum RunFinalizationStatus {
+    Pending,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunFinalizationLine {
+    pub line_no: u32,
+    pub component_key: String,
+    pub gross_krw: i64,
+    pub cost_krw: i64,
+    pub tax_krw: i64,
+    pub net_krw: i64,
+    pub policy_reference: String,
+    pub line_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunFinalization {
+    pub run_revision: u32,
+    pub target_game_day: u32,
+    pub status: RunFinalizationStatus,
+    #[schema(required = true, nullable)]
+    pub after_tax_net_worth_krw: Option<i64>,
+    #[schema(required = true, nullable)]
+    pub insolvency_days: Option<u32>,
+    #[schema(required = true, nullable)]
+    pub player_command_count: Option<u64>,
+    #[schema(required = true, nullable)]
+    pub liquidation_sha256: Option<String>,
+    #[schema(required = true, nullable)]
+    pub failure_code: Option<String>,
+    #[schema(required = true, nullable)]
+    pub completed_at: Option<String>,
+    pub lines: Vec<RunFinalizationLine>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ContentAuthorityKind {

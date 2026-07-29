@@ -42,7 +42,7 @@ use crate::life::{
 use crate::market::{InterestRateState, MarketRegime};
 use crate::runs::{
     LeagueRankingPage, PointBudgetEvaluation, PointSelection, RankedRunPreparation,
-    RankingPageCursor, RunManifestSummary, RunOptions, SeasonLeagues,
+    RankingPageCursor, RunFinalization, RunManifestSummary, RunOptions, SeasonLeagues,
 };
 use crate::store::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
@@ -5461,6 +5461,14 @@ impl AppState {
         limit: u32,
     ) -> Result<Option<LeagueRankingPage>> {
         self.runs.league_rankings(league_id, cursor, limit).await
+    }
+
+    pub async fn run_finalization(
+        &self,
+        user_id: u64,
+        run_revision: u32,
+    ) -> Result<Option<RunFinalization>> {
+        self.runs.run_finalization(user_id, run_revision).await
     }
 
     pub async fn prepare_ranked_preset(
@@ -14253,6 +14261,14 @@ mod tests {
             _cursor: Option<RankingPageCursor>,
             _limit: u32,
         ) -> Result<Option<LeagueRankingPage>> {
+            Ok(None)
+        }
+
+        async fn run_finalization(
+            &self,
+            _user_id: u64,
+            _run_revision: u32,
+        ) -> Result<Option<RunFinalization>> {
             Ok(None)
         }
 

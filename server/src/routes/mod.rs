@@ -43,8 +43,9 @@ use crate::runs::{
     CharacterPresetVersion, LeagueDefinition, LeagueRankingItem, LeagueRankingPage,
     PointBudgetCatalog, PointBudgetEvaluation, PointBudgetFailure, PointBudgetFailureCode,
     PointBudgetOption, PointCondition, PointCostKind, PointEffect, PointExclusiveGroup,
-    PointFactComparison, PointFactValue, PointLedgerLine, PointSelection, PointTier, RunMode,
-    RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary, parse_ranking_cursor,
+    PointFactComparison, PointFactValue, PointLedgerLine, PointSelection, PointTier,
+    RunFinalization, RunMode, RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary,
+    parse_ranking_cursor,
 };
 use crate::state::{
     ActiveHousingLeaseSnapshot, ActiveLeaseTermSnapshot, ActiveMilitarySavingsStatusSnapshot,
@@ -222,6 +223,7 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         run_options,
         season_leagues,
         league_rankings,
+        run_finalization,
         preview_point_budget,
         create_run,
         create_character,
@@ -812,6 +814,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/run-options", get(run_options))
         .route("/api/seasons/{id}/leagues", get(season_leagues))
         .route("/api/leagues/{id}/rankings", get(league_rankings))
+        .route("/api/runs/{id}/finalization", get(run_finalization))
         .route("/api/runs/point-preview", post(preview_point_budget))
         .route("/api/runs", post(create_run))
         .route("/api/characters", post(create_character))
@@ -1091,6 +1094,34 @@ async fn league_rankings(
         .await?
         .ok_or(PointBudgetPreviewError::VersionNotFound)?;
 
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/runs/{id}/finalization",
+    params(("id" = u32, Path, description = "현재 계정의 run revision")),
+    responses(
+        (status = 200, description = "인증 계정이 소유한 ranked run 결산", body = RunFinalization),
+        (status = 400, description = "run revision 형식 오류", body = RunRequestFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "소유한 ranked run 없음", body = RunRequestFailure),
+        (status = 500, description = "조회 실패")
+    ),
+    security(("sessionCookie" = []))
+)]
+async fn run_finalization(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<RunFinalization>, PointBudgetPreviewError> {
+    let run_revision = id
+        .parse::<u32>()
+        .map_err(|_| PointBudgetPreviewError::InvalidCommand)?;
+    let response = state
+        .run_finalization(user.id, run_revision)
+        .await?
+        .ok_or(PointBudgetPreviewError::VersionNotFound)?;
     Ok(Json(response))
 }
 
