@@ -766,11 +766,14 @@ async fn read_status(pool: &MySqlPool, user_id: u64) -> Result<OfflineProgressSt
                     AS accrued_through,
                 DATE_FORMAT(setting.accrual_limit_at, '%Y-%m-%dT%H:%i:%s.%fZ')
                     AS accrual_limit_at,
-                COALESCE(setting.window_accrued_days, 0) AS window_accrued_days,
-                COALESCE(setting.pending_days, 0) AS pending_days,
-                COALESCE(setting.processed_days, 0) AS processed_days,
-                COALESCE(setting.cancelled_pending_days, 0) AS cancelled_pending_days,
-                COALESCE(setting.revision, 0) AS revision, setting.last_error_code,
+                CAST(COALESCE(setting.window_accrued_days, 0) AS UNSIGNED)
+                    AS window_accrued_days,
+                CAST(COALESCE(setting.pending_days, 0) AS UNSIGNED) AS pending_days,
+                CAST(COALESCE(setting.processed_days, 0) AS UNSIGNED) AS processed_days,
+                CAST(COALESCE(setting.cancelled_pending_days, 0) AS UNSIGNED)
+                    AS cancelled_pending_days,
+                CAST(COALESCE(setting.revision, 0) AS UNSIGNED) AS revision,
+                setting.last_error_code,
                 EXISTS(
                     SELECT 1 FROM offline_online_presence AS presence
                     WHERE presence.save_id = save.id
