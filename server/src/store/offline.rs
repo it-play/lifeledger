@@ -133,7 +133,7 @@ struct WorkCandidateRow {
     game_day: u32,
     max_worker_batch_days: u16,
     lease_seconds: u16,
-    retry_no: u16,
+    retry_no: u64,
 }
 
 #[async_trait]
@@ -420,14 +420,14 @@ impl OfflineProgressStore for MySqlOfflineProgressStore {
         let candidate = sqlx::query_as::<_, WorkCandidateRow>(
             "SELECT save.user_id, setting.save_id, setting.run_revision, save.game_day,
                     policy.max_worker_batch_days, policy.lease_seconds,
-                    COALESCE((
+                    CAST(COALESCE((
                         SELECT MAX(attempt.retry_no) + 1
                         FROM offline_progress_attempt AS attempt
                         WHERE attempt.save_id = setting.save_id
                           AND attempt.run_revision = setting.run_revision
                           AND attempt.game_day = save.game_day + 1
                           AND attempt.event_kind = 'started'
-                    ), 0) AS retry_no
+                    ), 0) AS UNSIGNED) AS retry_no
              FROM offline_progress_setting AS setting
              INNER JOIN save ON save.id = setting.save_id
                 AND save.run_revision = setting.run_revision
@@ -530,7 +530,8 @@ impl OfflineProgressStore for MySqlOfflineProgressStore {
             max_batch_days: candidate
                 .max_worker_batch_days
                 .min(u16::try_from(pending_days).unwrap_or(u16::MAX)),
-            retry_no: candidate.retry_no,
+            retry_no: u16::try_from(candidate.retry_no)
+                .context("offline retry count exceeds u16")?,
             lease,
         }))
     }
