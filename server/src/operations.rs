@@ -14,6 +14,7 @@ struct OperationsReport {
     offline_progress: OfflineProgressMetrics,
     seasons: SeasonMetrics,
     finalizations: FinalizationMetrics,
+    feedback_retention: FeedbackRetentionMetrics,
     alerts: Vec<OperationsAlertCode>,
 }
 
@@ -58,6 +59,14 @@ struct FinalizationMetrics {
     failed_last_hour_count: i64,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+struct FeedbackRetentionMetrics {
+    active_count: i64,
+    expired_count: i64,
+    overdue_active_count: i64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum OperationsAlertCode {
@@ -65,6 +74,7 @@ enum OperationsAlertCode {
     OfflineProgressPaused,
     ExpiredWorkerLease,
     RecentFinalizationFailure,
+    ExpiredFeedbackRetention,
 }
 
 pub(super) async fn run(pool: MySqlPool, require_clean_migrations: bool) -> anyhow::Result<()> {
@@ -77,17 +87,30 @@ pub(super) async fn run(pool: MySqlPool, require_clean_migrations: bool) -> anyh
     let offline_progress = read_offline_progress_metrics(&pool).await?;
     let seasons = read_season_metrics(&pool).await?;
     let finalizations = read_finalization_metrics(&pool).await?;
-    validate_nonnegative_metrics(&migrations, &offline_progress, &seasons, &finalizations)?;
-    let alerts = classify_alerts(&migrations, &offline_progress, &finalizations);
+    let feedback_retention = read_feedback_retention_metrics(&pool).await?;
+    validate_nonnegative_metrics(
+        &migrations,
+        &offline_progress,
+        &seasons,
+        &finalizations,
+        &feedback_retention,
+    )?;
+    let alerts = classify_alerts(
+        &migrations,
+        &offline_progress,
+        &finalizations,
+        &feedback_retention,
+    );
     let failed_migration_count = migrations.failed_count;
     let report = OperationsReport {
-        schema_version: 1,
+        schema_version: 2,
         generated_at,
         engine_version: ENGINE_VERSION,
         migrations,
         offline_progress,
         seasons,
         finalizations,
+        feedback_retention,
         alerts,
     };
     println!("{}", serde_json::to_string(&report)?);
@@ -189,11 +212,43 @@ async fn read_finalization_metrics(pool: &MySqlPool) -> anyhow::Result<Finalizat
     .context("failed to read finalization metrics")
 }
 
+async fn read_feedback_retention_metrics(
+    pool: &MySqlPool,
+) -> anyhow::Result<FeedbackRetentionMetrics> {
+    sqlx::query_as(
+        "SELECT
+            CAST(COALESCE(SUM(feedback.status = 'active'), 0) AS SIGNED) AS active_count,
+            CAST(COALESCE(SUM(feedback.status = 'expired'), 0) AS SIGNED) AS expired_count,
+            CAST(COALESCE(SUM(
+                feedback.status = 'active'
+                AND JSON_EXTRACT(
+                    policy.canonical_manifest_json, '$.retentionMaximumDays') IS NOT NULL
+                AND TIMESTAMPADD(
+                    DAY,
+                    CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                        policy.canonical_manifest_json, '$.retentionMaximumDays')) AS SIGNED),
+                    feedback.created_at
+                ) <= UTC_TIMESTAMP(6)
+            ), 0) AS SIGNED) AS overdue_active_count
+         FROM playtest_feedback AS feedback
+         INNER JOIN playtest_consent_event AS event
+            ON event.id = feedback.consent_event_id
+           AND event.user_id = feedback.user_id
+           AND BINARY event.scope = BINARY feedback.scope
+         INNER JOIN playtest_consent_policy_version AS policy
+            ON policy.id = event.policy_version_id",
+    )
+    .fetch_one(pool)
+    .await
+    .context("failed to read playtest feedback retention metrics")
+}
+
 fn validate_nonnegative_metrics(
     migrations: &MigrationMetrics,
     offline: &OfflineProgressMetrics,
     seasons: &SeasonMetrics,
     finalizations: &FinalizationMetrics,
+    feedback_retention: &FeedbackRetentionMetrics,
 ) -> anyhow::Result<()> {
     let values = [
         migrations.latest_successful_version,
@@ -217,6 +272,9 @@ fn validate_nonnegative_metrics(
         finalizations.completed_count,
         finalizations.failed_count,
         finalizations.failed_last_hour_count,
+        feedback_retention.active_count,
+        feedback_retention.expired_count,
+        feedback_retention.overdue_active_count,
     ];
     ensure!(
         values.into_iter().all(|value| value >= 0),
@@ -229,6 +287,7 @@ fn classify_alerts(
     migrations: &MigrationMetrics,
     offline: &OfflineProgressMetrics,
     finalizations: &FinalizationMetrics,
+    feedback_retention: &FeedbackRetentionMetrics,
 ) -> Vec<OperationsAlertCode> {
     let mut alerts = Vec::new();
     if migrations.failed_count > 0 {
@@ -242,6 +301,9 @@ fn classify_alerts(
     }
     if finalizations.failed_last_hour_count > 0 {
         alerts.push(OperationsAlertCode::RecentFinalizationFailure);
+    }
+    if feedback_retention.overdue_active_count > 0 {
+        alerts.push(OperationsAlertCode::ExpiredFeedbackRetention);
     }
     alerts
 }
@@ -282,6 +344,14 @@ mod tests {
         }
     }
 
+    fn given_feedback_retention(overdue_active_count: i64) -> FeedbackRetentionMetrics {
+        FeedbackRetentionMetrics {
+            active_count: overdue_active_count,
+            expired_count: 0,
+            overdue_active_count,
+        }
+    }
+
     mod context_이상이_없는_경우 {
         use super::*;
 
@@ -290,8 +360,10 @@ mod tests {
             let migrations = given_migrations(0);
             let offline = given_offline(0, 0);
             let finalizations = given_finalizations(0);
+            let feedback_retention = given_feedback_retention(0);
 
-            let alerts = classify_alerts(&migrations, &offline, &finalizations);
+            let alerts =
+                classify_alerts(&migrations, &offline, &finalizations, &feedback_retention);
 
             assert!(alerts.is_empty());
         }
@@ -305,8 +377,10 @@ mod tests {
             let migrations = given_migrations(1);
             let offline = given_offline(2, 1);
             let finalizations = given_finalizations(1);
+            let feedback_retention = given_feedback_retention(1);
 
-            let alerts = classify_alerts(&migrations, &offline, &finalizations);
+            let alerts =
+                classify_alerts(&migrations, &offline, &finalizations, &feedback_retention);
 
             assert_eq!(
                 alerts,
@@ -315,6 +389,7 @@ mod tests {
                     OperationsAlertCode::OfflineProgressPaused,
                     OperationsAlertCode::ExpiredWorkerLease,
                     OperationsAlertCode::RecentFinalizationFailure,
+                    OperationsAlertCode::ExpiredFeedbackRetention,
                 ]
             );
         }

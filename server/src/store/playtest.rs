@@ -10,13 +10,17 @@ use crate::playtest::{
     AnalyticsCollection, ConsentCommand, ConsentDisplayStatus, ConsentPolicy, ConsentState,
     ConsentStoredStatus, ConsentUpdate, FeedbackCategory, FeedbackDeletion, FeedbackDraft,
     FeedbackItem, FeedbackSeverity, MAXIMUM_ACTIVE_FEEDBACK, PlaytestFailureCode,
-    PlaytestFeedbackOverview, PlaytestRules, PlaytestStore, PlaytestStoreResult, StoredConsent,
+    PlaytestFeedbackOverview, PlaytestMaintenanceStore, PlaytestRules, PlaytestStore,
+    PlaytestStoreResult, StoredConsent,
 };
 
 const ACTIVE_POLICY_QUERY: &str =
     "SELECT policy.id, policy.scope, policy.policy_key, policy.version_no,
             policy.schema_version, policy.display_name, policy.notice_text,
-            policy.canonical_sha256
+            policy.canonical_sha256,
+            CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                policy.canonical_manifest_json, '$.retentionMaximumDays')) AS UNSIGNED)
+                AS retention_maximum_days
      FROM playtest_consent_policy_assignment AS assignment
      INNER JOIN playtest_consent_policy_version AS policy
        ON policy.id = assignment.policy_version_id
@@ -25,7 +29,10 @@ const ACTIVE_POLICY_QUERY: &str =
 const ACTIVE_POLICY_LOCKED_QUERY: &str =
     "SELECT policy.id, policy.scope, policy.policy_key, policy.version_no,
             policy.schema_version, policy.display_name, policy.notice_text,
-            policy.canonical_sha256
+            policy.canonical_sha256,
+            CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                policy.canonical_manifest_json, '$.retentionMaximumDays')) AS UNSIGNED)
+                AS retention_maximum_days
      FROM playtest_consent_policy_assignment AS assignment
      INNER JOIN playtest_consent_policy_version AS policy
        ON policy.id = assignment.policy_version_id
@@ -70,6 +77,7 @@ struct PolicyRow {
     display_name: String,
     notice_text: String,
     canonical_sha256: String,
+    retention_maximum_days: u16,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -464,6 +472,39 @@ impl PlaytestStore for MySqlPlaytestStore {
     }
 }
 
+#[async_trait]
+impl PlaytestMaintenanceStore for MySqlPlaytestStore {
+    async fn purge_expired_feedback(&self) -> Result<u64> {
+        let result = sqlx::query(
+            "UPDATE playtest_feedback AS feedback
+             INNER JOIN playtest_consent_event AS event
+                ON event.id = feedback.consent_event_id
+               AND event.user_id = feedback.user_id
+               AND BINARY event.scope = BINARY feedback.scope
+             INNER JOIN playtest_consent_policy_version AS policy
+                ON policy.id = event.policy_version_id
+             SET feedback.status = 'expired', feedback.category = NULL,
+                 feedback.severity = NULL, feedback.message = NULL,
+                 feedback.run_revision = NULL, feedback.run_manifest_sha256 = NULL,
+                 feedback.finalization_sha256 = NULL,
+                 feedback.withdrawn_at = UTC_TIMESTAMP(6)
+             WHERE feedback.status = 'active'
+               AND JSON_EXTRACT(
+                    policy.canonical_manifest_json, '$.retentionMaximumDays') IS NOT NULL
+               AND TIMESTAMPADD(
+                    DAY,
+                    CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                        policy.canonical_manifest_json, '$.retentionMaximumDays')) AS SIGNED),
+                    feedback.created_at
+               ) <= UTC_TIMESTAMP(6)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+}
+
 impl PolicyRow {
     fn into_policy(self) -> ConsentPolicy {
         ConsentPolicy {
@@ -476,6 +517,7 @@ impl PolicyRow {
             notice_text: self.notice_text,
             canonical_sha256: self.canonical_sha256,
             analytics_collection: AnalyticsCollection::Disabled,
+            retention_maximum_days: self.retention_maximum_days,
             maximum_active_feedback: MAXIMUM_ACTIVE_FEEDBACK,
             message_maximum_characters: 500,
         }

@@ -7,5 +7,6 @@ pub use types::{
     ConsentState, ConsentStoredStatus, ConsentTransition, ConsentUpdate, FeedbackCategory,
     FeedbackDeletion, FeedbackDraft, FeedbackItem, FeedbackSeverity, MAXIMUM_ACTIVE_FEEDBACK,
     MAXIMUM_FEEDBACK_CHARACTERS, NormalizedFeedbackDraft, PlaytestFailureCode,
-    PlaytestFeedbackOverview, PlaytestRules, PlaytestStore, PlaytestStoreResult, StoredConsent,
+    PlaytestFeedbackOverview, PlaytestMaintenanceStore, PlaytestRules, PlaytestStore,
+    PlaytestStoreResult, StoredConsent,
 };

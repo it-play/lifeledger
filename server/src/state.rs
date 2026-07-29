@@ -5907,6 +5907,28 @@ impl AppState {
         self.users.close_session(&token_hash_of(token)).await
     }
 
+    pub async fn delete_account(self: &Arc<Self>, user_id: u64) -> Result<()> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        let _ = runtime.pause();
+        if !self.users.delete_account(user_id).await? {
+            bail!("authenticated account is missing");
+        }
+
+        let mut runtimes = self
+            .runtimes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if runtimes
+            .get(&user_id)
+            .is_some_and(|cached| Arc::ptr_eq(cached, &runtime))
+        {
+            runtimes.remove(&user_id);
+        }
+
+        Ok(())
+    }
+
     pub async fn snapshot(self: &Arc<Self>, user_id: u64) -> Result<GameSnapshot> {
         let runtime = self.runtime(user_id);
         let _operation = runtime.operation.lock().await;
@@ -15328,6 +15350,10 @@ mod tests {
 
         async fn close_session(&self, _token_hash: &str) -> Result<()> {
             Ok(())
+        }
+
+        async fn delete_account(&self, _user_id: u64) -> Result<bool> {
+            anyhow::bail!("not used by game-loop tests")
         }
     }
 

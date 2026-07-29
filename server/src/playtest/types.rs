@@ -52,6 +52,7 @@ pub struct ConsentPolicy {
     pub notice_text: String,
     pub canonical_sha256: String,
     pub analytics_collection: AnalyticsCollection,
+    pub retention_maximum_days: u16,
     pub maximum_active_feedback: u64,
     pub message_maximum_characters: usize,
 }
@@ -239,4 +240,9 @@ pub trait PlaytestStore: Send + Sync {
         user_id: u64,
         feedback_id: &str,
     ) -> anyhow::Result<PlaytestStoreResult<FeedbackDeletion>>;
+}
+
+#[async_trait]
+pub trait PlaytestMaintenanceStore: Send + Sync {
+    async fn purge_expired_feedback(&self) -> anyhow::Result<u64>;
 }

@@ -111,4 +111,13 @@ impl UserStore for MySqlUserStore {
 
         Ok(())
     }
+
+    async fn delete_account(&self, user_id: u64) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM user WHERE id = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
 }

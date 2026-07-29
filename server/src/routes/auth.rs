@@ -7,9 +7,11 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/auth/providers", get(providers))
         .route("/api/auth/me", get(me))
         .route("/api/auth/logout", post(logout))
+        .route("/api/auth/account", delete(delete_account))
         .route("/api/auth/{provider}/start", get(start))
         .route("/api/auth/{provider}/callback", get(callback))
 }
@@ -100,6 +103,66 @@ async fn logout(State(state): State<Arc<AppState>>, jar: CookieJar) -> Result<Re
     let jar = jar.remove(Cookie::from(SESSION_COOKIE));
 
     Ok((jar, axum::http::StatusCode::NO_CONTENT).into_response())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum AccountDeletionConfirmation {
+    DeleteAccount,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountDeletionRequest {
+    confirmation: AccountDeletionConfirmation,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDeletionFailure {
+    code: &'static str,
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/auth/account",
+    request_body = AccountDeletionRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 204, description = "계정과 소유 데이터가 영구 삭제됨"),
+        (status = 400, description = "삭제 확인문이 올바르지 않음", body = AccountDeletionFailure),
+        (status = 401, description = "로그인하지 않음"),
+    )
+)]
+async fn delete_account(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    request: Result<Json<AccountDeletionRequest>, JsonRejection>,
+) -> Result<Response, AppError> {
+    let Ok(Json(request)) = request else {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(AccountDeletionFailure {
+                code: "invalidCommand",
+            }),
+        )
+            .into_response());
+    };
+    if request.confirmation != AccountDeletionConfirmation::DeleteAccount {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(AccountDeletionFailure {
+                code: "invalidCommand",
+            }),
+        )
+            .into_response());
+    }
+
+    state.delete_account(user.id).await?;
+    let jar = jar.remove(Cookie::from(SESSION_COOKIE));
+
+    Ok((jar, StatusCode::NO_CONTENT).into_response())
 }
 
 /// What the round-trip cookie carries.

@@ -3,9 +3,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use sqlx::MySqlPool;
+use tokio::time::Instant;
 
 use crate::auth::{random_token, token_hash_of};
 use crate::day::{DailyAdvanceResult, DailyPipeline};
+use crate::playtest::PlaytestMaintenanceStore;
 use crate::store::{
     OfflineAttemptEvent, OfflineAttemptEventKind, OfflineAttemptIdentity, OfflineProgressStore,
     OfflineWorkClaim, ProgressStepContext,
@@ -16,6 +18,7 @@ const DEFAULT_POLL_MILLIS: u64 = 5_000;
 const MIN_POLL_MILLIS: u64 = 250;
 const MAX_POLL_MILLIS: u64 = 60_000;
 const MAX_RETRY_BACKOFF: Duration = Duration::from_secs(60);
+const FEEDBACK_RETENTION_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkerIteration {
@@ -47,6 +50,9 @@ pub async fn run(pool: MySqlPool) -> Result<()> {
     ));
     let lives = Arc::new(store::create_mysql_life_store(pool.clone(), finance_rules));
     let games = day::create_daily_pipeline(saves, markets, careers, lives);
+    let playtest_maintenance: Arc<dyn PlaytestMaintenanceStore> = Arc::new(
+        store::create_mysql_playtest_store(pool.clone(), crate::playtest::create_playtest_rules()),
+    );
     let offline_progress: Arc<dyn OfflineProgressStore> = Arc::new(
         store::create_mysql_offline_progress_store(pool, offline::create_offline_rules()),
     );
@@ -54,6 +60,7 @@ pub async fn run(pool: MySqlPool) -> Result<()> {
     let poll_interval = poll_interval()?;
     let shutdown = shutdown_signal();
     tokio::pin!(shutdown);
+    let mut next_feedback_retention = Instant::now();
 
     tracing::info!(
         engine_version = ENGINE_VERSION,
@@ -62,6 +69,19 @@ pub async fn run(pool: MySqlPool) -> Result<()> {
     );
 
     loop {
+        if Instant::now() >= next_feedback_retention {
+            match playtest_maintenance.purge_expired_feedback().await {
+                Ok(purged_count) if purged_count > 0 => {
+                    tracing::info!(purged_count, "expired playtest feedback purged");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::error!(error = %error, "playtest feedback retention failed");
+                }
+            }
+            next_feedback_retention = Instant::now() + FEEDBACK_RETENTION_INTERVAL;
+        }
+
         let iteration = tokio::select! {
             () = &mut shutdown => break,
             result = process_next_claim(

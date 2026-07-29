@@ -349,6 +349,7 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         auth::providers,
         auth::me,
         auth::logout,
+        auth::delete_account,
     ),
     components(schemas(
         GameSnapshot,
@@ -827,6 +828,9 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         character::Health,
         auth::ProviderSummary,
         auth::MeResponse,
+        auth::AccountDeletionConfirmation,
+        auth::AccountDeletionRequest,
+        auth::AccountDeletionFailure,
         crate::auth::ProviderKind,
     )),
     modifiers(&SecurityAddon)
@@ -1312,6 +1316,7 @@ struct PlaytestConsentPolicySnapshot {
     notice_text: String,
     canonical_sha256: String,
     analytics_collection: AnalyticsCollectionSnapshot,
+    retention_maximum_days: u16,
     maximum_active_feedback: u64,
     message_maximum_characters: usize,
 }
@@ -1328,6 +1333,7 @@ impl From<DomainConsentPolicy> for PlaytestConsentPolicySnapshot {
             notice_text: value.notice_text,
             canonical_sha256: value.canonical_sha256,
             analytics_collection: value.analytics_collection.into(),
+            retention_maximum_days: value.retention_maximum_days,
             maximum_active_feedback: value.maximum_active_feedback,
             message_maximum_characters: value.message_maximum_characters,
         }

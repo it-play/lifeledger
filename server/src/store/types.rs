@@ -3999,6 +3999,9 @@ pub trait UserStore: Send + Sync + 'static {
 
     /// Closes one session (logout).
     async fn close_session(&self, token_hash: &str) -> Result<()>;
+
+    /// Permanently deletes one account and all rows owned through database cascades.
+    async fn delete_account(&self, user_id: u64) -> Result<bool>;
 }
 
 #[async_trait]
