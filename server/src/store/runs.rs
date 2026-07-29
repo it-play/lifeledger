@@ -11,8 +11,8 @@ use crate::finance::ResourceId;
 use crate::runs::{
     CharacterPresetVersion, PointBudgetCatalog, PointBudgetEvaluation, PointBudgetOption,
     PointBudgetRules, PointCondition, PointCostKind, PointEffect, PointExclusiveGroup,
-    PointFactComparison, PointFactValue, PointSelection, PointTier, RunMode, RunOptions,
-    create_point_budget_rules,
+    PointFactComparison, PointFactValue, PointSelection, PointTier, RunManifestSummary, RunMode,
+    RunOptions, create_point_budget_rules,
 };
 
 #[derive(Clone)]
@@ -92,6 +92,13 @@ struct ConditionRow {
     fact_text_value: Option<String>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct ManifestRow {
+    run_revision: u32,
+    mode: String,
+    manifest_sha256: String,
+}
+
 #[async_trait]
 impl RunStore for MySqlRunStore {
     async fn run_options(&self) -> Result<RunOptions> {
@@ -160,6 +167,31 @@ impl RunStore for MySqlRunStore {
         let catalog = read_budget_children(&self.pool, budget).await?;
 
         Ok(Some(self.rules.evaluate(&catalog, selections)))
+    }
+
+    async fn run_manifest(
+        &self,
+        user_id: u64,
+        run_revision: u32,
+    ) -> Result<Option<RunManifestSummary>> {
+        sqlx::query_as::<_, ManifestRow>(
+            "SELECT manifest.run_revision, manifest.mode, manifest.manifest_sha256
+             FROM run_manifest AS manifest
+             INNER JOIN save ON save.id = manifest.save_id
+             WHERE save.user_id = ? AND manifest.run_revision = ?",
+        )
+        .bind(user_id)
+        .bind(run_revision)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(|row| {
+            Ok(RunManifestSummary {
+                run_revision: row.run_revision,
+                mode: to_run_mode(&row.mode)?,
+                manifest_sha256: row.manifest_sha256,
+            })
+        })
+        .transpose()
     }
 }
 
@@ -294,6 +326,15 @@ fn to_cost_kind(raw: &str) -> Result<PointCostKind> {
         "perUnit" => Ok(PointCostKind::PerUnit),
         "tiered" => Ok(PointCostKind::Tiered),
         _ => bail!("stored point-budget cost kind is invalid"),
+    }
+}
+
+fn to_run_mode(raw: &str) -> Result<RunMode> {
+    match raw {
+        "rankedPreset" => Ok(RunMode::RankedPreset),
+        "rankedCustom" => Ok(RunMode::RankedCustom),
+        "sandbox" => Ok(RunMode::Sandbox),
+        _ => bail!("stored run mode is invalid"),
     }
 }
 

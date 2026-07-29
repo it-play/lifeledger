@@ -36,7 +36,7 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{MarketCalibration, MarketDay, MarketWorld};
-use crate::runs::{PointBudgetEvaluation, PointSelection, RunOptions};
+use crate::runs::{PointBudgetEvaluation, PointSelection, RunManifestSummary, RunOptions};
 use crate::trading::{PositionState, TradeExecution, TradeFailure, TradeOrder};
 
 use super::annual_tax::AnnualTaxYearState;
@@ -3238,6 +3238,12 @@ pub struct StartingLoanCommand {
     pub principal_krw: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartGameManifestKind {
+    LegacySandbox,
+    Sandbox,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartGameCommand {
     pub command_id: CommandId,
@@ -3246,6 +3252,7 @@ pub struct StartGameCommand {
     pub draft: CharacterDraft,
     /// `None` preserves the v1 amount-only fingerprint and legacy catalog mapping.
     pub starting_loans: Option<Vec<StartingLoanCommand>>,
+    pub manifest_kind: StartGameManifestKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3571,6 +3578,12 @@ pub trait RunStore: Send + Sync + 'static {
         version_id: ResourceId,
         selections: &[PointSelection],
     ) -> Result<Option<PointBudgetEvaluation>>;
+
+    async fn run_manifest(
+        &self,
+        user_id: u64,
+        run_revision: u32,
+    ) -> Result<Option<RunManifestSummary>>;
 }
 
 /// Save reads and writes. Every access is scoped to an account (§4.5).

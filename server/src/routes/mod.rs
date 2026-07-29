@@ -181,9 +181,9 @@ use crate::store::{
     PrepareInsolvencyCaseCommand, PrepayLoanCommand, PropertySaleOrderPageQuery,
     PropertyTaxEventPageQuery, PublishCareerArtifactCommand, PurchasePropertyCommand,
     RepricePropertySaleOrderCommand, ResolveLifeEventCommand, StartCareerActivityCommand,
-    StartGameCommand, StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
-    StartingLoanCommand, UpdateCorporationSettingsCommand, UpdateLifeBudgetCommand,
-    WithdrawCareerApplicationCommand,
+    StartGameCommand, StartGameManifestKind, StartHousingLeaseCommand, StartMilitaryServiceCommand,
+    StartPensionCommand, StartingLoanCommand, UpdateCorporationSettingsCommand,
+    UpdateLifeBudgetCommand, WithdrawCareerApplicationCommand,
 };
 use crate::trading::{
     OrderSide, Portfolio, PortfolioPosition, TradeExecution, TradeFailure, TradeFailureCode,
@@ -218,6 +218,7 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         presets,
         run_options,
         preview_point_budget,
+        create_run,
         create_character,
         snapshot,
         advance,
@@ -435,6 +436,11 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         PointSelectionRequest,
         RunRequestFailure,
         RunRequestFailureCode,
+        RunStartRequest,
+        RankedPresetRunStartRequest,
+        RankedCustomRunStartRequest,
+        SandboxRunStartRequest,
+        RunStartResponse,
         CharacterStartRequest,
         CharacterStartResponse,
         CharacterStartSnapshot,
@@ -794,6 +800,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/presets", get(presets))
         .route("/api/run-options", get(run_options))
         .route("/api/runs/point-preview", post(preview_point_budget))
+        .route("/api/runs", post(create_run))
         .route("/api/characters", post(create_character))
         .route("/api/state", get(snapshot))
         .route("/api/advance", post(advance))
@@ -1118,6 +1125,228 @@ fn parse_run_resource_id(raw: &str) -> Result<ResourceId, PointBudgetPreviewErro
 }
 
 #[derive(Deserialize, ToSchema)]
+#[serde(tag = "mode", rename_all = "camelCase")]
+enum RunStartRequest {
+    RankedPreset(RankedPresetRunStartRequest),
+    RankedCustom(RankedCustomRunStartRequest),
+    Sandbox(SandboxRunStartRequest),
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RankedPresetRunStartRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]{0,19}$")]
+    character_preset_version_id: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RankedCustomRunStartRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]{0,19}$")]
+    point_budget_version_id: String,
+    #[schema(max_items = 64)]
+    selections: Vec<PointSelectionRequest>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SandboxRunStartRequest {
+    #[schema(
+        format = "uuid",
+        min_length = 36,
+        max_length = 36,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )]
+    command_id: String,
+    expected_run_revision: u32,
+    expected_state_revision: u64,
+    expected_game_day: u32,
+    character: CharacterStartProfile,
+    #[schema(max_items = 2)]
+    starting_loans: Vec<CharacterStartingLoan>,
+}
+
+enum RunStartAction {
+    Start(StartGameCommand),
+    ModeUnavailable,
+}
+
+impl RunStartRequest {
+    fn into_action(self) -> Result<RunStartAction, GameLoopError> {
+        match self {
+            Self::RankedPreset(request) => request.into_action(),
+            Self::RankedCustom(request) => request.into_action(),
+            Self::Sandbox(request) => request.into_action(),
+        }
+    }
+}
+
+impl RankedPresetRunStartRequest {
+    fn into_action(self) -> Result<RunStartAction, GameLoopError> {
+        parse_start_command_id(self.command_id)?;
+        parse_start_resource_id(&self.character_preset_version_id)?;
+        let _ = start_cursor(
+            self.expected_run_revision,
+            self.expected_state_revision,
+            self.expected_game_day,
+        );
+
+        Ok(RunStartAction::ModeUnavailable)
+    }
+}
+
+impl RankedCustomRunStartRequest {
+    fn into_action(self) -> Result<RunStartAction, GameLoopError> {
+        parse_start_command_id(self.command_id)?;
+        parse_start_resource_id(&self.point_budget_version_id)?;
+        if self.selections.len() > 64 {
+            return Err(GameLoopError::InvalidCommand);
+        }
+        for selection in self.selections {
+            parse_start_resource_id(&selection.option_id)?;
+            if selection.quantity == 0 || selection.quantity > 1_000_000 {
+                return Err(GameLoopError::InvalidCommand);
+            }
+        }
+        let _ = start_cursor(
+            self.expected_run_revision,
+            self.expected_state_revision,
+            self.expected_game_day,
+        );
+
+        Ok(RunStartAction::ModeUnavailable)
+    }
+}
+
+impl SandboxRunStartRequest {
+    fn into_action(self) -> Result<RunStartAction, GameLoopError> {
+        let mut command = CharacterStartV2Request {
+            command_id: self.command_id,
+            expected_run_revision: self.expected_run_revision,
+            expected_state_revision: self.expected_state_revision,
+            expected_game_day: self.expected_game_day,
+            character: self.character,
+            starting_loans: self.starting_loans,
+        }
+        .into_command()?;
+        command.manifest_kind = StartGameManifestKind::Sandbox;
+
+        Ok(RunStartAction::Start(command))
+    }
+}
+
+fn parse_start_resource_id(raw: &str) -> Result<ResourceId, GameLoopError> {
+    raw.parse::<u64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .map(ResourceId::from_u64)
+        .ok_or(GameLoopError::InvalidCommand)
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct RunStartResponse {
+    mode: RunMode,
+    manifest_sha256: String,
+    start: CharacterStartSnapshot,
+    snapshot: GameSnapshot,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/runs",
+    request_body = RunStartRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "immutable manifest와 함께 생성된 실행", body = RunStartResponse),
+        (status = 400, description = "strict 요청 형식 또는 범위 오류", body = GameCommandFailure),
+        (status = 409, description = "mode, command ID 또는 cursor 충돌", body = GameCommandFailure),
+        (status = 422, description = "sandbox 시작 조건이 서로 모순됨", body = ValidationFailure),
+        (status = 500, description = "저장 또는 manifest 조회 실패")
+    )
+)]
+async fn create_run(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    request: Result<Json<RunStartRequest>, JsonRejection>,
+) -> Result<Json<RunStartResponse>, CreateRunError> {
+    let Json(request) =
+        request.map_err(|_| CreateRunError::Command(GameLoopError::InvalidCommand))?;
+    let command = match request.into_action().map_err(CreateRunError::Command)? {
+        RunStartAction::Start(command) => command,
+        RunStartAction::ModeUnavailable => return Err(CreateRunError::ModeUnavailable),
+    };
+    let response = state
+        .start_game(user.id, &command)
+        .await
+        .map_err(CreateRunError::Command)?;
+    let run_revision = response.start.committed_cursor.run_revision;
+    let manifest = state
+        .run_manifest(user.id, run_revision)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("committed run has no manifest"))?;
+    if manifest.run_revision != run_revision || manifest.mode != RunMode::Sandbox {
+        return Err(anyhow::anyhow!("committed run manifest disagrees with response").into());
+    }
+
+    Ok(Json(RunStartResponse {
+        mode: manifest.mode,
+        manifest_sha256: manifest.manifest_sha256,
+        start: response.start,
+        snapshot: response.snapshot,
+    }))
+}
+
+enum CreateRunError {
+    ModeUnavailable,
+    Command(GameLoopError),
+    Internal(AppError),
+}
+
+impl From<anyhow::Error> for CreateRunError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(AppError::from(error))
+    }
+}
+
+impl axum::response::IntoResponse for CreateRunError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::ModeUnavailable => (
+                StatusCode::CONFLICT,
+                Json(GameCommandFailure {
+                    code: GameCommandFailureCode::ModeUnavailable,
+                    message: "현재 게시된 ranked season이 없습니다",
+                }),
+            )
+                .into_response(),
+            Self::Command(error) => GameCommandError(error).into_response(),
+            Self::Internal(error) => error.into_response(),
+        }
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
 #[serde(untagged)]
 enum CharacterStartRequest {
     V2(CharacterStartV2Request),
@@ -1228,6 +1457,7 @@ impl CharacterStartV1Request {
             ),
             draft: self.character,
             starting_loans: None,
+            manifest_kind: StartGameManifestKind::LegacySandbox,
         })
     }
 }
@@ -1277,6 +1507,7 @@ impl CharacterStartV2Request {
             ),
             draft: self.character.into_draft(student_loan_krw, credit_loan_krw),
             starting_loans: Some(starting_loans),
+            manifest_kind: StartGameManifestKind::LegacySandbox,
         })
     }
 }
@@ -1473,6 +1704,7 @@ enum GameCommandFailureCode {
     IdempotencyConflict,
     Busy,
     CharacterRequired,
+    ModeUnavailable,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -7764,6 +7996,101 @@ mod tests {
                             && required.contains(&serde_json::json!("index"))
                             && required.contains(&serde_json::json!("rates"))
                     })
+            );
+        }
+    }
+
+    mod context_run_start_contract_is_parsed {
+        use super::*;
+
+        fn given_sandbox_request() -> serde_json::Value {
+            serde_json::json!({
+                "mode": "sandbox",
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 0,
+                "expectedStateRevision": 0,
+                "expectedGameDay": 0,
+                "character": {
+                    "name": "샌드박스",
+                    "age": 25,
+                    "gender": "other",
+                    "military": "exempted",
+                    "region": "capitalArea",
+                    "background": "independent",
+                    "education": "bachelor",
+                    "careerYears": 1,
+                    "certifications": 1,
+                    "startingCashKrw": 10000000,
+                    "health": "normal",
+                    "dependents": 0
+                },
+                "startingLoans": []
+            })
+        }
+
+        #[test]
+        fn given_strict_sandbox_when_converted_then_explicit_manifest_kind_is_preserved() {
+            let request = serde_json::from_value::<RunStartRequest>(given_sandbox_request())
+                .expect("sandbox 요청 문법이 유효해야 한다");
+
+            let action = request
+                .into_action()
+                .expect("sandbox 명령으로 변환되어야 한다");
+
+            assert!(matches!(
+                action,
+                RunStartAction::Start(StartGameCommand {
+                    manifest_kind: StartGameManifestKind::Sandbox,
+                    ..
+                })
+            ));
+        }
+
+        #[test]
+        fn given_sandbox_with_ranked_field_when_parsed_then_unknown_field_is_rejected() {
+            let mut request = given_sandbox_request();
+            request
+                .as_object_mut()
+                .expect("sandbox 요청은 객체여야 한다")
+                .insert("pointBudgetVersionId".to_owned(), serde_json::json!("1"));
+
+            let parsed = serde_json::from_value::<RunStartRequest>(request);
+
+            assert!(parsed.is_err());
+        }
+
+        #[test]
+        fn given_valid_ranked_shape_without_season_when_converted_then_mode_is_unavailable() {
+            let request = serde_json::from_value::<RunStartRequest>(serde_json::json!({
+                "mode": "rankedCustom",
+                "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
+                "expectedRunRevision": 0,
+                "expectedStateRevision": 0,
+                "expectedGameDay": 0,
+                "pointBudgetVersionId": "1",
+                "selections": [{"optionId": "1", "quantity": 1}]
+            }))
+            .expect("ranked custom 요청 문법이 유효해야 한다");
+
+            let action = request.into_action().expect("구조 검증은 통과해야 한다");
+
+            assert!(matches!(action, RunStartAction::ModeUnavailable));
+        }
+
+        #[test]
+        fn given_run_start_openapi_when_read_then_path_and_session_security_are_fixed() {
+            let document =
+                serde_json::to_value(ApiDoc::openapi()).expect("OpenAPI 문서를 직렬화해야 한다");
+
+            assert_eq!(
+                document.pointer("/paths/~1api~1runs/post/security/0/sessionCookie"),
+                Some(&serde_json::json!([]))
+            );
+            assert_eq!(
+                document.pointer(
+                    "/paths/~1api~1runs/post/responses/200/content/application~1json/schema/$ref"
+                ),
+                Some(&serde_json::json!("#/components/schemas/RunStartResponse"))
             );
         }
     }

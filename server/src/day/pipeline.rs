@@ -715,6 +715,7 @@ mod tests {
             },
             draft: given_character_draft(),
             starting_loans: None,
+            manifest_kind: crate::store::StartGameManifestKind::LegacySandbox,
         }
     }
 

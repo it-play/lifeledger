@@ -40,7 +40,7 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{InterestRateState, MarketRegime};
-use crate::runs::{PointBudgetEvaluation, PointSelection, RunOptions};
+use crate::runs::{PointBudgetEvaluation, PointSelection, RunManifestSummary, RunOptions};
 use crate::store::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
     ActOnInsolvencyCaseCommand, ActiveHousingLeaseState, ActiveLeaseTermState,
@@ -5449,6 +5449,14 @@ impl AppState {
         selections: &[PointSelection],
     ) -> Result<Option<PointBudgetEvaluation>> {
         self.runs.preview_point_budget(version_id, selections).await
+    }
+
+    pub async fn run_manifest(
+        &self,
+        user_id: u64,
+        run_revision: u32,
+    ) -> Result<Option<RunManifestSummary>> {
+        self.runs.run_manifest(user_id, run_revision).await
     }
 
     fn spawn_runner(self: &Arc<Self>, user_id: u64, runtime: &Arc<SaveRuntime>) {
@@ -14197,6 +14205,14 @@ mod tests {
         ) -> Result<Option<PointBudgetEvaluation>> {
             Ok(None)
         }
+
+        async fn run_manifest(
+            &self,
+            _user_id: u64,
+            _run_revision: u32,
+        ) -> Result<Option<RunManifestSummary>> {
+            Ok(None)
+        }
     }
 
     #[async_trait]
@@ -14900,6 +14916,7 @@ mod tests {
             },
             draft: given_character_draft(name),
             starting_loans: None,
+            manifest_kind: crate::store::StartGameManifestKind::LegacySandbox,
         }
     }
 

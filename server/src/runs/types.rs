@@ -218,12 +218,31 @@ pub struct RunOptions {
     pub sandbox_available: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunManifestSummary {
+    pub run_revision: u32,
+    pub mode: RunMode,
+    pub manifest_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PointBudgetPreparation {
+    pub evaluation: PointBudgetEvaluation,
+    pub draft: Option<CharacterDraft>,
+}
+
 pub trait PointBudgetRules: Send + Sync + 'static {
     fn evaluate(
         &self,
         catalog: &PointBudgetCatalog,
         selections: &[PointSelection],
     ) -> PointBudgetEvaluation;
+
+    fn prepare(
+        &self,
+        catalog: &PointBudgetCatalog,
+        selections: &[PointSelection],
+    ) -> PointBudgetPreparation;
 }
 
 #[cfg(test)]

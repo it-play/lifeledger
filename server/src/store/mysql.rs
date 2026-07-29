@@ -87,8 +87,8 @@ use super::tax_accounts::{
 use super::types::{
     ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt, AdvanceCommandStepResult,
     AdvanceDayResult, GameCommandCursor, GameCommandRejection, ManualAdvanceCommand, SaveCursor,
-    SaveState, SaveStore, StartGameCommand, StartGameReceipt, StartGameResult, TradeStoreResult,
-    TradingStore,
+    SaveState, SaveStore, StartGameCommand, StartGameManifestKind, StartGameReceipt,
+    StartGameResult, TradeStoreResult, TradingStore,
 };
 use super::welfare::{
     close_welfare_for_new_run_in_tx, ensure_welfare_evaluations_for_target_day_in_tx,
@@ -542,8 +542,16 @@ impl SaveStore for MySqlSaveStore {
         .bind(expected.rule_bundle.assignment_revision)
         .execute(&mut *tx)
         .await?;
-        let manifest_canonical_json =
-            legacy_sandbox_manifest_canonical(save_id, new_run_revision, &expected)?;
+        let ranking_ineligibility_reason = match command.manifest_kind {
+            StartGameManifestKind::LegacySandbox => "legacyStartEndpoint",
+            StartGameManifestKind::Sandbox => "sandboxMode",
+        };
+        let manifest_canonical_json = sandbox_manifest_canonical(
+            save_id,
+            new_run_revision,
+            &expected,
+            ranking_ineligibility_reason,
+        )?;
         sqlx::query(
             "INSERT INTO run_manifest
                  (save_id, run_revision, mode, market_world_id, policy_set_id,
@@ -552,7 +560,7 @@ impl SaveStore for MySqlSaveStore {
                   canonical_selections_json, engine_version, start_game_day,
                   ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
              VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
-                     FALSE, 'legacyStartEndpoint', ?)",
+                     FALSE, ?, ?)",
         )
         .bind(save_id)
         .bind(new_run_revision)
@@ -564,6 +572,7 @@ impl SaveStore for MySqlSaveStore {
         .bind(expected.rule_bundle.credit_model_version_id.get())
         .bind(expected.rule_bundle.real_estate_model_version_id.get())
         .bind(M5A_ENGINE_VERSION)
+        .bind(ranking_ineligibility_reason)
         .bind(manifest_canonical_json)
         .execute(&mut *tx)
         .await?;
@@ -1921,18 +1930,25 @@ fn validate_advance_steps(
 }
 
 fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
-    let canonical = match &command.starting_loans {
+    let legacy_canonical = match &command.starting_loans {
         Some(starting_loans) => start_game_v2_canonical(command, starting_loans)?,
         None => start_game_v1_canonical(command)?,
+    };
+    let canonical = match command.manifest_kind {
+        StartGameManifestKind::LegacySandbox => legacy_canonical,
+        StartGameManifestKind::Sandbox => {
+            format!("lifeledger.run.start.sandbox.v1\n{legacy_canonical}")
+        }
     };
 
     Ok(sha256_hex(canonical.as_bytes()))
 }
 
-fn legacy_sandbox_manifest_canonical(
+fn sandbox_manifest_canonical(
     save_id: u64,
     run_revision: u32,
     configuration: &ActiveRunConfiguration,
+    ranking_ineligibility_reason: &str,
 ) -> Result<String> {
     serde_json::to_string(&serde_json::json!({
         "careerCatalogBundleId": configuration.career_catalog.bundle_id.get().to_string(),
@@ -1944,7 +1960,7 @@ fn legacy_sandbox_manifest_canonical(
         "mode": "sandbox",
         "policySetId": configuration.policy_set.policy_set_id.get().to_string(),
         "rankingEligible": false,
-        "rankingIneligibilityReason": "legacyStartEndpoint",
+        "rankingIneligibilityReason": ranking_ineligibility_reason,
         "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
         "runRevision": run_revision,
         "saveId": save_id.to_string(),
@@ -1952,7 +1968,7 @@ fn legacy_sandbox_manifest_canonical(
         "selections": [],
         "startGameDay": 0
     }))
-    .context("failed to serialize the legacy sandbox run manifest")
+    .context("failed to serialize the sandbox run manifest")
 }
 
 fn start_game_v1_canonical(command: &StartGameCommand) -> Result<String> {
@@ -3839,6 +3855,7 @@ mod tests {
             },
             draft,
             starting_loans: None,
+            manifest_kind: StartGameManifestKind::LegacySandbox,
         }
     }
 
@@ -3922,6 +3939,20 @@ mod tests {
                 start_game_fingerprint(&changed).expect("v2 지문을 만들 수 있어야 한다");
 
             assert_ne!(original, changed_hash);
+        }
+
+        #[test]
+        fn given_같은sandbox입력_when_시작경로가다르면_then_지문이충돌한다() {
+            let command = given_start_game_command();
+            let mut explicit_sandbox = command.clone();
+            explicit_sandbox.manifest_kind = StartGameManifestKind::Sandbox;
+
+            let legacy =
+                start_game_fingerprint(&command).expect("legacy 지문을 만들 수 있어야 한다");
+            let explicit = start_game_fingerprint(&explicit_sandbox)
+                .expect("explicit sandbox 지문을 만들 수 있어야 한다");
+
+            assert_ne!(legacy, explicit);
         }
     }
 

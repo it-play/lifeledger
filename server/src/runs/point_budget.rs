@@ -1,11 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::de::DeserializeOwned;
+
+use crate::character::{
+    CharacterDraft, Education, FamilyBackground, Gender, Health, MilitaryStatus, Region,
+};
 use crate::finance::ResourceId;
 
 use super::types::{
     PointBudgetCatalog, PointBudgetEvaluation, PointBudgetFailure, PointBudgetFailureCode,
-    PointBudgetOption, PointBudgetRules, PointCondition, PointCostKind, PointEffect,
-    PointFactComparison, PointFactValue, PointLedgerLine, PointSelection,
+    PointBudgetOption, PointBudgetPreparation, PointBudgetRules, PointCondition, PointCostKind,
+    PointEffect, PointFactComparison, PointFactValue, PointLedgerLine, PointSelection,
 };
 
 pub(super) struct DefaultPointBudgetRules;
@@ -18,9 +23,46 @@ impl PointBudgetRules for DefaultPointBudgetRules {
     ) -> PointBudgetEvaluation {
         evaluate(catalog, selections)
     }
+
+    fn prepare(
+        &self,
+        catalog: &PointBudgetCatalog,
+        selections: &[PointSelection],
+    ) -> PointBudgetPreparation {
+        prepare(catalog, selections)
+    }
 }
 
 fn evaluate(catalog: &PointBudgetCatalog, selections: &[PointSelection]) -> PointBudgetEvaluation {
+    prepare(catalog, selections).evaluation
+}
+
+fn prepare(catalog: &PointBudgetCatalog, selections: &[PointSelection]) -> PointBudgetPreparation {
+    let (mut evaluation, facts) = evaluate_raw(catalog, selections);
+    let draft = if evaluation.valid {
+        match materialize_draft(&facts) {
+            Ok(draft) => Some(draft),
+            Err(fact_path) => {
+                evaluation.failures.push(failure_with_fact(
+                    PointBudgetFailureCode::InvalidCatalog,
+                    None,
+                    &fact_path,
+                ));
+                evaluation.valid = false;
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    PointBudgetPreparation { evaluation, draft }
+}
+
+fn evaluate_raw(
+    catalog: &PointBudgetCatalog,
+    selections: &[PointSelection],
+) -> (PointBudgetEvaluation, BTreeMap<String, PointFactValue>) {
     let options = catalog
         .options
         .iter()
@@ -100,15 +142,18 @@ fn evaluate(catalog: &PointBudgetCatalog, selections: &[PointSelection]) -> Poin
     }
     deduplicate_failures(&mut failures);
 
-    PointBudgetEvaluation {
-        point_budget_version_id: catalog.id,
-        valid: failures.is_empty(),
-        total_points: catalog.total_points,
-        spent_points,
-        remaining_points,
-        lines,
-        failures,
-    }
+    (
+        PointBudgetEvaluation {
+            point_budget_version_id: catalog.id,
+            valid: failures.is_empty(),
+            total_points: catalog.total_points,
+            spent_points,
+            remaining_points,
+            lines,
+            failures,
+        },
+        facts,
+    )
 }
 
 fn validate_catalog<'a>(
@@ -132,6 +177,7 @@ fn validate_catalog<'a>(
         if option.minimum_quantity == 0
             || option.minimum_quantity > option.maximum_quantity
             || !scalar_shape_valid
+            || !effect_shape_valid(&option.effect)
         {
             failures.push(failure(
                 PointBudgetFailureCode::InvalidCatalog,
@@ -140,6 +186,105 @@ fn validate_catalog<'a>(
         }
     }
     failures
+}
+
+fn effect_shape_valid(effect: &PointEffect) -> bool {
+    match effect {
+        PointEffect::SetInteger { fact_path, .. }
+        | PointEffect::IncrementInteger { fact_path, .. } => integer_fact_path(fact_path),
+        PointEffect::SetText { fact_path, .. } => text_fact_path(fact_path),
+    }
+}
+
+fn integer_fact_path(path: &str) -> bool {
+    matches!(
+        path,
+        "age"
+            | "careerYears"
+            | "certifications"
+            | "startingCashKrw"
+            | "studentLoanKrw"
+            | "creditLoanKrw"
+            | "dependents"
+    )
+}
+
+fn text_fact_path(path: &str) -> bool {
+    matches!(
+        path,
+        "name" | "gender" | "military" | "region" | "background" | "education" | "health"
+    )
+}
+
+fn materialize_draft(facts: &BTreeMap<String, PointFactValue>) -> Result<CharacterDraft, String> {
+    let mut draft = custom_base_draft();
+    for (path, value) in facts {
+        match (path.as_str(), value) {
+            ("name", PointFactValue::Text(value)) => draft.name.clone_from(value),
+            ("age", PointFactValue::Integer(value)) => draft.age = to_u32(path, *value)?,
+            ("gender", PointFactValue::Text(value)) => draft.gender = to_enum(path, value)?,
+            ("military", PointFactValue::Text(value)) => draft.military = to_enum(path, value)?,
+            ("region", PointFactValue::Text(value)) => draft.region = to_enum(path, value)?,
+            ("background", PointFactValue::Text(value)) => {
+                draft.background = to_enum(path, value)?;
+            }
+            ("education", PointFactValue::Text(value)) => {
+                draft.education = to_enum(path, value)?;
+            }
+            ("careerYears", PointFactValue::Integer(value)) => {
+                draft.career_years = to_u32(path, *value)?;
+            }
+            ("certifications", PointFactValue::Integer(value)) => {
+                draft.certifications = to_u32(path, *value)?;
+            }
+            ("startingCashKrw", PointFactValue::Integer(value)) => {
+                draft.starting_cash_krw = *value;
+            }
+            ("studentLoanKrw", PointFactValue::Integer(value)) => {
+                draft.student_loan_krw = *value;
+            }
+            ("creditLoanKrw", PointFactValue::Integer(value)) => {
+                draft.credit_loan_krw = *value;
+            }
+            ("health", PointFactValue::Text(value)) => draft.health = to_enum(path, value)?,
+            ("dependents", PointFactValue::Integer(value)) => {
+                draft.dependents = to_u32(path, *value)?;
+            }
+            _ => return Err(path.clone()),
+        }
+    }
+
+    Ok(draft)
+}
+
+fn custom_base_draft() -> CharacterDraft {
+    CharacterDraft {
+        name: "커스텀 실행".to_owned(),
+        age: 25,
+        gender: Gender::Other,
+        military: MilitaryStatus::Completed,
+        region: Region::CapitalArea,
+        background: FamilyBackground::Independent,
+        education: Education::HighSchool,
+        career_years: 0,
+        certifications: 0,
+        starting_cash_krw: 0,
+        student_loan_krw: 0,
+        credit_loan_krw: 0,
+        health: Health::Normal,
+        dependents: 0,
+    }
+}
+
+fn to_u32(path: &str, value: i64) -> Result<u32, String> {
+    u32::try_from(value).map_err(|_| path.to_owned())
+}
+
+fn to_enum<T>(path: &str, value: &str) -> Result<T, String>
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|_| path.to_owned())
 }
 
 fn tiers_cover(minimum: u32, maximum: u32, option: &PointBudgetOption) -> bool {
@@ -426,6 +571,12 @@ mod tests {
         minimum_quantity: u32,
         maximum_quantity: u32,
     ) -> PointBudgetOption {
+        let fact_path = match id {
+            1 => "age",
+            2 => "careerYears",
+            3 => "certifications",
+            _ => "dependents",
+        };
         PointBudgetOption {
             id: ResourceId::from_u64(id),
             option_key: key.to_owned(),
@@ -437,7 +588,7 @@ mod tests {
             maximum_quantity,
             exclusive_group_key: None,
             effect: PointEffect::SetInteger {
-                fact_path: key.to_owned(),
+                fact_path: fact_path.to_owned(),
                 value: i64::try_from(id).expect("fixture id fits i64"),
             },
             tiers: Vec::new(),
@@ -465,6 +616,13 @@ mod tests {
         selections: &[PointSelection],
     ) -> PointBudgetEvaluation {
         evaluate(catalog, selections)
+    }
+
+    fn when_prepared(
+        catalog: &PointBudgetCatalog,
+        selections: &[PointSelection],
+    ) -> PointBudgetPreparation {
+        prepare(catalog, selections)
     }
 
     mod context_cost_shapes_are_mixed {
@@ -616,6 +774,116 @@ mod tests {
                     .iter()
                     .any(|failure| failure.code == PointBudgetFailureCode::BudgetExceeded)
             );
+        }
+    }
+
+    mod context_valid_selection_is_materialized {
+        use super::*;
+
+        #[test]
+        fn given_canonical_options_when_prepared_then_same_ledger_builds_the_character_draft() {
+            let mut education = given_option(1, "education", PointCostKind::Fixed, Some(0), 1, 1);
+            education.exclusive_group_key = Some("education".to_owned());
+            education.effect = PointEffect::SetText {
+                fact_path: "education".to_owned(),
+                value: "bachelor".to_owned(),
+            };
+            let mut cash = given_option(2, "cash", PointCostKind::PerUnit, Some(1), 1, 300);
+            cash.exclusive_group_key = Some("startingCash".to_owned());
+            cash.effect = PointEffect::IncrementInteger {
+                fact_path: "startingCashKrw".to_owned(),
+                value_per_unit: 1_000_000,
+            };
+            let mut health = given_option(3, "health", PointCostKind::Fixed, Some(0), 1, 1);
+            health.exclusive_group_key = Some("health".to_owned());
+            health.effect = PointEffect::SetText {
+                fact_path: "health".to_owned(),
+                value: "normal".to_owned(),
+            };
+            let mut background = given_option(4, "background", PointCostKind::Fixed, Some(0), 1, 1);
+            background.exclusive_group_key = Some("background".to_owned());
+            background.effect = PointEffect::SetText {
+                fact_path: "background".to_owned(),
+                value: "independent".to_owned(),
+            };
+            let mut certifications =
+                given_option(5, "certifications", PointCostKind::Fixed, Some(0), 1, 1);
+            certifications.exclusive_group_key = Some("certifications".to_owned());
+            certifications.effect = PointEffect::SetInteger {
+                fact_path: "certifications".to_owned(),
+                value: 2,
+            };
+            let mut catalog =
+                given_catalog(vec![education, cash, health, background, certifications]);
+            catalog.groups = [
+                "education",
+                "startingCash",
+                "health",
+                "background",
+                "certifications",
+            ]
+            .into_iter()
+            .map(|group_key| PointExclusiveGroup {
+                group_key: group_key.to_owned(),
+                display_name: group_key.to_owned(),
+            })
+            .collect();
+            let selections = vec![
+                PointSelection {
+                    option_id: ResourceId::from_u64(5),
+                    quantity: 1,
+                },
+                PointSelection {
+                    option_id: ResourceId::from_u64(2),
+                    quantity: 10,
+                },
+                PointSelection {
+                    option_id: ResourceId::from_u64(1),
+                    quantity: 1,
+                },
+                PointSelection {
+                    option_id: ResourceId::from_u64(4),
+                    quantity: 1,
+                },
+                PointSelection {
+                    option_id: ResourceId::from_u64(3),
+                    quantity: 1,
+                },
+            ];
+
+            let result = when_prepared(&catalog, &selections);
+
+            assert!(result.evaluation.valid);
+            assert_eq!(result.evaluation.spent_points, Some(10));
+            assert_eq!(result.evaluation.remaining_points, Some(90));
+            let draft = result.draft.expect("유효한 선택은 draft를 만들어야 한다");
+            assert_eq!(draft.name, "커스텀 실행");
+            assert_eq!(draft.education, Education::Bachelor);
+            assert_eq!(draft.starting_cash_krw, 10_000_000);
+            assert_eq!(draft.certifications, 2);
+        }
+
+        #[test]
+        fn given_unknown_effect_path_when_prepared_then_preview_and_draft_both_fail() {
+            let mut option = given_option(1, "unknown", PointCostKind::Fixed, Some(0), 1, 1);
+            option.effect = PointEffect::SetText {
+                fact_path: "unpublishedField".to_owned(),
+                value: "value".to_owned(),
+            };
+            let catalog = given_catalog(vec![option]);
+            let selections = [PointSelection {
+                option_id: ResourceId::from_u64(1),
+                quantity: 1,
+            }];
+
+            let result = when_prepared(&catalog, &selections);
+
+            assert!(!result.evaluation.valid);
+            assert!(result.draft.is_none());
+            assert!(result.evaluation.failures.iter().any(|failure| {
+                failure.code == PointBudgetFailureCode::InvalidCatalog
+                    && failure.option_id == Some(ResourceId::from_u64(1))
+            }));
         }
     }
 }
