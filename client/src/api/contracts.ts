@@ -7022,6 +7022,7 @@ export const GameCommandFailureCodeSchema = z.enum([
   'characterRequired',
   'idempotencyConflict',
   'busy',
+  'modeUnavailable',
 ]);
 
 export const GameCommandFailureSchema = z.object({
@@ -9685,6 +9686,265 @@ export const CharacterStartResponseSchema = z.object({
   snapshot: GameSnapshotSchema,
 });
 
+// -- Run creation (M5-A) -------------------------------------------------
+
+export const RunModeSchema = z.enum(['rankedPreset', 'rankedCustom', 'sandbox']);
+const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const PointFactValueSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('integer'), value: z.number().int().safe() }).strict(),
+  z.object({ type: z.literal('text'), value: z.string() }).strict(),
+]);
+
+export const PointEffectSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('setInteger'),
+      factPath: z.string().min(1),
+      value: z.number().int().safe(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('incrementInteger'),
+      factPath: z.string().min(1),
+      valuePerUnit: z.number().int().safe(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('setText'), factPath: z.string().min(1), value: z.string() }).strict(),
+]);
+
+export const PointConditionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('requiresOption'), optionId: ResourceIdSchema }).strict(),
+  z.object({ kind: z.literal('forbidsOption'), optionId: ResourceIdSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('requiresFact'),
+      factPath: z.string().min(1),
+      comparison: z.enum(['equal', 'greaterOrEqual', 'lessOrEqual']),
+      expected: PointFactValueSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('forbidsFact'),
+      factPath: z.string().min(1),
+      comparison: z.enum(['equal', 'greaterOrEqual', 'lessOrEqual']),
+      expected: PointFactValueSchema,
+    })
+    .strict(),
+]);
+
+export const PointTierSchema = z
+  .object({
+    minimumQuantity: z.number().int().nonnegative(),
+    maximumQuantity: z.number().int().nonnegative(),
+    pointDeltaPerUnit: z.number().int().safe(),
+  })
+  .strict();
+
+export const PointBudgetOptionSchema = z
+  .object({
+    id: ResourceIdSchema,
+    optionKey: z.string().min(1),
+    displayName: z.string().min(1),
+    description: z.string(),
+    costKind: z.enum(['fixed', 'perUnit', 'tiered']),
+    pointDeltaPerUnit: z.number().int().safe().nullable(),
+    minimumQuantity: z.number().int().nonnegative(),
+    maximumQuantity: z.number().int().nonnegative(),
+    exclusiveGroupKey: z.string().min(1).nullable(),
+    effect: PointEffectSchema,
+    tiers: z.array(PointTierSchema),
+    conditions: z.array(PointConditionSchema),
+  })
+  .strict();
+
+export const PointExclusiveGroupSchema = z
+  .object({ groupKey: z.string().min(1), displayName: z.string().min(1) })
+  .strict();
+
+export const PointBudgetCatalogSchema = z
+  .object({
+    id: ResourceIdSchema,
+    budgetKey: z.string().min(1),
+    version: z.number().int().positive(),
+    displayName: z.string().min(1),
+    description: z.string(),
+    totalPoints: z.number().int().safe(),
+    rankedEligible: z.boolean(),
+    canonicalSha256: Sha256Schema,
+    groups: z.array(PointExclusiveGroupSchema),
+    options: z.array(PointBudgetOptionSchema),
+  })
+  .strict();
+
+export const PointSelectionSchema = z
+  .object({
+    optionId: ResourceIdSchema,
+    quantity: z.number().int().min(1).max(1_000_000),
+  })
+  .strict();
+
+export const PointBudgetPreviewRequestSchema = z
+  .object({
+    pointBudgetVersionId: ResourceIdSchema,
+    selections: z.array(PointSelectionSchema).max(64),
+  })
+  .strict();
+
+const CanonicalPointSelectionsSchema = z
+  .array(PointSelectionSchema)
+  .max(64)
+  .superRefine((selections, context) => {
+    for (let index = 1; index < selections.length; index += 1) {
+      const previous = selections[index - 1];
+      const current = selections[index];
+      if (previous === undefined || current === undefined) continue;
+      if (BigInt(previous.optionId) >= BigInt(current.optionId)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index, 'optionId'],
+          message: 'point selections must use unique ascending option IDs',
+        });
+      }
+    }
+  });
+
+export const PointBudgetFailureCodeSchema = z.enum([
+  'unknownOption',
+  'duplicateOption',
+  'invalidQuantity',
+  'missingExclusiveGroup',
+  'multipleExclusiveGroup',
+  'requiredOptionMissing',
+  'forbiddenOptionSelected',
+  'requiredFactMissing',
+  'forbiddenFactMatched',
+  'conflictingFact',
+  'pointOverflow',
+  'budgetExceeded',
+  'invalidCatalog',
+]);
+
+export const PointBudgetFailureSchema = z
+  .object({
+    code: PointBudgetFailureCodeSchema,
+    optionId: ResourceIdSchema.nullable(),
+    relatedOptionId: ResourceIdSchema.nullable(),
+    groupKey: z.string().nullable(),
+    factPath: z.string().nullable(),
+  })
+  .strict();
+
+export const PointLedgerLineSchema = z
+  .object({
+    optionId: ResourceIdSchema,
+    optionKey: z.string().min(1),
+    quantity: z.number().int().min(1).max(1_000_000),
+    pointDelta: z.number().int().safe(),
+  })
+  .strict();
+
+export const PointBudgetEvaluationSchema = z
+  .object({
+    pointBudgetVersionId: ResourceIdSchema,
+    valid: z.boolean(),
+    totalPoints: z.number().int().safe(),
+    spentPoints: z.number().int().safe().nullable(),
+    remainingPoints: z.number().int().safe().nullable(),
+    lines: z.array(PointLedgerLineSchema),
+    failures: z.array(PointBudgetFailureSchema),
+  })
+  .strict();
+
+export const CharacterPresetVersionSchema = z
+  .object({
+    id: ResourceIdSchema,
+    presetKey: z.string().min(1),
+    version: z.number().int().positive(),
+    displayName: z.string().min(1),
+    summary: z.string(),
+    rankedEligible: z.boolean(),
+    canonicalSha256: Sha256Schema,
+    draft: CharacterDraftSchema.strict(),
+  })
+  .strict();
+
+export const RunOptionsSchema = z
+  .object({
+    modes: z.array(RunModeSchema),
+    activeSeasonId: ResourceIdSchema.nullable(),
+    presets: z.array(CharacterPresetVersionSchema),
+    pointBudgets: z.array(PointBudgetCatalogSchema),
+    sandboxAvailable: z.boolean(),
+  })
+  .strict();
+
+const RunStartCommandFields = {
+  commandId: CanonicalUuidSchema,
+  expectedRunRevision: z.number().int().nonnegative(),
+  expectedStateRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  expectedGameDay: z.number().int().nonnegative(),
+} as const;
+
+export const RankedPresetRunStartDraftSchema = z
+  .object({
+    mode: z.literal('rankedPreset'),
+    characterPresetVersionId: ResourceIdSchema,
+  })
+  .strict();
+
+export const RankedCustomRunStartDraftSchema = z
+  .object({
+    mode: z.literal('rankedCustom'),
+    pointBudgetVersionId: ResourceIdSchema,
+    selections: CanonicalPointSelectionsSchema,
+  })
+  .strict();
+
+export const SandboxRunStartDraftSchema = z
+  .object({
+    mode: z.literal('sandbox'),
+    character: CharacterStartProfileSchema,
+    startingLoans: CharacterStartingLoansSchema,
+  })
+  .strict();
+
+export const RunStartDraftSchema = z.discriminatedUnion('mode', [
+  RankedPresetRunStartDraftSchema,
+  RankedCustomRunStartDraftSchema,
+  SandboxRunStartDraftSchema,
+]);
+
+export const RankedPresetRunStartRequestSchema = z
+  .object({ ...RunStartCommandFields, ...RankedPresetRunStartDraftSchema.shape })
+  .strict();
+export const RankedCustomRunStartRequestSchema = z
+  .object({ ...RunStartCommandFields, ...RankedCustomRunStartDraftSchema.shape })
+  .strict();
+export const SandboxRunStartRequestSchema = z
+  .object({ ...RunStartCommandFields, ...SandboxRunStartDraftSchema.shape })
+  .strict();
+
+export const RunStartRequestSchema = z.discriminatedUnion('mode', [
+  RankedPresetRunStartRequestSchema,
+  RankedCustomRunStartRequestSchema,
+  SandboxRunStartRequestSchema,
+]);
+
+export const RunStartResponseSchema = z
+  .object({
+    mode: RunModeSchema,
+    manifestSha256: Sha256Schema,
+    start: CharacterStartResultSchema,
+    snapshot: GameSnapshotSchema,
+  })
+  .strict();
+
+export const RunRequestFailureCodeSchema = z.enum(['invalidCommand', 'versionNotFound']);
+export const RunRequestFailureSchema = z.object({ code: RunRequestFailureCodeSchema }).strict();
+
 export const PresetSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -10267,6 +10527,33 @@ export type CharacterStartV2Request = z.infer<typeof CharacterStartV2RequestSche
 export type CharacterStartRequest = z.infer<typeof CharacterStartRequestSchema>;
 export type CharacterStartResult = z.infer<typeof CharacterStartResultSchema>;
 export type CharacterStartResponse = z.infer<typeof CharacterStartResponseSchema>;
+export type RunMode = z.infer<typeof RunModeSchema>;
+export type PointFactValue = z.infer<typeof PointFactValueSchema>;
+export type PointEffect = z.infer<typeof PointEffectSchema>;
+export type PointCondition = z.infer<typeof PointConditionSchema>;
+export type PointTier = z.infer<typeof PointTierSchema>;
+export type PointBudgetOption = z.infer<typeof PointBudgetOptionSchema>;
+export type PointExclusiveGroup = z.infer<typeof PointExclusiveGroupSchema>;
+export type PointBudgetCatalog = z.infer<typeof PointBudgetCatalogSchema>;
+export type PointSelection = z.infer<typeof PointSelectionSchema>;
+export type PointBudgetPreviewRequest = z.infer<typeof PointBudgetPreviewRequestSchema>;
+export type PointBudgetFailureCode = z.infer<typeof PointBudgetFailureCodeSchema>;
+export type PointBudgetFailure = z.infer<typeof PointBudgetFailureSchema>;
+export type PointLedgerLine = z.infer<typeof PointLedgerLineSchema>;
+export type PointBudgetEvaluation = z.infer<typeof PointBudgetEvaluationSchema>;
+export type CharacterPresetVersion = z.infer<typeof CharacterPresetVersionSchema>;
+export type RunOptions = z.infer<typeof RunOptionsSchema>;
+export type RankedPresetRunStartDraft = z.infer<typeof RankedPresetRunStartDraftSchema>;
+export type RankedCustomRunStartDraft = z.infer<typeof RankedCustomRunStartDraftSchema>;
+export type SandboxRunStartDraft = z.infer<typeof SandboxRunStartDraftSchema>;
+export type RunStartDraft = z.infer<typeof RunStartDraftSchema>;
+export type RankedPresetRunStartRequest = z.infer<typeof RankedPresetRunStartRequestSchema>;
+export type RankedCustomRunStartRequest = z.infer<typeof RankedCustomRunStartRequestSchema>;
+export type SandboxRunStartRequest = z.infer<typeof SandboxRunStartRequestSchema>;
+export type RunStartRequest = z.infer<typeof RunStartRequestSchema>;
+export type RunStartResponse = z.infer<typeof RunStartResponseSchema>;
+export type RunRequestFailureCode = z.infer<typeof RunRequestFailureCodeSchema>;
+export type RunRequestFailure = z.infer<typeof RunRequestFailureSchema>;
 export type Preset = z.infer<typeof PresetSchema>;
 export type ValidationFailure = z.infer<typeof ValidationFailureSchema>;
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;

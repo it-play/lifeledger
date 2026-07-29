@@ -19,6 +19,7 @@ import type {
   PensionStartRequest,
   PensionWithdrawalRequest,
   PortfolioOrderRequest,
+  SandboxRunStartRequest,
   TaxAccountOpenRequest,
 } from './contracts.js';
 import {
@@ -152,6 +153,65 @@ const givenAdvance = (): AdvanceRequest => ({
   expectedStateRevision: 42,
   expectedGameDay: 17,
   days: 7,
+});
+
+const givenRunStart = (): SandboxRunStartRequest => ({
+  mode: 'sandbox',
+  commandId: '4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2',
+  expectedRunRevision: 3,
+  expectedStateRevision: 42,
+  expectedGameDay: 17,
+  character: {
+    name: '새 테스터',
+    age: 25,
+    gender: 'other',
+    military: 'completed',
+    region: 'capitalArea',
+    background: 'independent',
+    education: 'bachelor',
+    careerYears: 1,
+    certifications: 1,
+    startingCashKrw: 10_000_000,
+    health: 'normal',
+    dependents: 0,
+  },
+  startingLoans: [],
+});
+
+describe('실행 시작 응답 상관관계', () => {
+  describe('맥락: 제출한 sandbox 명령이 새 run으로 확정된 경우', () => {
+    it('given 일치하는 mode·cursor·snapshot, when 시작하면, then 고정 경로와 검증한 body를 사용한다', async () => {
+      const request = givenRunStart();
+      const snapshot = {
+        ...givenSnapshot(),
+        runRevision: 4,
+        stateRevision: 0,
+        gameDay: 0,
+        characterName: request.character.name,
+      };
+      const capture = givenHttpCapture();
+      const api = createGameApi({
+        http: givenCapturingHttp(
+          {
+            mode: request.mode,
+            manifestSha256: 'a'.repeat(64),
+            start: {
+              commandId: request.commandId,
+              committedCursor: { runRevision: 4, stateRevision: 0, gameDay: 0 },
+              replayed: false,
+            },
+            snapshot,
+          },
+          capture,
+        ),
+        stream: givenStream(),
+      });
+
+      await api.createRun(request);
+
+      expect(capture).toEqual({ method: 'POST', path: '/api/runs', body: request });
+    });
+  });
 });
 
 describe('수동 진행 명령 검증', () => {

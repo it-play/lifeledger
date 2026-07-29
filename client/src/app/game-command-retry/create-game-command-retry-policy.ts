@@ -3,11 +3,14 @@ import type {
   CharacterStartV2Draft,
   CharacterStartV2Request,
   GameSnapshot,
+  RunStartDraft,
+  RunStartRequest,
 } from '../../api/contracts.js';
 import type {
   AdvanceRetryPolicy,
   CharacterStartRetryPolicy,
   GameCommandRetryPolicyDeps,
+  RunStartRetryPolicy,
 } from './types.js';
 
 export function createCharacterStartRetryPolicy(
@@ -48,6 +51,24 @@ export function createAdvanceRetryPolicy(deps: GameCommandRetryPolicyDeps): Adva
   };
 }
 
+export function createRunStartRetryPolicy(deps: GameCommandRetryPolicyDeps): RunStartRetryPolicy {
+  const pending = new Map<string, RunStartRequest>();
+
+  return {
+    select(snapshot, draft) {
+      const key = runStartKey(draft);
+      return pending.get(key) ?? runStartRequestOf(snapshot, draft, deps.createCommandId());
+    },
+    retain(request) {
+      pending.set(runStartKey(request), request);
+    },
+    clear(request) {
+      const key = runStartKey(request);
+      if (pending.get(key)?.commandId === request.commandId) pending.delete(key);
+    },
+  };
+}
+
 function characterRequestOf(
   snapshot: GameSnapshot,
   draft: CharacterStartV2Draft,
@@ -72,6 +93,20 @@ function advanceRequestOf(snapshot: GameSnapshot, days: number, commandId: strin
   };
 }
 
+function runStartRequestOf(
+  snapshot: GameSnapshot,
+  draft: RunStartDraft,
+  commandId: string,
+): RunStartRequest {
+  return {
+    commandId,
+    expectedRunRevision: snapshot.runRevision,
+    expectedStateRevision: snapshot.stateRevision,
+    expectedGameDay: snapshot.gameDay,
+    ...draft,
+  };
+}
+
 function characterKey(draft: CharacterStartV2Draft): string {
   const { character } = draft;
   return JSON.stringify([
@@ -93,4 +128,19 @@ function characterKey(draft: CharacterStartV2Draft): string {
 
 function advanceKey(runRevision: number, days: number): string {
   return `${runRevision}:${days}`;
+}
+
+function runStartKey(draft: RunStartDraft): string {
+  switch (draft.mode) {
+    case 'rankedPreset':
+      return JSON.stringify([draft.mode, draft.characterPresetVersionId]);
+    case 'rankedCustom':
+      return JSON.stringify([
+        draft.mode,
+        draft.pointBudgetVersionId,
+        draft.selections.map((selection) => [selection.optionId, selection.quantity]),
+      ]);
+    case 'sandbox':
+      return JSON.stringify([draft.mode, characterKey(draft)]);
+  }
 }

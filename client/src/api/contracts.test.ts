@@ -72,6 +72,7 @@ import {
   PensionWithdrawalResultSchema,
   PortfolioExecutionSchema,
   PortfolioOrderRequestSchema,
+  RunStartRequestSchema,
   SettlementKindSchema,
 } from './contracts.js';
 
@@ -630,6 +631,43 @@ describe('캐릭터 시작 v2 요청 계약', () => {
       const result = CharacterStartRequestSchema.safeParse({
         ...request,
         startingLoans: [{ ...first, principalKrw: 0 }],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+});
+
+describe('실행 시작 mode 계약', () => {
+  describe('맥락: 샌드박스 요청에 ranked 필드가 섞인 경우', () => {
+    it('given sandbox와 preset version, when 검증하면, then strict mode 경계에서 거절한다', () => {
+      const request = givenCharacterStartV2();
+
+      const result = RunStartRequestSchema.safeParse({
+        mode: 'sandbox',
+        ...request,
+        characterPresetVersionId: '1',
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('맥락: 커스텀 선택 ID가 정렬되지 않은 경우', () => {
+    it('given 내림차순 option ID, when 검증하면, then canonical selection 위반을 거절한다', () => {
+      const request = givenCharacterStartV2();
+
+      const result = RunStartRequestSchema.safeParse({
+        mode: 'rankedCustom',
+        commandId: request.commandId,
+        expectedRunRevision: request.expectedRunRevision,
+        expectedStateRevision: request.expectedStateRevision,
+        expectedGameDay: request.expectedGameDay,
+        pointBudgetVersionId: '1',
+        selections: [
+          { optionId: '2', quantity: 1 },
+          { optionId: '1', quantity: 1 },
+        ],
       });
 
       expect(result.success).toBe(false);

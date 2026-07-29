@@ -82,6 +82,10 @@ import {
   PensionWithdrawalRequestSchema,
   type PensionWithdrawalResponse,
   PensionWithdrawalResponseSchema,
+  type PointBudgetEvaluation,
+  PointBudgetEvaluationSchema,
+  type PointBudgetPreviewRequest,
+  PointBudgetPreviewRequestSchema,
   type PortfolioOrderFailureCode,
   PortfolioOrderFailureSchema,
   type PortfolioOrderRequest,
@@ -91,6 +95,14 @@ import {
   type Preset,
   PresetListSchema,
   ResourceIdSchema,
+  type RunOptions,
+  RunOptionsSchema,
+  type RunRequestFailureCode,
+  RunRequestFailureSchema,
+  type RunStartRequest,
+  RunStartRequestSchema,
+  type RunStartResponse,
+  RunStartResponseSchema,
   type TaxAccountOpenRequest,
   TaxAccountOpenRequestSchema,
   type TaxAccountOpenResponse,
@@ -126,6 +138,18 @@ export class GameCommandError extends Error {
   }
 }
 
+/** A validated run-catalog or point-preview rejection. */
+export class RunRequestError extends Error {
+  constructor(readonly code: RunRequestFailureCode) {
+    super(
+      code === 'versionNotFound'
+        ? '선택한 포인트 예산을 사용할 수 없습니다'
+        : '실행 설정이 올바르지 않습니다',
+    );
+    this.name = 'RunRequestError';
+  }
+}
+
 /** A validated portfolio rejection, independent of the HTTP status chosen by the server. */
 export class PortfolioOrderError extends Error {
   constructor(
@@ -157,6 +181,15 @@ export interface GameApi {
    * A failed combination check throws {@link CharacterRejectedError}.
    */
   createCharacter(request: CharacterStartRequest): Promise<CharacterStartResponse>;
+  /** Lists immutable run-start catalogs and the currently published season. */
+  listRunOptions(signal?: AbortSignal): Promise<RunOptions>;
+  /** Evaluates one canonical point selection on the server. */
+  previewPointBudget(
+    request: PointBudgetPreviewRequest,
+    signal?: AbortSignal,
+  ): Promise<PointBudgetEvaluation>;
+  /** Starts a new version-pinned run. */
+  createRun(request: RunStartRequest): Promise<RunStartResponse>;
   getSnapshot(): Promise<GameSnapshot>;
   /** Advances the game day. The result also arrives over SSE. */
   advance(request: AdvanceRequest): Promise<AdvanceResponse>;
@@ -234,6 +267,7 @@ const financeAccountsDecoder = asDecoder(FinanceAccountsResponseSchema);
 const cashProductCatalogDecoder = asDecoder(CashProductCatalogSchema);
 const bondProductCatalogDecoder = asDecoder(BondProductCatalogSchema);
 const goldProductCatalogDecoder = asDecoder(GoldProductCatalogSchema);
+const runOptionsDecoder = asDecoder(RunOptionsSchema);
 
 /** Turns a 422 body into a field-to-message map, or gives up if the shape is unfamiliar. */
 function toFieldErrors(error: unknown): Record<string, string> | undefined {
@@ -252,6 +286,12 @@ function toGameCommandError(error: unknown): GameCommandError | undefined {
   const parsed = GameCommandFailureSchema.safeParse(error.body);
   if (!parsed.success) return undefined;
   return new GameCommandError(parsed.data.code, parsed.data.message);
+}
+
+function toRunRequestError(error: unknown): RunRequestError | undefined {
+  if (!(error instanceof HttpError)) return undefined;
+  const parsed = RunRequestFailureSchema.safeParse(error.body);
+  return parsed.success ? new RunRequestError(parsed.data.code) : undefined;
 }
 
 function toPortfolioOrderError(error: unknown): PortfolioOrderError | undefined {
@@ -296,6 +336,74 @@ export function createGameApi(deps: GameApiDeps): GameApi {
       );
       try {
         return await http.post('/api/characters', body, decoder);
+      } catch (error) {
+        const fieldErrors = toFieldErrors(error);
+        if (fieldErrors !== undefined) throw new CharacterRejectedError(fieldErrors);
+        const domainError = toGameCommandError(error);
+        if (domainError !== undefined) throw domainError;
+        throw error;
+      }
+    },
+
+    listRunOptions: (signal) =>
+      http.get(
+        '/api/run-options',
+        runOptionsDecoder,
+        signal === undefined ? undefined : { signal },
+      ),
+
+    async previewPointBudget(request, signal) {
+      const body = PointBudgetPreviewRequestSchema.parse(request);
+      const decoder = asDecoder(
+        PointBudgetEvaluationSchema.superRefine((response, context) => {
+          if (response.pointBudgetVersionId !== body.pointBudgetVersionId) {
+            context.addIssue({
+              code: 'custom',
+              path: ['pointBudgetVersionId'],
+              message: 'point preview does not match the submitted budget version',
+            });
+          }
+        }),
+      );
+      try {
+        return await http.post(
+          '/api/runs/point-preview',
+          body,
+          decoder,
+          signal === undefined ? undefined : { signal },
+        );
+      } catch (error) {
+        const domainError = toRunRequestError(error);
+        if (domainError !== undefined) throw domainError;
+        throw error;
+      }
+    },
+
+    async createRun(request) {
+      const body = RunStartRequestSchema.parse(request);
+      const decoder = asDecoder(
+        RunStartResponseSchema.superRefine((response, context) => {
+          const committed = response.start.committedCursor;
+          if (
+            response.mode !== body.mode ||
+            response.start.commandId !== body.commandId ||
+            committed.runRevision !== body.expectedRunRevision + 1 ||
+            committed.stateRevision !== 0 ||
+            committed.gameDay !== 0 ||
+            response.snapshot.runRevision !== committed.runRevision ||
+            response.snapshot.stateRevision !== committed.stateRevision ||
+            response.snapshot.gameDay !== committed.gameDay
+          ) {
+            context.addIssue({
+              code: 'custom',
+              path: ['start'],
+              message: 'run start result does not match the submitted command',
+            });
+          }
+        }),
+      );
+      try {
+        return await http.post('/api/runs', body, decoder);
       } catch (error) {
         const fieldErrors = toFieldErrors(error);
         if (fieldErrors !== undefined) throw new CharacterRejectedError(fieldErrors);

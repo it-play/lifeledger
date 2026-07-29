@@ -1,6 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
-import type { CharacterStartV2Draft, GameSnapshot } from '../../api/contracts.js';
-import { createAdvanceRetryPolicy, createCharacterStartRetryPolicy } from './index.js';
+import type { CharacterStartV2Draft, GameSnapshot, RunStartDraft } from '../../api/contracts.js';
+import {
+  createAdvanceRetryPolicy,
+  createCharacterStartRetryPolicy,
+  createRunStartRetryPolicy,
+} from './index.js';
 
 const CHARACTER: CharacterStartV2Draft = {
   character: {
@@ -19,6 +23,22 @@ const CHARACTER: CharacterStartV2Draft = {
   },
   startingLoans: [],
 };
+
+const SANDBOX_RUN: RunStartDraft = { mode: 'sandbox', ...CHARACTER };
+
+describe('실행 시작 재시도 요청 선택', () => {
+  describe('맥락: 실행 생성 응답을 잃은 뒤 새 런 상태가 먼저 도착한 경우', () => {
+    it('given 보류 중인 sandbox 명령, when 같은 조건을 제출하면, then 최초 cursor와 UUID를 보존한다', () => {
+      const policy = createRunStartRetryPolicy({ createCommandId: givenCommandIds() });
+      const first = policy.select(givenSnapshot(3, 42, 17), SANDBOX_RUN);
+      policy.retain(first);
+
+      const selected = policy.select(givenSnapshot(4, 0, 0), SANDBOX_RUN);
+
+      expect(selected).toBe(first);
+    });
+  });
+});
 
 describe('캐릭터 시작 재시도 요청 선택', () => {
   describe('맥락: 응답 유실 뒤 새 런 SSE가 먼저 도착한 경우', () => {
