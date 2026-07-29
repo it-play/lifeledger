@@ -370,18 +370,23 @@ impl PlaytestStore for MySqlPlaytestStore {
         )
         .execute(&mut *transaction)
         .await?;
+        if result.rows_affected() != 1 {
+            bail!("playtest feedback insert did not affect exactly one row");
+        }
+        let feedback_id = result.last_insert_id();
+
+        transaction.commit().await?;
         let row = sqlx::query_as::<_, FeedbackRow>(
             "SELECT public_id, category, severity, message, run_revision,
                     run_manifest_sha256, finalization_sha256,
                     DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS created_at
              FROM playtest_feedback WHERE id = ?",
         )
-        .bind(result.last_insert_id())
-        .fetch_one(&mut *transaction)
+        .bind(feedback_id)
+        .fetch_one(&self.pool)
         .await?;
         let item = to_feedback_item(row)?;
 
-        transaction.commit().await?;
         Ok(PlaytestStoreResult::Accepted(item))
     }
 
