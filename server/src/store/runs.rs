@@ -235,7 +235,7 @@ impl RunStore for MySqlRunStore {
             "SELECT league.id, league.season_id, league.league_key, league.display_name,
                     league.mode, league.character_preset_version_id,
                     league.point_budget_version_id, league.minimum_participants,
-                    COUNT(manifest.save_id) AS participant_count
+                    CAST(COUNT(manifest.save_id) AS UNSIGNED) AS participant_count
              FROM league_definition AS league
              LEFT JOIN run_manifest AS manifest
                ON manifest.season_id = league.season_id
