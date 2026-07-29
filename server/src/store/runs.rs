@@ -3,8 +3,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
+use serde::Serialize;
 use sqlx::MySqlPool;
 
+use super::mysql::read_state;
 use super::types::RunStore;
 use crate::character::CharacterDraft;
 use crate::finance::ResourceId;
@@ -12,22 +14,26 @@ use crate::runs::{
     CharacterPresetVersion, LeagueDefinition, LeagueRankingItem, LeagueRankingPage,
     PointBudgetCatalog, PointBudgetEvaluation, PointBudgetOption, PointBudgetRules, PointCondition,
     PointCostKind, PointEffect, PointExclusiveGroup, PointFactComparison, PointFactValue,
-    PointSelection, PointTier, RankedRunContext, RankedRunPreparation, RankingPageCursor,
-    RunFinalization, RunFinalizationLine, RunFinalizationStatus, RunManifestSummary, RunMode,
-    RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary, create_point_budget_rules,
-    encode_ranking_cursor,
+    PointSelection, PointTier, PublicSaveDetail, PublicSaveProgressStatus, PublicSaveRankingPage,
+    PublicSaveRankingQuery, PublicSaveRankingRules, RankedRunContext, RankedRunPreparation,
+    RankingPageCursor, RunFinalization, RunFinalizationLine, RunFinalizationStatus,
+    RunManifestSummary, RunMode, RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary,
+    create_point_budget_rules, create_public_save_ranking_rules, encode_ranking_cursor,
 };
+use crate::trading::value_portfolio;
 
 #[derive(Clone)]
 pub struct MySqlRunStore {
     pool: MySqlPool,
     rules: Arc<dyn PointBudgetRules>,
+    public_ranking_rules: Arc<dyn PublicSaveRankingRules>,
 }
 
 pub fn create_mysql_run_store(pool: MySqlPool) -> MySqlRunStore {
     MySqlRunStore {
         pool,
         rules: create_point_budget_rules(),
+        public_ranking_rules: create_public_save_ranking_rules(),
     }
 }
 
@@ -145,6 +151,7 @@ struct LeagueRankingRow {
     save_id: u64,
     run_revision: u32,
     run_id: String,
+    character_name: Option<String>,
     character_preset_version_id: Option<u64>,
     point_budget_version_id: Option<u64>,
     after_tax_net_worth_krw: i64,
@@ -176,6 +183,14 @@ struct RunFinalizationLineRow {
     net_krw: i64,
     policy_reference: String,
     line_sha256: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct PublicSaveRow {
+    save_id: u64,
+    public_uid: String,
+    finalization_status: Option<String>,
+    after_tax_net_worth_krw: Option<i64>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -390,7 +405,8 @@ impl RunStore for MySqlRunStore {
             Some(cursor) => {
                 sqlx::query_as::<_, LeagueRankingRow>(
                     "SELECT ranked.rank_no, ranked.save_id, ranked.run_revision,
-                            ranked.run_id, ranked.character_preset_version_id,
+                            ranked.run_id, ranked.character_name,
+                            ranked.character_preset_version_id,
                             ranked.point_budget_version_id,
                             ranked.after_tax_net_worth_krw, ranked.insolvency_days,
                             ranked.player_command_count, ranked.completed_at
@@ -404,6 +420,7 @@ impl RunStore for MySqlRunStore {
                                 ) AS UNSIGNED) AS rank_no,
                                 finalization.save_id, finalization.run_revision,
                                 manifest.manifest_sha256 AS run_id,
+                                manifest.character_name,
                                 manifest.character_preset_version_id,
                                 manifest.point_budget_version_id,
                                 finalization.after_tax_net_worth_krw,
@@ -483,6 +500,7 @@ impl RunStore for MySqlRunStore {
                             ) AS UNSIGNED) AS rank_no,
                             finalization.save_id, finalization.run_revision,
                             manifest.manifest_sha256 AS run_id,
+                            manifest.character_name,
                             manifest.character_preset_version_id,
                             manifest.point_budget_version_id,
                             finalization.after_tax_net_worth_krw,
@@ -526,7 +544,9 @@ impl RunStore for MySqlRunStore {
             .map(|row| LeagueRankingItem {
                 rank: row.rank_no,
                 run_id: row.run_id,
-                display_name: "익명 플레이어".to_owned(),
+                display_name: row
+                    .character_name
+                    .unwrap_or_else(|| "익명 플레이어".to_owned()),
                 character_preset_version_id: row
                     .character_preset_version_id
                     .map(ResourceId::from_u64),
@@ -547,6 +567,28 @@ impl RunStore for MySqlRunStore {
             items,
             next_cursor,
         }))
+    }
+
+    async fn public_save_rankings(
+        &self,
+        query: &PublicSaveRankingQuery,
+    ) -> Result<PublicSaveRankingPage> {
+        let rows = read_public_save_rows(&self.pool, None).await?;
+        let mut saves = Vec::with_capacity(rows.len());
+        for row in rows {
+            saves.push(read_public_save_detail(&self.pool, row).await?);
+        }
+
+        Ok(self.public_ranking_rules.page(saves, query))
+    }
+
+    async fn public_save_detail(&self, save_uid: &str) -> Result<Option<PublicSaveDetail>> {
+        let mut rows = read_public_save_rows(&self.pool, Some(save_uid)).await?;
+        let Some(row) = rows.pop() else {
+            return Ok(None);
+        };
+
+        Ok(Some(read_public_save_detail(&self.pool, row).await?))
     }
 
     async fn run_finalization(
@@ -737,6 +779,153 @@ impl RunStore for MySqlRunStore {
         })
         .transpose()
     }
+}
+
+async fn read_public_save_rows(
+    pool: &MySqlPool,
+    save_uid: Option<&str>,
+) -> Result<Vec<PublicSaveRow>> {
+    let rows = match save_uid {
+        Some(save_uid) => {
+            sqlx::query_as::<_, PublicSaveRow>(
+                "SELECT save.id AS save_id, save.public_uid,
+                        (
+                            SELECT finalization.status
+                            FROM run_finalization AS finalization
+                            WHERE finalization.save_id = save.id
+                              AND finalization.run_revision = save.run_revision
+                            ORDER BY finalization.id DESC
+                            LIMIT 1
+                        ) AS finalization_status,
+                        (
+                            SELECT finalization.after_tax_net_worth_krw
+                            FROM run_finalization AS finalization
+                            WHERE finalization.save_id = save.id
+                              AND finalization.run_revision = save.run_revision
+                              AND finalization.status = 'completed'
+                            ORDER BY finalization.id DESC
+                            LIMIT 1
+                        ) AS after_tax_net_worth_krw
+                 FROM save
+                 INNER JOIN `character` ON `character`.save_id = save.id
+                 WHERE BINARY save.public_uid = BINARY ?
+                 LIMIT 1",
+            )
+            .bind(save_uid)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query_as::<_, PublicSaveRow>(
+                "SELECT save.id AS save_id, save.public_uid,
+                        (
+                            SELECT finalization.status
+                            FROM run_finalization AS finalization
+                            WHERE finalization.save_id = save.id
+                              AND finalization.run_revision = save.run_revision
+                            ORDER BY finalization.id DESC
+                            LIMIT 1
+                        ) AS finalization_status,
+                        (
+                            SELECT finalization.after_tax_net_worth_krw
+                            FROM run_finalization AS finalization
+                            WHERE finalization.save_id = save.id
+                              AND finalization.run_revision = save.run_revision
+                              AND finalization.status = 'completed'
+                            ORDER BY finalization.id DESC
+                            LIMIT 1
+                        ) AS after_tax_net_worth_krw
+                 FROM save
+                 INNER JOIN `character` ON `character`.save_id = save.id
+                 ORDER BY save.id",
+            )
+            .fetch_all(pool)
+            .await?
+        }
+    };
+
+    Ok(rows)
+}
+
+async fn read_public_save_detail(pool: &MySqlPool, row: PublicSaveRow) -> Result<PublicSaveDetail> {
+    let mut tx = pool.begin().await?;
+    let save = read_state(&mut tx, row.save_id).await?;
+    let llx_close_krw: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(llx_close_krw, equity_close_krw)
+         FROM market_daily
+         WHERE world_id = ? AND game_day = ?",
+    )
+    .bind(save.market_world_id)
+    .bind(save.game_day)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let character = save
+        .character
+        .as_ref()
+        .context("public save lost its character")?;
+    let portfolio = value_portfolio(&save.positions, llx_close_krw)
+        .context("failed to value a public save portfolio")?;
+    let values = save.value_summary(portfolio.market_value_krw)?;
+    let progress_status = match row.finalization_status.as_deref() {
+        Some("completed") => PublicSaveProgressStatus::Completed,
+        Some("failed") => PublicSaveProgressStatus::FinalizationFailed,
+        Some("planning" | "pending") | None => PublicSaveProgressStatus::InProgress,
+        Some(status) => bail!("public save has an unknown finalization status: {status}"),
+    };
+    let age_years = character
+        .age
+        .checked_add(save.game_day / 365)
+        .context("public save age overflowed")?;
+    let employment = save.career.employment.as_ref();
+    let household_member_count = save.life.household.as_ref().map(|value| value.member_count);
+    let residence_tenure = save
+        .life
+        .residence
+        .as_ref()
+        .map(|value| enum_key(&value.tenure_kind))
+        .transpose()?;
+    let active_property_count = u32::try_from(save.life.active_property_holdings.len())
+        .context("public property count overflowed")?;
+
+    Ok(PublicSaveDetail {
+        save_uid: row.public_uid,
+        character_name: character.name.clone(),
+        progress_status,
+        game_day: save.game_day,
+        age_years,
+        region: character.region,
+        education: character.education,
+        net_worth_krw: values.net_worth_krw,
+        wallet_cash_krw: save.cash_krw,
+        liquid_cash_krw: values.liquid_cash_krw,
+        cash_product_principal_krw: values.cash_product_principal_krw,
+        lease_deposit_krw: values.lease_deposit_krw,
+        investment_value_krw: values.investment_value_krw,
+        property_value_krw: values.property_value_krw,
+        debt_krw: values.debt_krw,
+        after_tax_net_worth_krw: row.after_tax_net_worth_krw,
+        employer_name: employment.map(|value| value.employer_name.clone()),
+        job_family_key: employment.map(|value| value.job_family_key.clone()),
+        annual_salary_krw: employment.map(|value| value.annual_salary_krw),
+        household_member_count,
+        residence_tenure,
+        active_property_count,
+        corporation_name: save
+            .life
+            .corporation
+            .current
+            .as_ref()
+            .map(|value| value.name.clone()),
+    })
+}
+
+fn enum_key<T: Serialize>(value: &T) -> Result<String> {
+    serde_json::to_value(value)?
+        .as_str()
+        .map(str::to_owned)
+        .context("public enum did not serialize as a string")
 }
 
 fn to_preset(row: PresetRow) -> Result<CharacterPresetVersion> {

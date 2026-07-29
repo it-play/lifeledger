@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -37,11 +37,13 @@ use crate::life::{
 };
 use crate::market::{MarketCalibration, MarketDay, MarketWorld};
 use crate::runs::{
-    LeagueRankingPage, PointBudgetEvaluation, PointSelection, RankedRunContext,
-    RankedRunPreparation, RankingPageCursor, RunFinalization, RunManifestSummary, RunMode,
-    RunOptions, SeasonLeagues,
+    LeagueRankingPage, PointBudgetEvaluation, PointSelection, PublicSaveDetail,
+    PublicSaveRankingPage, PublicSaveRankingQuery, RankedRunContext, RankedRunPreparation,
+    RankingPageCursor, RunFinalization, RunManifestSummary, RunMode, RunOptions, SeasonLeagues,
 };
-use crate::trading::{PositionState, TradeExecution, TradeFailure, TradeOrder};
+use crate::trading::{
+    PositionState, TradeExecution, TradeFailure, TradeOrder, checked_net_worth_krw,
+};
 
 use super::annual_tax::AnnualTaxYearState;
 
@@ -3441,6 +3443,17 @@ pub struct SaveState {
     pub character: Option<Character>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaveValueSummary {
+    pub liquid_cash_krw: i64,
+    pub cash_product_principal_krw: i64,
+    pub lease_deposit_krw: i64,
+    pub investment_value_krw: i64,
+    pub property_value_krw: i64,
+    pub debt_krw: i64,
+    pub net_worth_krw: i64,
+}
+
 impl SaveState {
     pub fn active_product_principal_krw(&self) -> Result<i64> {
         self.cash_contracts
@@ -3449,6 +3462,73 @@ impl SaveState {
                 total.checked_add(contract.current_principal_krw)
             })
             .ok_or_else(|| anyhow::anyhow!("active cash-product principal overflowed"))
+    }
+
+    pub fn value_summary(&self, llx_market_value_krw: i64) -> Result<SaveValueSummary> {
+        let liquid_cash_krw = self
+            .accounts
+            .iter()
+            .try_fold(self.cash_krw, |total, account| {
+                total
+                    .checked_add(account.cash_krw)
+                    .context("account cash overflowed net worth")
+            })?;
+        let cash_product_principal_krw = self.active_product_principal_krw()?;
+        ensure!(
+            self.property_book_value_krw >= 0
+                && self.property_book_value_krw == self.life.total_property_book_value_krw,
+            "save and life property book values disagree"
+        );
+        let bond_market_value_krw = self
+            .m2d_assets
+            .bond_positions
+            .iter()
+            .try_fold(0_i64, |total, position| {
+                total.checked_add(position.market_value_krw)
+            })
+            .context("bond market value overflowed net worth")?;
+        let account_gold_market_value_krw = self
+            .m2d_assets
+            .gold_accounts
+            .iter()
+            .try_fold(0_i64, |total, account| {
+                total.checked_add(account.market_value_krw)
+            })
+            .context("gold-account market value overflowed net worth")?;
+        let physical_gold_market_value_krw = self
+            .m2d_assets
+            .physical_gold_holdings
+            .iter()
+            .try_fold(0_i64, |total, holding| {
+                total.checked_add(holding.market_value_krw)
+            })
+            .context("physical-gold market value overflowed net worth")?;
+        let investment_value_krw = llx_market_value_krw
+            .checked_add(bond_market_value_krw)
+            .and_then(|value| value.checked_add(account_gold_market_value_krw))
+            .and_then(|value| value.checked_add(physical_gold_market_value_krw))
+            .context("market-valued assets overflowed net worth")?;
+        let cash_lease_and_property_krw = liquid_cash_krw
+            .checked_add(cash_product_principal_krw)
+            .and_then(|value| value.checked_add(self.life.tenant_lease_deposit_krw))
+            .and_then(|value| value.checked_add(self.property_book_value_krw))
+            .context("cash products, lease deposit, or property overflowed net worth")?;
+        let net_worth_krw = checked_net_worth_krw(
+            cash_lease_and_property_krw,
+            self.debt_krw,
+            investment_value_krw,
+        )
+        .context("failed to calculate net worth")?;
+
+        Ok(SaveValueSummary {
+            liquid_cash_krw,
+            cash_product_principal_krw,
+            lease_deposit_krw: self.life.tenant_lease_deposit_krw,
+            investment_value_krw,
+            property_value_krw: self.property_book_value_krw,
+            debt_krw: self.debt_krw,
+            net_worth_krw,
+        })
     }
 }
 
@@ -4064,6 +4144,13 @@ pub trait RunStore: Send + Sync + 'static {
         cursor: Option<RankingPageCursor>,
         limit: u32,
     ) -> Result<Option<LeagueRankingPage>>;
+
+    async fn public_save_rankings(
+        &self,
+        query: &PublicSaveRankingQuery,
+    ) -> Result<PublicSaveRankingPage>;
+
+    async fn public_save_detail(&self, save_uid: &str) -> Result<Option<PublicSaveDetail>>;
 
     async fn run_finalization(
         &self,

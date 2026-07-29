@@ -22,6 +22,7 @@ import { createLoansView } from './app/screens/loans.js';
 import { createLoginView } from './app/screens/login.js';
 import { createNotFoundView } from './app/screens/not-found.js';
 import { createPlaytestFeedbackView } from './app/screens/playtest-feedback.js';
+import { createRankingsView } from './app/screens/rankings.js';
 import { createRecoveryView } from './app/screens/recovery.js';
 import { createWelfareView } from './app/screens/welfare.js';
 import { type AppState, initialState, paths } from './app/state.js';
@@ -197,6 +198,10 @@ function bootstrap(): void {
           api: insolvencyApi,
           createCommandId: () => globalThis.crypto.randomUUID(),
         }),
+      },
+      {
+        pattern: '/rankings',
+        handler: createRankingsView({ api }),
       },
       {
         pattern: '/new',

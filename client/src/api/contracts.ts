@@ -10253,6 +10253,93 @@ export const LeagueRankingPageSchema = z
   })
   .strict();
 
+export const PublicSaveProgressStatusSchema = z.enum([
+  'inProgress',
+  'completed',
+  'finalizationFailed',
+]);
+
+export const PublicSaveRankingMetricSchema = z.enum(['currentNetWorth', 'afterTaxNetWorth']);
+
+export const PublicSaveRankingQuerySchema = z
+  .object({
+    page: z.number().int().safe().nonnegative().optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    status: PublicSaveProgressStatusSchema.optional(),
+    gameDayFrom: z.number().int().safe().nonnegative().optional(),
+    gameDayTo: z.number().int().safe().nonnegative().optional(),
+    ageFrom: z.number().int().min(0).max(200).optional(),
+    ageTo: z.number().int().min(0).max(200).optional(),
+  })
+  .strict()
+  .superRefine((query, context) => {
+    if (
+      query.gameDayFrom !== undefined &&
+      query.gameDayTo !== undefined &&
+      query.gameDayFrom > query.gameDayTo
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['gameDayTo'],
+        message: 'game day range is reversed',
+      });
+    }
+    if (query.ageFrom !== undefined && query.ageTo !== undefined && query.ageFrom > query.ageTo) {
+      context.addIssue({ code: 'custom', path: ['ageTo'], message: 'age range is reversed' });
+    }
+  });
+
+export const PublicSaveRankingItemSchema = z
+  .object({
+    rank: z.number().int().safe().positive(),
+    saveUid: Sha256Schema,
+    characterName: z.string().min(1).max(20),
+    progressStatus: PublicSaveProgressStatusSchema,
+    gameDay: z.number().int().safe().nonnegative(),
+    ageYears: z.number().int().safe().nonnegative(),
+    netWorthKrw: z.number().int().safe(),
+    afterTaxNetWorthKrw: z.number().int().safe().nullable(),
+  })
+  .strict();
+
+export const PublicSaveRankingPageSchema = z
+  .object({
+    page: z.number().int().safe().nonnegative(),
+    limit: z.number().int().min(1).max(100),
+    total: z.number().int().safe().nonnegative(),
+    rankingMetric: PublicSaveRankingMetricSchema,
+    items: z.array(PublicSaveRankingItemSchema),
+  })
+  .strict();
+
+export const PublicSaveDetailSchema = z
+  .object({
+    saveUid: Sha256Schema,
+    characterName: z.string().min(1).max(20),
+    progressStatus: PublicSaveProgressStatusSchema,
+    gameDay: z.number().int().safe().nonnegative(),
+    ageYears: z.number().int().safe().nonnegative(),
+    region: RegionSchema,
+    education: EducationSchema,
+    netWorthKrw: z.number().int().safe(),
+    walletCashKrw: z.number().int().safe(),
+    liquidCashKrw: z.number().int().safe(),
+    cashProductPrincipalKrw: z.number().int().safe().nonnegative(),
+    leaseDepositKrw: z.number().int().safe().nonnegative(),
+    investmentValueKrw: z.number().int().safe().nonnegative(),
+    propertyValueKrw: z.number().int().safe().nonnegative(),
+    debtKrw: z.number().int().safe().nonnegative(),
+    afterTaxNetWorthKrw: z.number().int().safe().nullable(),
+    employerName: z.string().min(1).nullable(),
+    jobFamilyKey: z.string().min(1).nullable(),
+    annualSalaryKrw: z.number().int().safe().nonnegative().nullable(),
+    householdMemberCount: z.number().int().safe().positive().nullable(),
+    residenceTenure: ResidenceTenureKindSchema.nullable(),
+    activePropertyCount: z.number().int().safe().nonnegative(),
+    corporationName: z.string().min(1).nullable(),
+  })
+  .strict();
+
 export const RunFinalizationLineSchema = z
   .object({
     lineNo: z.number().int().positive().max(256),
@@ -11248,6 +11335,12 @@ export type LeagueDefinition = z.infer<typeof LeagueDefinitionSchema>;
 export type SeasonLeagues = z.infer<typeof SeasonLeaguesSchema>;
 export type LeagueRankingItem = z.infer<typeof LeagueRankingItemSchema>;
 export type LeagueRankingPage = z.infer<typeof LeagueRankingPageSchema>;
+export type PublicSaveProgressStatus = z.infer<typeof PublicSaveProgressStatusSchema>;
+export type PublicSaveRankingMetric = z.infer<typeof PublicSaveRankingMetricSchema>;
+export type PublicSaveRankingQuery = z.infer<typeof PublicSaveRankingQuerySchema>;
+export type PublicSaveRankingItem = z.infer<typeof PublicSaveRankingItemSchema>;
+export type PublicSaveRankingPage = z.infer<typeof PublicSaveRankingPageSchema>;
+export type PublicSaveDetail = z.infer<typeof PublicSaveDetailSchema>;
 export type RunFinalizationLine = z.infer<typeof RunFinalizationLineSchema>;
 export type RunFinalization = z.infer<typeof RunFinalizationSchema>;
 export type PlaytestFeedbackCategory = z.infer<typeof PlaytestFeedbackCategorySchema>;

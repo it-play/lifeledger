@@ -45,8 +45,9 @@ use crate::playtest::{
     PlaytestFeedbackOverview, PlaytestStore, PlaytestStoreResult,
 };
 use crate::runs::{
-    LeagueRankingPage, PointBudgetEvaluation, PointSelection, RankedRunPreparation,
-    RankingPageCursor, RunFinalization, RunManifestSummary, RunOptions, SeasonLeagues,
+    LeagueRankingPage, PointBudgetEvaluation, PointSelection, PublicSaveDetail,
+    PublicSaveRankingPage, PublicSaveRankingQuery, RankedRunPreparation, RankingPageCursor,
+    RunFinalization, RunManifestSummary, RunOptions, SeasonLeagues,
 };
 use crate::store::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
@@ -154,9 +155,7 @@ use crate::store::{
     OfflineProgressState, OfflineProgressStore, OfflineProgressUpdateResult,
     ProgressLeaseAcquireResult, ProgressStepContext,
 };
-use crate::trading::{
-    Portfolio, TradeExecution, TradeFailure, TradeOrder, checked_net_worth_krw, value_portfolio,
-};
+use crate::trading::{Portfolio, TradeExecution, TradeFailure, TradeOrder, value_portfolio};
 
 const MAX_SAFE_JSON_INTEGER: i64 = 9_007_199_254_740_991;
 
@@ -5785,6 +5784,17 @@ impl AppState {
         limit: u32,
     ) -> Result<Option<LeagueRankingPage>> {
         self.runs.league_rankings(league_id, cursor, limit).await
+    }
+
+    pub async fn public_save_rankings(
+        &self,
+        query: &PublicSaveRankingQuery,
+    ) -> Result<PublicSaveRankingPage> {
+        self.runs.public_save_rankings(query).await
+    }
+
+    pub async fn public_save_detail(&self, save_uid: &str) -> Result<Option<PublicSaveDetail>> {
+        self.runs.public_save_detail(save_uid).await
     }
 
     pub async fn run_finalization(
@@ -13955,60 +13965,9 @@ fn to_snapshot(state: &CommittedGameState, auto_speed: Option<AutoSpeed>) -> Res
         .map_or(state.market.equity_close_krw, |m2| m2.llx_close_krw);
     let portfolio =
         value_portfolio(&save.positions, llx_close_krw).context("failed to value the portfolio")?;
-    let liquid_cash_krw = save
-        .accounts
-        .iter()
-        .try_fold(save.cash_krw, |total, account| {
-            total
-                .checked_add(account.cash_krw)
-                .context("account cash overflowed net worth")
-        })?;
-    ensure!(
-        save.property_book_value_krw >= 0
-            && save.property_book_value_krw == save.life.total_property_book_value_krw,
-        "save and life property book values disagree"
-    );
-    let cash_product_lease_deposit_and_property_krw = liquid_cash_krw
-        .checked_add(save.active_product_principal_krw()?)
-        .and_then(|value| value.checked_add(save.life.tenant_lease_deposit_krw))
-        .and_then(|value| value.checked_add(save.property_book_value_krw))
-        .context("cash products, lease deposit, or property overflowed net worth")?;
-    let bond_market_value_krw = save
-        .m2d_assets
-        .bond_positions
-        .iter()
-        .try_fold(0_i64, |total, position| {
-            total.checked_add(position.market_value_krw)
-        })
-        .context("bond market value overflowed net worth")?;
-    let account_gold_market_value_krw = save
-        .m2d_assets
-        .gold_accounts
-        .iter()
-        .try_fold(0_i64, |total, account| {
-            total.checked_add(account.market_value_krw)
-        })
-        .context("gold-account market value overflowed net worth")?;
-    let physical_gold_market_value_krw = save
-        .m2d_assets
-        .physical_gold_holdings
-        .iter()
-        .try_fold(0_i64, |total, holding| {
-            total.checked_add(holding.market_value_krw)
-        })
-        .context("physical-gold market value overflowed net worth")?;
-    let investment_market_value_krw = portfolio
-        .market_value_krw
-        .checked_add(bond_market_value_krw)
-        .and_then(|value| value.checked_add(account_gold_market_value_krw))
-        .and_then(|value| value.checked_add(physical_gold_market_value_krw))
-        .context("market-valued assets overflowed net worth")?;
-    let net_worth_krw = checked_net_worth_krw(
-        cash_product_lease_deposit_and_property_krw,
-        save.debt_krw,
-        investment_market_value_krw,
-    )
-    .context("failed to calculate net worth")?;
+    let net_worth_krw = save
+        .value_summary(portfolio.market_value_krw)?
+        .net_worth_krw;
 
     Ok(GameSnapshot {
         run_revision: save.run_revision,
@@ -15253,6 +15212,23 @@ mod tests {
             _cursor: Option<RankingPageCursor>,
             _limit: u32,
         ) -> Result<Option<LeagueRankingPage>> {
+            Ok(None)
+        }
+
+        async fn public_save_rankings(
+            &self,
+            query: &PublicSaveRankingQuery,
+        ) -> Result<PublicSaveRankingPage> {
+            Ok(PublicSaveRankingPage {
+                page: query.page,
+                limit: query.limit,
+                total: 0,
+                ranking_metric: crate::runs::PublicSaveRankingMetric::CurrentNetWorth,
+                items: Vec::new(),
+            })
+        }
+
+        async fn public_save_detail(&self, _save_uid: &str) -> Result<Option<PublicSaveDetail>> {
             Ok(None)
         }
 

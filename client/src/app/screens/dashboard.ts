@@ -1347,6 +1347,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           el('p', {}, el('a', { href: '/loans', dataset: { link: '' } }, '신용과 대출')),
           el('p', {}, el('a', { href: '/housing', dataset: { link: '' } }, '주거 시장')),
           el('p', {}, el('a', { href: '/welfare', dataset: { link: '' } }, '복지 프로그램')),
+          el('p', {}, el('a', { href: '/rankings', dataset: { link: '' } }, '다른 삶의 순위 장부')),
           el(
             'p',
             {},

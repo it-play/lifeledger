@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::character::CharacterDraft;
+use crate::character::{CharacterDraft, Education, Region};
 use crate::finance::ResourceId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -453,6 +453,101 @@ pub struct LeagueRankingPage {
     pub items: Vec<LeagueRankingItem>,
     #[schema(required = true, nullable)]
     pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PublicSaveProgressStatus {
+    InProgress,
+    Completed,
+    FinalizationFailed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PublicSaveRankingMetric {
+    CurrentNetWorth,
+    AfterTaxNetWorth,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicSaveRankingQuery {
+    pub page: u32,
+    pub limit: u32,
+    pub status: Option<PublicSaveProgressStatus>,
+    pub game_day_from: Option<u32>,
+    pub game_day_to: Option<u32>,
+    pub age_from: Option<u32>,
+    pub age_to: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PublicSaveRankingItem {
+    pub rank: u64,
+    #[schema(min_length = 64, max_length = 64, pattern = "^[0-9a-f]{64}$")]
+    pub save_uid: String,
+    pub character_name: String,
+    pub progress_status: PublicSaveProgressStatus,
+    pub game_day: u32,
+    pub age_years: u32,
+    pub net_worth_krw: i64,
+    #[schema(required = true, nullable)]
+    pub after_tax_net_worth_krw: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PublicSaveRankingPage {
+    pub page: u32,
+    pub limit: u32,
+    pub total: u64,
+    pub ranking_metric: PublicSaveRankingMetric,
+    pub items: Vec<PublicSaveRankingItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PublicSaveDetail {
+    #[schema(min_length = 64, max_length = 64, pattern = "^[0-9a-f]{64}$")]
+    pub save_uid: String,
+    pub character_name: String,
+    pub progress_status: PublicSaveProgressStatus,
+    pub game_day: u32,
+    pub age_years: u32,
+    pub region: Region,
+    pub education: Education,
+    pub net_worth_krw: i64,
+    pub wallet_cash_krw: i64,
+    pub liquid_cash_krw: i64,
+    pub cash_product_principal_krw: i64,
+    pub lease_deposit_krw: i64,
+    pub investment_value_krw: i64,
+    pub property_value_krw: i64,
+    pub debt_krw: i64,
+    #[schema(required = true, nullable)]
+    pub after_tax_net_worth_krw: Option<i64>,
+    #[schema(required = true, nullable)]
+    pub employer_name: Option<String>,
+    #[schema(required = true, nullable)]
+    pub job_family_key: Option<String>,
+    #[schema(required = true, nullable)]
+    pub annual_salary_krw: Option<i64>,
+    #[schema(required = true, nullable)]
+    pub household_member_count: Option<u32>,
+    #[schema(required = true, nullable)]
+    pub residence_tenure: Option<String>,
+    pub active_property_count: u32,
+    #[schema(required = true, nullable)]
+    pub corporation_name: Option<String>,
+}
+
+pub trait PublicSaveRankingRules: Send + Sync + 'static {
+    fn page(
+        &self,
+        saves: Vec<PublicSaveDetail>,
+        query: &PublicSaveRankingQuery,
+    ) -> PublicSaveRankingPage;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

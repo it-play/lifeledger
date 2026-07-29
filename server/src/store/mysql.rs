@@ -98,6 +98,7 @@ use super::welfare::{
     ensure_welfare_evaluations_in_tx, settle_welfare_benefit_by_id_in_tx,
     validate_welfare_settlement_envelope,
 };
+use crate::auth::{random_token, token_hash_of};
 use crate::character::{Character, create_character};
 use crate::finance::{
     AssetOrderSide, CommandCursor, CommandId, FinanceFailureCode, FinanceRules, FinancialAccount,
@@ -203,11 +204,12 @@ pub fn create_mysql_save_store(
 
 /// Finds the account's save, creating it if absent. One save per account (§4.5).
 async fn ensure_save(tx: &mut sqlx::Transaction<'_, sqlx::MySql>, user_id: u64) -> Result<u64> {
+    let public_uid = token_hash_of(&random_token()?);
     sqlx::query(
         "INSERT INTO save
-             (user_id, market_world_id, policy_set_id, market_world_product_bundle_id,
+             (public_uid, user_id, market_world_id, policy_set_id, market_world_product_bundle_id,
               game_day, cash_krw, debt_krw)
-         SELECT ?, market_assignment.world_id, policy_assignment.policy_set_id,
+         SELECT ?, ?, market_assignment.world_id, policy_assignment.policy_set_id,
                 bundle.id, 0, ?, 0
          FROM market_world_assignment AS market_assignment
          CROSS JOIN policy_set_assignment AS policy_assignment
@@ -218,6 +220,7 @@ async fn ensure_save(tx: &mut sqlx::Transaction<'_, sqlx::MySql>, user_id: u64) 
            AND policy_assignment.assignment_key = 'newRun'
          ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(save.id)",
     )
+    .bind(public_uid)
     .bind(user_id)
     .bind(INITIAL_CASH_KRW)
     .execute(&mut **tx)
@@ -620,6 +623,7 @@ impl SaveStore for MySqlSaveStore {
             &mut tx,
             save_id,
             new_run_revision,
+            &character.name,
             &expected,
             manifest_hashes,
             &command.manifest_kind,
@@ -2060,6 +2064,7 @@ async fn write_run_manifest_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     save_id: u64,
     run_revision: u32,
+    character_name: &str,
     configuration: &ActiveRunConfiguration,
     hashes: RunManifestHashes<'_>,
     manifest_kind: &StartGameManifestKind,
@@ -2082,7 +2087,7 @@ async fn write_run_manifest_in_tx(
             )?;
             sqlx::query(
                 "INSERT INTO run_manifest
-                     (save_id, run_revision, mode, market_world_id, policy_set_id,
+                     (save_id, run_revision, character_name, mode, market_world_id, policy_set_id,
                       career_catalog_bundle_id, employment_policy_set_id, life_catalog_set_id,
                       credit_model_version_id, real_estate_model_version_id,
                       content_bundle_id, content_bundle_sha256,
@@ -2090,11 +2095,12 @@ async fn write_run_manifest_in_tx(
                       business_catalog_version_id, business_catalog_sha256,
                       canonical_selections_json, engine_version, start_game_day,
                       ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
-                 VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
+                 VALUES (?, ?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
                          FALSE, ?, ?)",
             )
             .bind(save_id)
             .bind(run_revision)
+            .bind(character_name)
             .bind(configuration.market_world.world_id)
             .bind(configuration.policy_set.policy_set_id.get())
             .bind(configuration.career_catalog.bundle_id.get())
@@ -2125,7 +2131,7 @@ async fn write_run_manifest_in_tx(
             let mode = run_mode_db_value(context.mode)?;
             sqlx::query(
                 "INSERT INTO run_manifest
-                     (save_id, run_revision, mode, season_id, league_definition_id,
+                     (save_id, run_revision, character_name, mode, season_id, league_definition_id,
                       season_assignment_revision, ranked_ruleset_release_id,
                       ranked_ruleset_release_sha256, ranking_rule_version_id,
                       ranking_rule_sha256, market_world_id, policy_set_id,
@@ -2138,11 +2144,12 @@ async fn write_run_manifest_in_tx(
                       canonical_selections_json, engine_version, start_game_day,
                       target_game_day, ranking_eligible, ranking_ineligibility_reason,
                       manifest_canonical_json)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                          0, ?, TRUE, NULL, ?)",
             )
             .bind(save_id)
             .bind(run_revision)
+            .bind(character_name)
             .bind(mode)
             .bind(context.season_id.get())
             .bind(context.league_definition_id.get())

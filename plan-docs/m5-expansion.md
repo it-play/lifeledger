@@ -550,7 +550,8 @@ finalization과 모든 line은 update/delete할 수 없다.
 
 `GET /api/leagues/{id}/rankings`는 `completed` finalization만 읽고 아래 정렬 tuple 전체를 base64url
 cursor에 담는다. cursor 이후 keyset만 읽으므로 동점과 새 완료 row가 있어도 한 page 안에서 offset drift가
-없다. 별도 랭킹 표시 이름 기능 전에는 OAuth 정보나 캐릭터명을 노출하지 않고 `익명 플레이어`만 반환한다.
+없다. 표시 이름은 OAuth 계정명이 아니라 manifest에 봉인한 주인공 이름이다. 새 실행이 현재 `character`를
+교체해도 과거 완주 행의 이름은 바뀌지 않는다.
 
 1. `afterTaxNetWorthKrw DESC`
 2. `insolvencyDays ASC`
@@ -630,9 +631,8 @@ finalization source key는 `(runId, targetGameDay, rankingRuleVersion)`이고 �
 3. 목표일까지 실행한 player command 수 오름차순
 4. run ID 오름차순
 
-2·3은 동점 순서만 정하며 순자산에 가감하지 않는다. 공개 화면은 순위·표시 이름·프리셋/예산 버전·세후
-순자산·완주 시각만 보여 주고, seed·OAuth 식별자·상세 자산은 노출하지 않는다. 사용자는 랭킹 표시 이름을
-별도로 정하며 부적절한 이름은 숨길 수 있다.
+2·3은 동점 순서만 정하며 순자산에 가감하지 않는다. 공식 완주 화면은 순위·주인공 이름·프리셋/예산
+버전·세후 순자산·완주 시각만 보여 주고, seed·OAuth 식별자·상세 자산은 노출하지 않는다.
 
 ### 5.3 무결성과 재계산
 
@@ -644,6 +644,24 @@ service와 binary version을 사용한다.
 랭킹 게시 전 verifier가 opening 원장부터 최종 원장 hash chain, pinned manifest, game day 연속성,
 finalization 합계를 재대조한다. 전체 30년을 매번 재시뮬레이션하는 것이 아니라 저장 감사 상태를 검증하고,
 표본 run은 고정 binary로 full replay한다. 오류 row는 조용히 제외하지 않고 리그를 `provisional`로 표시한다.
+
+### 5.4 실시간 세이브 순위와 공개 상세
+
+경쟁이 핵심 목표가 아니므로 진행 중인 세이브도 전체 순위에 포함한다. `GET /api/rankings/saves`는 현재
+캐릭터가 있는 세이브를 조회 시점의 `netWorthKrw DESC, saveUid ASC`로 정렬한다. `status`, 포함 범위인
+`gameDayFrom · gameDayTo · ageFrom · ageTo`, `page · limit`를 strict query로 받고 다음 네 화면을 만든다.
+
+- **전체** — 진행 중·완주 세이브를 모두 현재 순자산으로 비교한다.
+- **게임일 구간** — 0~364일, 365~1,824일, 1,825~3,649일, 3,650~7,299일, 7,300일 이상.
+- **연령 구간** — 20대 이하, 30대, 40대, 50대, 60대 이상. 현재 연령은 시작 나이와 경과 게임일로 계산한다.
+- **완주** — 현재 세이브 중 `completed` finalization만 세후 청산값으로 보여 준다. 시즌·리그별 공식 완주
+  순위는 §5.3의 immutable 랭킹으로 별도 유지한다.
+
+목록은 `saveUid · rank · characterName · progressStatus · gameDay · ageYears · netWorthKrw`와
+완주 비교용 `afterTaxNetWorthKrw`만 반환한다.
+`GET /api/rankings/saves/{saveUid}`는 이름 클릭 모달을 위해 같은 현재 snapshot에서 직업·가구원 수·주거
+형태·보유 주택 수·법인 이름과 지갑·투자·부동산·부채의 **합계만** 반환한다. 계정·seed·내부 ID와 개별
+계좌·보유종목·대출·계약은 공개하지 않는다. 공개 UID는 내부 자동 증가 ID와 분리한 256-bit 난수 해시다.
 
 ## 6. 별도 offline worker
 
@@ -852,6 +870,8 @@ strict API는 M4 공통 command/cursor와 unknown-field 거절을 유지한다.
 | `POST /api/runs` | mode별 immutable manifest와 새 run 생성 |
 | `GET /api/seasons/{id}/leagues` | 공개 리그와 상태 |
 | `GET /api/leagues/{id}/rankings` | cursor 기반 provisional/final ranking |
+| `GET /api/rankings/saves` | 진행 중 세이브를 포함한 전체·게임일·연령 실시간 순위 |
+| `GET /api/rankings/saves/{saveUid}` | 공개 허용 합계만 담은 세이브 상세 모달 데이터 |
 | `GET /api/runs/{id}/finalization` | 자기 liquidation line과 결산 hash |
 | `PUT /api/offline-progress` | opt-in/out와 setting revision |
 | `GET /api/offline-progress/status` | accrued/processed day, lease와 공개 오류 상태 |

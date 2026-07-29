@@ -178,6 +178,86 @@ const givenRunStart = (): SandboxRunStartRequest => ({
   startingLoans: [],
 });
 
+describe('공개 세이브 순위 API', () => {
+  describe('맥락: 게임일 구간의 실시간 순위를 요청하는 경우', () => {
+    it('given 페이지와 게임일 범위, when 목록을 읽으면, then 고정 경로에 정렬된 query를 전달한다', async () => {
+      const capture = givenHttpCapture();
+      const api = createGameApi({
+        http: givenCapturingHttp(
+          {
+            page: 0,
+            limit: 20,
+            total: 0,
+            rankingMetric: 'currentNetWorth',
+            items: [],
+          },
+          capture,
+        ),
+        stream: givenStream(),
+      });
+
+      await api.listPublicSaveRankings({
+        page: 0,
+        limit: 20,
+        gameDayFrom: 365,
+        gameDayTo: 1_824,
+      });
+
+      expect(capture).toEqual({
+        method: 'GET',
+        path: '/api/rankings/saves?page=0&limit=20&gameDayFrom=365&gameDayTo=1824',
+        body: null,
+      });
+    });
+  });
+
+  describe('맥락: 순위표의 이름을 눌러 세이브 상세를 요청하는 경우', () => {
+    it('given 검증된 세이브 UID, when 상세를 읽으면, then UID만 포함한 공개 경로를 사용한다', async () => {
+      const saveUid = 'a'.repeat(64);
+      const capture = givenHttpCapture();
+      const api = createGameApi({
+        http: givenCapturingHttp(
+          {
+            saveUid,
+            characterName: '장부왕',
+            progressStatus: 'inProgress',
+            gameDay: 10,
+            ageYears: 25,
+            region: 'capitalArea',
+            education: 'bachelor',
+            netWorthKrw: 10_000_000,
+            walletCashKrw: 10_000_000,
+            liquidCashKrw: 10_000_000,
+            cashProductPrincipalKrw: 0,
+            leaseDepositKrw: 0,
+            investmentValueKrw: 0,
+            propertyValueKrw: 0,
+            debtKrw: 0,
+            afterTaxNetWorthKrw: null,
+            employerName: null,
+            jobFamilyKey: null,
+            annualSalaryKrw: null,
+            householdMemberCount: null,
+            residenceTenure: null,
+            activePropertyCount: 0,
+            corporationName: null,
+          },
+          capture,
+        ),
+        stream: givenStream(),
+      });
+
+      await api.getPublicSaveDetail(saveUid);
+
+      expect(capture).toEqual({
+        method: 'GET',
+        path: `/api/rankings/saves/${saveUid}`,
+        body: null,
+      });
+    });
+  });
+});
+
 describe('실행 시작 응답 상관관계', () => {
   describe('맥락: 제출한 sandbox 명령이 새 run으로 확정된 경우', () => {
     it('given 일치하는 mode·cursor·snapshot, when 시작하면, then 고정 경로와 검증한 body를 사용한다', async () => {

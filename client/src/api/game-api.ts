@@ -102,6 +102,12 @@ import {
   PortfolioOrderResponseSchema,
   type Preset,
   PresetListSchema,
+  type PublicSaveDetail,
+  PublicSaveDetailSchema,
+  type PublicSaveRankingPage,
+  PublicSaveRankingPageSchema,
+  type PublicSaveRankingQuery,
+  PublicSaveRankingQuerySchema,
   ResourceIdSchema,
   type RunFinalization,
   RunFinalizationSchema,
@@ -215,6 +221,13 @@ export interface GameApi {
     limit?: number,
     signal?: AbortSignal,
   ): Promise<LeagueRankingPage>;
+  /** Lists live public saves, including runs that have not reached finalization. */
+  listPublicSaveRankings(
+    query: PublicSaveRankingQuery,
+    signal?: AbortSignal,
+  ): Promise<PublicSaveRankingPage>;
+  /** Reads one public save's allowlisted aggregate detail. */
+  getPublicSaveDetail(saveUid: string, signal?: AbortSignal): Promise<PublicSaveDetail>;
   /** Reads the authenticated account's immutable ranked-run finalization. */
   getRunFinalization(runRevision: number, signal?: AbortSignal): Promise<RunFinalization>;
   /** Reads the current run's pinned offline-progress policy and live worker state. */
@@ -311,8 +324,27 @@ const goldProductCatalogDecoder = asDecoder(GoldProductCatalogSchema);
 const runOptionsDecoder = asDecoder(RunOptionsSchema);
 const seasonLeaguesDecoder = asDecoder(SeasonLeaguesSchema);
 const leagueRankingPageDecoder = asDecoder(LeagueRankingPageSchema);
+const publicSaveRankingPageDecoder = asDecoder(PublicSaveRankingPageSchema);
+const publicSaveDetailDecoder = asDecoder(PublicSaveDetailSchema);
 const runFinalizationDecoder = asDecoder(RunFinalizationSchema);
 const offlineProgressDecoder = asDecoder(OfflineProgressSchema);
+
+function publicSaveRankingSearch(query: PublicSaveRankingQuery): string {
+  const entries: readonly (readonly [string, number | string | undefined])[] = [
+    ['page', query.page],
+    ['limit', query.limit],
+    ['status', query.status],
+    ['gameDayFrom', query.gameDayFrom],
+    ['gameDayTo', query.gameDayTo],
+    ['ageFrom', query.ageFrom],
+    ['ageTo', query.ageTo],
+  ];
+  const params = new URLSearchParams();
+  for (const [key, value] of entries) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  return params.size === 0 ? '' : `?${params.toString()}`;
+}
 
 /** Turns a 422 body into a field-to-message map, or gives up if the shape is unfamiliar. */
 function toFieldErrors(error: unknown): Record<string, string> | undefined {
@@ -423,6 +455,24 @@ export function createGameApi(deps: GameApiDeps): GameApi {
       return http.get(
         `/api/leagues/${id}/rankings${suffix}`,
         leagueRankingPageDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    listPublicSaveRankings: (request, signal) => {
+      const query = PublicSaveRankingQuerySchema.parse(request);
+      return http.get(
+        `/api/rankings/saves${publicSaveRankingSearch(query)}`,
+        publicSaveRankingPageDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getPublicSaveDetail: (saveUid, signal) => {
+      const uid = PublicSaveDetailSchema.shape.saveUid.parse(saveUid);
+      return http.get(
+        `/api/rankings/saves/${uid}`,
+        publicSaveDetailDecoder,
         signal === undefined ? undefined : { signal },
       );
     },

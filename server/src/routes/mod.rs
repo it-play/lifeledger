@@ -52,8 +52,9 @@ use crate::runs::{
     PointBudgetCatalog, PointBudgetEvaluation, PointBudgetFailure, PointBudgetFailureCode,
     PointBudgetOption, PointCondition, PointCostKind, PointEffect, PointExclusiveGroup,
     PointFactComparison, PointFactValue, PointLedgerLine, PointSelection, PointTier,
-    RunFinalization, RunMode, RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary,
-    parse_ranking_cursor,
+    PublicSaveDetail, PublicSaveProgressStatus, PublicSaveRankingItem, PublicSaveRankingMetric,
+    PublicSaveRankingPage, PublicSaveRankingQuery, RunFinalization, RunMode, RunOptions,
+    SeasonLeagues, SeasonStatus, SeasonSummary, parse_ranking_cursor,
 };
 use crate::state::{
     ActiveHousingLeaseSnapshot, ActiveLeaseTermSnapshot, ActiveMilitarySavingsStatusSnapshot,
@@ -242,6 +243,8 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         run_options,
         season_leagues,
         league_rankings,
+        public_save_rankings,
+        public_save_detail,
         run_finalization,
         playtest_feedback_overview,
         set_playtest_consent,
@@ -458,6 +461,11 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         SeasonLeagues,
         LeagueRankingItem,
         LeagueRankingPage,
+        PublicSaveProgressStatus,
+        PublicSaveRankingMetric,
+        PublicSaveRankingItem,
+        PublicSaveRankingPage,
+        PublicSaveDetail,
         CharacterPresetVersion,
         PointBudgetCatalog,
         PointBudgetOption,
@@ -860,6 +868,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/run-options", get(run_options))
         .route("/api/seasons/{id}/leagues", get(season_leagues))
         .route("/api/leagues/{id}/rankings", get(league_rankings))
+        .route("/api/rankings/saves", get(public_save_rankings))
+        .route("/api/rankings/saves/{uid}", get(public_save_detail))
         .route("/api/runs/{id}/finalization", get(run_finalization))
         .route(
             "/api/playtest/feedback",
@@ -1156,6 +1166,97 @@ async fn league_rankings(
         .ok_or(PointBudgetPreviewError::VersionNotFound)?;
 
     Ok(Json(response))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[into_params(parameter_in = Query)]
+struct PublicSaveRankingParams {
+    page: Option<u32>,
+    limit: Option<u32>,
+    status: Option<PublicSaveProgressStatus>,
+    game_day_from: Option<u32>,
+    game_day_to: Option<u32>,
+    age_from: Option<u32>,
+    age_to: Option<u32>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/rankings/saves",
+    params(PublicSaveRankingParams),
+    responses(
+        (status = 200, description = "진행 중 세이브를 포함한 공개 실시간 순위", body = PublicSaveRankingPage),
+        (status = 400, description = "페이지 또는 구간 형식 오류", body = RunRequestFailure),
+        (status = 500, description = "조회 실패")
+    )
+)]
+async fn public_save_rankings(
+    State(state): State<Arc<AppState>>,
+    query: Result<Query<PublicSaveRankingParams>, QueryRejection>,
+) -> Result<Json<PublicSaveRankingPage>, PointBudgetPreviewError> {
+    let Query(query) = query.map_err(|_| PointBudgetPreviewError::InvalidCommand)?;
+    let page = query.page.unwrap_or(0);
+    let limit = query.limit.unwrap_or(DEFAULT_RANKING_PAGE_SIZE);
+    if !(1..=MAX_RANKING_PAGE_SIZE).contains(&limit)
+        || query
+            .game_day_from
+            .zip(query.game_day_to)
+            .is_some_and(|(from, to)| from > to)
+        || query
+            .age_from
+            .zip(query.age_to)
+            .is_some_and(|(from, to)| from > to)
+        || query.age_from.is_some_and(|age| age > 200)
+        || query.age_to.is_some_and(|age| age > 200)
+    {
+        return Err(PointBudgetPreviewError::InvalidCommand);
+    }
+    let query = PublicSaveRankingQuery {
+        page,
+        limit,
+        status: query.status,
+        game_day_from: query.game_day_from,
+        game_day_to: query.game_day_to,
+        age_from: query.age_from,
+        age_to: query.age_to,
+    };
+
+    Ok(Json(state.public_save_rankings(&query).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/rankings/saves/{uid}",
+    params(("uid" = String, Path, description = "공개 세이브 UID")),
+    responses(
+        (status = 200, description = "공개 허용 합계만 포함한 세이브 상세", body = PublicSaveDetail),
+        (status = 400, description = "세이브 UID 형식 오류", body = RunRequestFailure),
+        (status = 404, description = "공개 세이브 없음", body = RunRequestFailure),
+        (status = 500, description = "조회 실패")
+    )
+)]
+async fn public_save_detail(
+    State(state): State<Arc<AppState>>,
+    Path(uid): Path<String>,
+) -> Result<Json<PublicSaveDetail>, PointBudgetPreviewError> {
+    if !is_lower_hex_sha256(&uid) {
+        return Err(PointBudgetPreviewError::InvalidCommand);
+    }
+    let detail = state
+        .public_save_detail(&uid)
+        .await?
+        .ok_or(PointBudgetPreviewError::VersionNotFound)?;
+
+    Ok(Json(detail))
+}
+
+fn is_lower_hex_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 #[utoipa::path(

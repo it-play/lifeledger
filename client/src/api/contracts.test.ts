@@ -73,9 +73,80 @@ import {
   PensionWithdrawalResultSchema,
   PortfolioExecutionSchema,
   PortfolioOrderRequestSchema,
+  PublicSaveDetailSchema,
+  PublicSaveRankingPageSchema,
+  PublicSaveRankingQuerySchema,
   RunStartRequestSchema,
   SettlementKindSchema,
 } from './contracts.js';
+
+describe('공개 세이브 순위 protocol', () => {
+  describe('맥락: 진행 중 세이브가 전체 순위에 포함된 경우', () => {
+    it('given 현재 순자산 순위 행, when 검증하면, then 완주 결산 없이 허용한다', () => {
+      const result = PublicSaveRankingPageSchema.safeParse({
+        page: 0,
+        limit: 20,
+        total: 1,
+        rankingMetric: 'currentNetWorth',
+        items: [
+          {
+            rank: 1,
+            saveUid: 'a'.repeat(64),
+            characterName: '장부생활자',
+            progressStatus: 'inProgress',
+            gameDay: 420,
+            ageYears: 31,
+            netWorthKrw: 18_000_000,
+            afterTaxNetWorthKrw: null,
+          },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('맥락: 순위 필터 범위가 뒤집힌 경우', () => {
+    it('given 시작 게임일이 종료보다 큼, when 검증하면, then 요청을 거절한다', () => {
+      const result = PublicSaveRankingQuerySchema.safeParse({ gameDayFrom: 365, gameDayTo: 10 });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('맥락: 공개 상세에 내부 식별 정보가 덧붙은 경우', () => {
+    it('given userId가 포함된 상세, when 검증하면, then unknown 필드를 거절한다', () => {
+      const result = PublicSaveDetailSchema.safeParse({
+        saveUid: 'b'.repeat(64),
+        characterName: '공개주인공',
+        progressStatus: 'completed',
+        gameDay: 10_950,
+        ageYears: 55,
+        region: 'capitalArea',
+        education: 'bachelor',
+        netWorthKrw: 200_000_000,
+        walletCashKrw: 10_000_000,
+        liquidCashKrw: 30_000_000,
+        cashProductPrincipalKrw: 20_000_000,
+        leaseDepositKrw: 0,
+        investmentValueKrw: 80_000_000,
+        propertyValueKrw: 120_000_000,
+        debtKrw: 50_000_000,
+        afterTaxNetWorthKrw: 180_000_000,
+        employerName: '라이프상사',
+        jobFamilyKey: 'finance',
+        annualSalaryKrw: 60_000_000,
+        householdMemberCount: 2,
+        residenceTenure: 'owner',
+        activePropertyCount: 1,
+        corporationName: null,
+        userId: '7',
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+});
 
 const givenCmaProduct = (): CashProduct => ({
   id: '11',
