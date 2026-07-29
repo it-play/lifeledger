@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4·M5-A·M5-B production 완료, **M5-C 권위·목표일 상한·결산 저장 경계 production 완료, 청산 planner 다음**
+- 상태: M4·M5-A·M5-B production 완료, **M5-C 기능 production 완료, 실제 30년 완주 결산 인수 체크포인트를 남기고 M5-D 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -161,24 +161,56 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
   `400 invalidCommand`, public health는 `200`이었다. 새 container 시작 이후 ERROR·panic·failed 로그는
   없었다. 별도 MySQL/schema와 복구 dump를 만들지 않았고 raw credential·session token도 남기지 않았다.
 
-다음 재개는 **M5-C의 완전한 세후 청산 planner와 결산 생성 transaction**이다. 아래 순서를 바꾸거나
-snapshot 값을 임시 순위로 쓰지 않는다.
+`b7da1d6`~`521f62e`에서 M5-C의 남은 세 기능 단계를 이어서 구현했고, 배포 실행 `30427458020`에서
+development production 인수를 마쳤다.
 
-1. 먼저 [`development-plan.md`](./development-plan.md)의 서버 권위·돈 정수 원칙과 이 문서 §5.2~§5.3,
-   §8을 다시 읽는다. 자산별 계산 권위는 [`m1-market-core.md`](./m1-market-core.md) §3·§8,
-   [`m2-accounts-tax.md`](./m2-accounts-tax.md) §3~§8·§11.2,
-   [`m4-life.md`](./m4-life.md) §4~§10을 참조한다.
-2. `database-schema`·`migration-guide`를 적용해 기존 finalization/line 경계를 먼저 대조하고, 순수 planner를
-   지갑·계좌·확정 수취채권 → 금융자산·비용·세금 → 부동산·담보·보증금·세금 → 법인 순자산가치·개인 귀속
-   세금 → 보험·복지 권리 → 대출·연체·세금·도산 채무 순으로 구현한다. 모든 금액은 정수와 checked i128
-   합계를 쓰며 component별 순수 규칙에만 작은 BDD를 둔다.
-3. 목표일의 모든 일일 정산이 끝난 같은 server transaction에서 source authority를 pin한 `planning` header,
-   canonical line, `completed` 또는 `failed` terminal 전이를 기록한다. 같은 source 재시도는 기존 terminal을
-   읽거나 같은 canonical hash로 수렴해야 하며 실제 보유 자산을 매도하거나 변경하지 않는다. 이때 목표일까지의
-   insolvency 일수와 player command 수를 함께 확정한다.
-4. `api-design`·`security-checklist`를 적용해 인증된 `GET /api/runs/{id}/finalization`과 client 결산 조회를
-   연결한 뒤, completed row가 실제 공개 ranking에 들어가고 keyset page가 안정적인지 production DB·HTTP로
-   인수한다. 표시 이름·moderation과 시각 스타일링은 그 다음 단계로 남긴다.
+- `b7da1d6`은 이 문서 §5.2에 `m5c-after-tax-liquidation-v1`의 component 순서, carry, 비용·세금, canonical
+  evidence와 idempotence를 고정했다. `f7d6fd9`는 checked i128 순수 planner를 만들고 자동·수동 전진 모두의
+  목표일 하루 transaction에서 `planning → canonical line → completed|failed`를 생성한다. 실제 자산은
+  변경하지 않으며 terminal 재시도는 기존 결과를 읽는다.
+- wallet·금융자산·ISA·연금·보증금·부동산·법인·채무를 아홉 canonical component로 평가한다. 부동산 v1은
+  목표일 지역 기준가만 carry하고 미래 candidate day나 아직 확정되지 않은 처분비·세금을 추정하지 않는다.
+  policy 불일치는 안정적인 `liquidationPolicyUnsupported` 실패 코드로 닫고 DB 오류는 목표일 하루 전체를
+  rollback한다.
+- `521f62e`는 소유자 전용 `GET /api/runs/{runRevision}/finalization`과 strict client contract, 스타일 없는
+  dashboard `시즌 결산` 영역을 연결했다. 화면은 mount 때 DOM을 한 번 만들고 text node만 갱신하며 sandbox나
+  존재하지 않는 실행은 결산 불가로 표시한다.
+- 순수 planner의 합계·overflow BDD 2건만 추가해 통과시켰다. server targeted test·clippy·fmt, client
+  typecheck·lint·production build와 `git diff --check`가 통과했다. DOM·network·DB 단위 테스트나 무관한 전체
+  회귀는 실행하지 않았다. webpack의 기존 bundle 크기 권고만 남았다.
+- CD 뒤 container는 healthy였고 startup log에서 MySQL 연결과 자동 migration 적용을 확인했다. DB는
+  `55/55`, 실패 migration 0, 검사 connection을 제외한 열린 InnoDB transaction 0이었다. 새 migration은
+  필요하지 않아 기존 `0055` schema를 사용했다.
+- public health는 `200`, 결산 API는 비인증 `401`, production save 29의 소유자 run revision 7에는
+  `200 · pending · targetGameDay=10950`, 다른 사용자에는 존재 여부를 감춘 `404 versionNotFound`였다.
+  검증용 session 두 건은 각각 요청 직후 삭제해 잔존 0건을 확인했다. Vercel client는 `200`이고 배포 bundle에
+  `시즌 결산` 문자열이 포함됐다.
+- production ranked preset run 6과 custom run 7은 모두 day 0/10950이므로 `run_finalization`과
+  `liquidation_line`이 각각 0건인 것이 정상이다. 아직 없는 completed row나 공개 ranking 반영을 완료했다고
+  간주하지 않는다. 별도 MySQL·schema·복구 dump를 만들지 않았고 production DB를 직접 검증했다.
+
+다음 기본 재개점은 **M5-D 오프라인 진행**이다. 기능 우선으로 아래 세 단계를 순서대로 진행한다.
+
+1. 먼저 [`development-plan.md`](./development-plan.md)의 서버 시간 권위·원 단위 정수 원칙과 이 문서
+   §2의 `offlinePolicyVersionId`, §6 전체, §8 API, §10 배포 순서를 다시 읽는다. `database-schema`와
+   `migration-guide`를 적용해 다음 번호 `0056`에 immutable offline policy version·assignment,
+   run별 opt-in/progress cursor, DB-time lease와 online intent의 최소 schema를 설계하고 문서에 먼저 고정한다.
+   외부 사용자가 없는 현재 단계에서는 별도 DB나 dump 없이 development production DB startup migration으로
+   직접 전진한다.
+2. 하루 진행 domain service를 API와 worker가 같이 호출할 수 있도록 분리하고, DB
+   `CURRENT_TIMESTAMP` 기준 lease 획득·갱신·상실, online intent 우선권, 한 번의 catch-up 상한과 하루별 commit을
+   구현한다. 기존 server-owned cursor·command idempotence를 우회하지 않으며 lease/cap처럼 순수하거나 핵심
+   service 규칙에만 작은 BDD를 둔다.
+3. 같은 workspace의 별도 Rust worker binary/service, 인증된 opt-in·상태 API와 스타일 없는 client 표시를
+   연결한 뒤 main push와 실제 production DB·HTTP로 인수한다. server/client build·lint·clippy·fmt와 관련
+   targeted test만 실행하고 DOM·network·DB 단위 테스트 및 무관한 전체 회귀는 병목으로 만들지 않는다.
+
+M5-D 도중 또는 그 이후 최초 ranked run이 자연 진행이나 명시적인 controlled fixture로 day 10,950에 도달하면
+M5-C 잔여 인수 체크포인트를 반드시 함께 닫는다. 목표일 transaction의 `completed` finalization과 canonical
+line/hash, 공개 ranking 반영, keyset page 안정성을 production DB·HTTP에서 확인한다. 이를 위해 run의 immutable
+target을 줄이거나 snapshot 순자산을 대신 사용하거나 production 자산 상태를 수동 조작하지 않는다. 자산별
+판단을 다시 확인할 때는 이 문서 §5.2~§5.3과 [`m1-market-core.md`](./m1-market-core.md) §3·§8,
+[`m2-accounts-tax.md`](./m2-accounts-tax.md) §3~§8·§11.2, [`m4-life.md`](./m4-life.md) §4~§10을 참조한다.
 
 새 `POST /api/runs`가 client에 연결되기 전에도 manifest 없는 run을 허용하지 않는다. 기존
 `POST /api/characters` v1/v2는 호환 기간 동안 **sandbox 전용 legacy start**로 해석하고, 기존 command
