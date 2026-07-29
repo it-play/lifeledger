@@ -716,7 +716,7 @@ async fn count_player_commands(
     save: &SaveState,
     target_game_day: u32,
 ) -> Result<u64> {
-    let (count,): (u64,) = sqlx::query_as(
+    let (count,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM command_identity
          WHERE save_id = ? AND initial_run_revision = ? AND initial_game_day <= ?",
     )
@@ -725,7 +725,7 @@ async fn count_player_commands(
     .bind(target_game_day)
     .fetch_one(&mut **tx)
     .await?;
-    Ok(count)
+    u64::try_from(count).context("player command count cannot be negative")
 }
 
 async fn market_date_for_game_day(
