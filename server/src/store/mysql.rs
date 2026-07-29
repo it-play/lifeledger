@@ -180,6 +180,8 @@ struct ActiveRunConfigurationRow {
     content_assignment_revision: u64,
     offline_policy_version_id: u64,
     offline_assignment_revision: u64,
+    business_catalog_version_id: u64,
+    business_assignment_revision: u64,
 }
 
 pub fn create_mysql_save_store(
@@ -398,6 +400,16 @@ impl SaveStore for MySqlSaveStore {
         .fetch_one(&mut *tx)
         .await
         .context("active offline policy is not sealed")?;
+        let business_catalog_sha256: String = sqlx::query_scalar(
+            "SELECT canonical_sha256
+             FROM business_catalog_version
+             WHERE id = ? AND status = 'sealed'
+             FOR SHARE",
+        )
+        .bind(expected.business_catalog.catalog_version_id.get())
+        .fetch_one(&mut *tx)
+        .await
+        .context("active business catalog is not sealed")?;
 
         if let StartGameManifestKind::Ranked(context) = &command.manifest_kind
             && !ranked_context_is_active(&mut tx, context, &expected, &content_bundle_sha256)
@@ -606,6 +618,7 @@ impl SaveStore for MySqlSaveStore {
             &expected,
             &content_bundle_sha256,
             &offline_policy_sha256,
+            &business_catalog_sha256,
             &command.manifest_kind,
         )
         .await?;
@@ -1220,6 +1233,7 @@ async fn settle_daily_finance_state(
         rules.finance.as_ref(),
         crate::career::create_payroll_rules().as_ref(),
         rules.corporation.as_ref(),
+        crate::life::create_business_operations_rules().as_ref(),
         CorporationOperatingSettlementContext {
             save_id: current.save_id,
             run_revision: current.run_revision,
@@ -2040,6 +2054,7 @@ async fn write_run_manifest_in_tx(
     configuration: &ActiveRunConfiguration,
     content_bundle_sha256: &str,
     offline_policy_sha256: &str,
+    business_catalog_sha256: &str,
     manifest_kind: &StartGameManifestKind,
 ) -> Result<()> {
     match manifest_kind {
@@ -2055,6 +2070,7 @@ async fn write_run_manifest_in_tx(
                 configuration,
                 content_bundle_sha256,
                 offline_policy_sha256,
+                business_catalog_sha256,
                 ranking_ineligibility_reason,
             )?;
             sqlx::query(
@@ -2064,9 +2080,10 @@ async fn write_run_manifest_in_tx(
                       credit_model_version_id, real_estate_model_version_id,
                       content_bundle_id, content_bundle_sha256,
                       offline_policy_version_id, offline_policy_sha256,
+                      business_catalog_version_id, business_catalog_sha256,
                       canonical_selections_json, engine_version, start_game_day,
                       ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
-                 VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
+                 VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
                          FALSE, ?, ?)",
             )
             .bind(save_id)
@@ -2082,6 +2099,8 @@ async fn write_run_manifest_in_tx(
             .bind(content_bundle_sha256)
             .bind(configuration.offline_policy.policy_version_id.get())
             .bind(offline_policy_sha256)
+            .bind(configuration.business_catalog.catalog_version_id.get())
+            .bind(business_catalog_sha256)
             .bind(crate::ENGINE_VERSION)
             .bind(ranking_ineligibility_reason)
             .bind(manifest_canonical_json)
@@ -2107,11 +2126,12 @@ async fn write_run_manifest_in_tx(
                       life_catalog_set_id, credit_model_version_id,
                       real_estate_model_version_id, content_bundle_id, content_bundle_sha256,
                       offline_policy_version_id, offline_policy_sha256,
+                      business_catalog_version_id, business_catalog_sha256,
                       character_preset_version_id, point_budget_version_id,
                       canonical_selections_json, engine_version, start_game_day,
                       target_game_day, ranking_eligible, ranking_ineligibility_reason,
                       manifest_canonical_json)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                          0, ?, TRUE, NULL, ?)",
             )
             .bind(save_id)
@@ -2135,6 +2155,8 @@ async fn write_run_manifest_in_tx(
             .bind(content_bundle_sha256)
             .bind(context.offline_policy_version_id.map(ResourceId::get))
             .bind(context.offline_policy_sha256.as_deref())
+            .bind(context.business_catalog_version_id.map(ResourceId::get))
+            .bind(context.business_catalog_sha256.as_deref())
             .bind(context.character_preset_version_id.map(ResourceId::get))
             .bind(context.point_budget_version_id.map(ResourceId::get))
             .bind(&context.canonical_selections_json)
@@ -2173,6 +2195,8 @@ fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
                 "targetGameDay={}\n",
                 "offlinePolicyVersionId={}\n",
                 "offlinePolicySha256={}\n",
+                "businessCatalogVersionId={}\n",
+                "businessCatalogSha256={}\n",
                 "characterPresetVersionId={}\n",
                 "pointBudgetVersionId={}\n",
                 "selections={}\n",
@@ -2189,6 +2213,8 @@ fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
             context.target_game_day,
             optional_resource_id(context.offline_policy_version_id),
             context.offline_policy_sha256.as_deref().unwrap_or("null"),
+            optional_resource_id(context.business_catalog_version_id),
+            context.business_catalog_sha256.as_deref().unwrap_or("null"),
             optional_resource_id(context.character_preset_version_id),
             optional_resource_id(context.point_budget_version_id),
             context.canonical_selections_json,
@@ -2211,6 +2237,8 @@ fn ranked_manifest_canonical(
     ensure!(selections.is_array(), "ranked selections must be an array");
     serde_json::to_string(&serde_json::json!({
         "careerCatalogBundleId": configuration.career_catalog.bundle_id.get().to_string(),
+        "businessCatalogSha256": context.business_catalog_sha256.as_deref(),
+        "businessCatalogVersionId": context.business_catalog_version_id.map(|id| id.get().to_string()),
         "characterPresetVersionId": context.character_preset_version_id.map(|id| id.get().to_string()),
         "contentBundleId": configuration.content_bundle.bundle_id.get().to_string(),
         "contentBundleSha256": content_bundle_sha256,
@@ -2234,7 +2262,7 @@ fn ranked_manifest_canonical(
         "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
         "runRevision": run_revision,
         "saveId": save_id.to_string(),
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "seasonAssignmentRevision": context.season_assignment_revision,
         "seasonId": context.season_id.get().to_string(),
         "selections": selections,
@@ -2262,10 +2290,13 @@ fn sandbox_manifest_canonical(
     configuration: &ActiveRunConfiguration,
     content_bundle_sha256: &str,
     offline_policy_sha256: &str,
+    business_catalog_sha256: &str,
     ranking_ineligibility_reason: &str,
 ) -> Result<String> {
     serde_json::to_string(&serde_json::json!({
         "careerCatalogBundleId": configuration.career_catalog.bundle_id.get().to_string(),
+        "businessCatalogSha256": business_catalog_sha256,
+        "businessCatalogVersionId": configuration.business_catalog.catalog_version_id.get().to_string(),
         "contentBundleId": configuration.content_bundle.bundle_id.get().to_string(),
         "contentBundleSha256": content_bundle_sha256,
         "creditModelVersionId": configuration.rule_bundle.credit_model_version_id.get().to_string(),
@@ -2282,7 +2313,7 @@ fn sandbox_manifest_canonical(
         "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
         "runRevision": run_revision,
         "saveId": save_id.to_string(),
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "selections": [],
         "startGameDay": 0
     }))
@@ -2581,7 +2612,9 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
                 content.id AS content_bundle_id, content_assignment.assignment_revision
                     AS content_assignment_revision,
                 offline_assignment.offline_policy_version_id,
-                offline_assignment.assignment_revision AS offline_assignment_revision
+                offline_assignment.assignment_revision AS offline_assignment_revision,
+                business_assignment.business_catalog_version_id,
+                business_assignment.assignment_revision AS business_assignment_revision
          FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
            ON bundle.market_world_id = assignment.market_world_id
@@ -2598,6 +2631,13 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
           AND BINARY offline_policy.canonical_sha256
                 = BINARY offline_assignment.offline_policy_sha256
           AND offline_policy.status = 'sealed'
+         INNER JOIN business_catalog_assignment AS business_assignment
+           ON business_assignment.assignment_key = 'newSandboxRun'
+         INNER JOIN business_catalog_version AS business_catalog
+           ON business_catalog.id = business_assignment.business_catalog_version_id
+          AND BINARY business_catalog.canonical_sha256
+                = BINARY business_assignment.business_catalog_sha256
+          AND business_catalog.status = 'sealed'
          WHERE assignment.assignment_key = 'newRun'",
     )
     .fetch_optional(pool)
@@ -2625,7 +2665,9 @@ async fn ranked_context_is_active(
         }
         RunMode::Sandbox => false,
     } && context.offline_policy_version_id.is_some()
-        == context.offline_policy_sha256.is_some();
+        == context.offline_policy_sha256.is_some()
+        && context.business_catalog_version_id.is_some()
+            == context.business_catalog_sha256.is_some();
     if !valid_shape {
         return Ok(false);
     }
@@ -2666,6 +2708,8 @@ async fn ranked_context_is_active(
            AND BINARY release_row.engine_version = BINARY ?
            AND release_row.offline_policy_version_id <=> ?
            AND BINARY release_row.offline_policy_sha256 <=> BINARY ?
+           AND release_row.business_catalog_version_id <=> ?
+           AND BINARY release_row.business_catalog_sha256 <=> BINARY ?
            AND league.mode = ?
            AND league.character_preset_version_id <=> ?
            AND league.point_budget_version_id <=> ?
@@ -2691,6 +2735,8 @@ async fn ranked_context_is_active(
     .bind(crate::ENGINE_VERSION)
     .bind(context.offline_policy_version_id.map(ResourceId::get))
     .bind(context.offline_policy_sha256.as_deref())
+    .bind(context.business_catalog_version_id.map(ResourceId::get))
+    .bind(context.business_catalog_sha256.as_deref())
     .bind(run_mode_db_value(context.mode)?)
     .bind(context.character_preset_version_id.map(ResourceId::get))
     .bind(context.point_budget_version_id.map(ResourceId::get))
@@ -2715,7 +2761,9 @@ async fn lock_active_run_configuration(
                 content.id AS content_bundle_id, content_assignment.assignment_revision
                     AS content_assignment_revision,
                 offline_assignment.offline_policy_version_id,
-                offline_assignment.assignment_revision AS offline_assignment_revision
+                offline_assignment.assignment_revision AS offline_assignment_revision,
+                business_assignment.business_catalog_version_id,
+                business_assignment.assignment_revision AS business_assignment_revision
          FROM run_rule_bundle_assignment AS assignment
          LEFT JOIN market_world_product_bundle AS bundle
            ON bundle.market_world_id = assignment.market_world_id
@@ -2732,6 +2780,13 @@ async fn lock_active_run_configuration(
           AND BINARY offline_policy.canonical_sha256
                 = BINARY offline_assignment.offline_policy_sha256
           AND offline_policy.status = 'sealed'
+         INNER JOIN business_catalog_assignment AS business_assignment
+           ON business_assignment.assignment_key = 'newSandboxRun'
+         INNER JOIN business_catalog_version AS business_catalog
+           ON business_catalog.id = business_assignment.business_catalog_version_id
+          AND BINARY business_catalog.canonical_sha256
+                = BINARY business_assignment.business_catalog_sha256
+          AND business_catalog.status = 'sealed'
          WHERE assignment.assignment_key = 'newRun'
          FOR SHARE",
     )
@@ -2774,6 +2829,10 @@ fn active_run_configuration_from_row(row: ActiveRunConfigurationRow) -> ActiveRu
         offline_policy: OfflinePolicyAssignment {
             policy_version_id: ResourceId::from_u64(row.offline_policy_version_id),
             assignment_revision: row.offline_assignment_revision,
+        },
+        business_catalog: super::types::BusinessCatalogAssignment {
+            catalog_version_id: ResourceId::from_u64(row.business_catalog_version_id),
+            assignment_revision: row.business_assignment_revision,
         },
     }
 }
@@ -4279,6 +4338,10 @@ mod tests {
                 policy_version_id: ResourceId::from_u64(19),
                 assignment_revision: 1,
             },
+            business_catalog: super::super::types::BusinessCatalogAssignment {
+                catalog_version_id: ResourceId::from_u64(20),
+                assignment_revision: 1,
+            },
         }
     }
 
@@ -4379,6 +4442,7 @@ mod tests {
                 &configuration,
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                 "sandboxMode",
             )
             .expect("sandbox manifest를 직렬화할 수 있어야 한다");
@@ -4390,8 +4454,9 @@ mod tests {
                 parsed["contentBundleSha256"],
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             );
-            assert_eq!(parsed["schemaVersion"], 3);
+            assert_eq!(parsed["schemaVersion"], 4);
             assert_eq!(parsed["offlinePolicyVersionId"], "19");
+            assert_eq!(parsed["businessCatalogVersionId"], "20");
         }
     }
 
@@ -4417,6 +4482,10 @@ mod tests {
                 offline_policy_sha256: Some(
                     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_owned(),
                 ),
+                business_catalog_version_id: Some(ResourceId::from_u64(20)),
+                business_catalog_sha256: Some(
+                    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_owned(),
+                ),
                 character_preset_version_id: Some(ResourceId::from_u64(7)),
                 point_budget_version_id: None,
                 canonical_selections_json: "[]".to_owned(),
@@ -4433,7 +4502,7 @@ mod tests {
             let parsed: serde_json::Value =
                 serde_json::from_str(&when).expect("manifest는 JSON이어야 한다");
 
-            assert_eq!(parsed["schemaVersion"], 4);
+            assert_eq!(parsed["schemaVersion"], 5);
             assert_eq!(parsed["mode"], "rankedPreset");
             assert_eq!(parsed["seasonId"], "2");
             assert_eq!(parsed["leagueDefinitionId"], "3");
@@ -4441,6 +4510,7 @@ mod tests {
             assert_eq!(parsed["rankingRuleVersionId"], "6");
             assert_eq!(parsed["targetGameDay"], 10_950);
             assert_eq!(parsed["offlinePolicyVersionId"], "19");
+            assert_eq!(parsed["businessCatalogVersionId"], "20");
             assert_eq!(parsed["rankingEligible"], true);
         }
     }

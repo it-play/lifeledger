@@ -2039,6 +2039,187 @@ pub struct CorporationOperatingMonthPageState {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessOperationsAvailabilityState {
+    Unavailable,
+    Active,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessContractStatusState {
+    Offered,
+    Accepted,
+    Active,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessPositionStatusState {
+    Vacant,
+    Hired,
+    Active,
+    Resigned,
+    Terminated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessMarketingBandState {
+    pub id: ResourceId,
+    pub band_key: String,
+    pub display_name: String,
+    pub band_order: u16,
+    pub monthly_cost_krw: i64,
+    pub offer_slots: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessLoanProductState {
+    pub id: ResourceId,
+    pub product_key: String,
+    pub display_name: String,
+    pub minimum_principal_krw: i64,
+    pub maximum_principal_krw: i64,
+    pub principal_step_krw: i64,
+    pub monthly_interest_rate_ppm: u32,
+    pub term_months: u16,
+    pub personal_guarantee: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessContractState {
+    pub id: ResourceId,
+    pub template_key: String,
+    pub display_name: String,
+    pub status: BusinessContractStatusState,
+    pub service_year: u16,
+    pub service_month: u8,
+    pub required_capacity_units: u16,
+    pub revenue_krw: i64,
+    pub variable_cost_ppm: u32,
+    pub failure_penalty_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessPositionState {
+    pub id: ResourceId,
+    pub role_key: String,
+    pub display_name: String,
+    pub status: BusinessPositionStatusState,
+    pub capacity_units: u16,
+    pub monthly_gross_wage_krw: i64,
+    pub employer_cost_rate_ppm: u32,
+    pub effective_year: Option<u16>,
+    pub effective_month: Option<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessMonthlyPlanState {
+    pub id: ResourceId,
+    pub effective_year: u16,
+    pub effective_month: u8,
+    pub plan_revision: u64,
+    pub marketing_band_id: ResourceId,
+    pub marketing_band_key: String,
+    pub cash_buffer_krw: i64,
+    pub contract_priority_ids: Vec<ResourceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessMonthState {
+    pub id: ResourceId,
+    pub operating_year: u16,
+    pub operating_month: u8,
+    pub total_capacity_units: u32,
+    pub used_capacity_units: u32,
+    pub contract_revenue_krw: i64,
+    pub contract_variable_cost_krw: i64,
+    pub marketing_cost_krw: i64,
+    pub employee_cost_krw: i64,
+    pub failed_contract_penalty_krw: i64,
+    pub completed_contract_count: u16,
+    pub failed_contract_count: u16,
+    pub active_employee_count: u16,
+    pub applied_game_day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessOperationsState {
+    pub availability: BusinessOperationsAvailabilityState,
+    pub corporation_id: ResourceId,
+    pub catalog_version_id: Option<ResourceId>,
+    pub catalog_sha256: Option<String>,
+    pub revision: u64,
+    pub next_operating_year: Option<u16>,
+    pub next_operating_month: Option<u8>,
+    pub marketing_bands: Vec<BusinessMarketingBandState>,
+    pub loan_products: Vec<BusinessLoanProductState>,
+    pub contracts: Vec<BusinessContractState>,
+    pub positions: Vec<BusinessPositionState>,
+    pub plan: Option<BusinessMonthlyPlanState>,
+    pub latest_month: Option<BusinessMonthState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BusinessOperationAction {
+    AcceptContract {
+        contract_id: ResourceId,
+    },
+    CancelContract {
+        contract_id: ResourceId,
+    },
+    HirePosition {
+        position_id: ResourceId,
+    },
+    TerminatePosition {
+        position_id: ResourceId,
+    },
+    SetMonthlyPlan {
+        marketing_band_id: ResourceId,
+        cash_buffer_krw: i64,
+        contract_priority_ids: Vec<ResourceId>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManageBusinessOperationsCommand {
+    pub command_id: CommandId,
+    pub cursor: CommandCursor,
+    pub corporation_id: ResourceId,
+    pub expected_revision: u64,
+    pub action: BusinessOperationAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
+pub enum BusinessOperationResultState {
+    AcceptContract { contract: BusinessContractState },
+    CancelContract { contract: BusinessContractState },
+    HirePosition { position: BusinessPositionState },
+    TerminatePosition { position: BusinessPositionState },
+    SetMonthlyPlan { plan: BusinessMonthlyPlanState },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessOperationReceipt {
+    pub command_id: CommandId,
+    pub result: BusinessOperationResultState,
+    pub revision: u64,
+    pub replayed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorporationReadResult<T> {
     Found(T),
@@ -3352,6 +3533,13 @@ pub struct OfflinePolicyAssignment {
     pub assignment_revision: u64,
 }
 
+/// Immutable business catalog selected for a newly started sandbox run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BusinessCatalogAssignment {
+    pub catalog_version_id: ResourceId,
+    pub assignment_revision: u64,
+}
+
 impl From<&SaveState> for SaveCursor {
     fn from(state: &SaveState) -> Self {
         Self {
@@ -3375,6 +3563,7 @@ pub struct ActiveRunConfiguration {
     pub rule_bundle: RunRuleBundleAssignment,
     pub content_bundle: ContentBundleAssignment,
     pub offline_policy: OfflinePolicyAssignment,
+    pub business_catalog: BusinessCatalogAssignment,
 }
 
 /// Result of one committed daily pipeline attempt.
@@ -4228,6 +4417,26 @@ pub trait LifeStore: Send + Sync + 'static {
     ) -> Result<CorporationReadResult<CorporationOperatingMonthPageState>> {
         let _ = (user_id, corporation_id, cursor);
         Err(anyhow::anyhow!("M4-E2 corporation months are not wired"))
+    }
+
+    async fn corporation_operations(
+        &self,
+        user_id: u64,
+        corporation_id: ResourceId,
+    ) -> Result<CorporationReadResult<BusinessOperationsState>> {
+        let _ = (user_id, corporation_id);
+        Err(anyhow::anyhow!("M5-E corporation operations are not wired"))
+    }
+
+    async fn manage_corporation_operations(
+        &self,
+        user_id: u64,
+        command: &ManageBusinessOperationsCommand,
+    ) -> Result<LifeStoreResult<BusinessOperationReceipt>> {
+        let _ = (user_id, command);
+        Err(anyhow::anyhow!(
+            "M5-E corporation operation commands are not wired"
+        ))
     }
 
     async fn insolvency_overview(

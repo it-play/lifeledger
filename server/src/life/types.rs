@@ -3953,6 +3953,98 @@ pub struct CorporationOperatingMonthPlan {
     pub pre_payroll_profit_krw: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BusinessContractMonthInput {
+    pub contract_id: ResourceId,
+    pub priority_rank: u16,
+    pub required_capacity_units: u16,
+    pub revenue_krw: i64,
+    pub variable_cost_ppm: u32,
+    pub failure_penalty_krw: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BusinessEmployeeMonthInput {
+    pub position_id: ResourceId,
+    pub capacity_units: u16,
+    pub gross_wage_krw: i64,
+    pub employer_cost_rate_ppm: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BusinessMonthInput<'a> {
+    pub owner_capacity_units: u16,
+    pub marketing_cost_krw: i64,
+    pub cash_buffer_krw: i64,
+    pub contracts: &'a [BusinessContractMonthInput],
+    pub employees: &'a [BusinessEmployeeMonthInput],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum BusinessContractMonthOutcome {
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessContractMonthPlan {
+    pub contract_id: ResourceId,
+    pub outcome: BusinessContractMonthOutcome,
+    pub used_capacity_units: u16,
+    pub recognized_revenue_krw: i64,
+    pub variable_cost_krw: i64,
+    pub failure_penalty_krw: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessMonthPlan {
+    pub owner_capacity_units: u16,
+    pub employee_capacity_units: u32,
+    pub total_capacity_units: u32,
+    pub used_capacity_units: u32,
+    pub marketing_cost_krw: i64,
+    pub employee_gross_wage_krw: i64,
+    pub employee_employer_cost_krw: i64,
+    pub contract_revenue_krw: i64,
+    pub contract_variable_cost_krw: i64,
+    pub failed_contract_penalty_krw: i64,
+    pub receivable_created_krw: i64,
+    pub receivable_collected_krw: i64,
+    pub completed_contract_count: u16,
+    pub failed_contract_count: u16,
+    pub active_employee_count: u16,
+    pub cash_buffer_krw: i64,
+    pub contract_plans: Vec<BusinessContractMonthPlan>,
+}
+
+pub trait BusinessOperationsRules: Send + Sync + 'static {
+    fn plan_month(
+        &self,
+        input: BusinessMonthInput<'_>,
+    ) -> Result<BusinessMonthPlan, BusinessOperationsError>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BusinessOperationsError {
+    InvalidCapacity,
+    InvalidMoney,
+    InvalidContract,
+    InvalidEmployee,
+    DuplicateIdentity,
+    ArithmeticOverflow,
+}
+
+impl Display for BusinessOperationsError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "business operations error: {self:?}")
+    }
+}
+
+impl Error for BusinessOperationsError {}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CorporationOfficerPayrollInput {
     pub cash_after_operating_krw: i64,

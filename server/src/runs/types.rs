@@ -468,6 +468,8 @@ pub struct RankedRunContext {
     pub target_game_day: u32,
     pub offline_policy_version_id: Option<ResourceId>,
     pub offline_policy_sha256: Option<String>,
+    pub business_catalog_version_id: Option<ResourceId>,
+    pub business_catalog_sha256: Option<String>,
     pub character_preset_version_id: Option<ResourceId>,
     pub point_budget_version_id: Option<ResourceId>,
     pub canonical_selections_json: String,

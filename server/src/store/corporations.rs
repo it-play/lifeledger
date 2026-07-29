@@ -10,6 +10,10 @@ use sqlx::{AssertSqlSafe, MySql, MySqlPool, Transaction};
 use time::{Date, Duration};
 
 use super::annual_tax::{AnnualTaxRunContext, accrue_financial_income_source};
+use super::business_operations::{
+    PreparedBusinessMonth, apply_business_month_in_tx, initialize_business_profile_in_tx,
+    prepare_business_month_in_tx,
+};
 use super::employment::{
     CorporationEmploymentPayrollInput, calculate_corporation_employment_payroll_in_tx,
 };
@@ -39,11 +43,12 @@ use crate::finance::{
     RunPolicyContext,
 };
 use crate::life::{
-    CorporationDividendInput, CorporationError, CorporationEstablishmentInput,
-    CorporationEstablishmentTerms, CorporationOfficerPayrollInput, CorporationOfficerPayrollPlan,
-    CorporationOperatingMonthInput, CorporationOperatingMonthPlan, CorporationOperatingScaleTerms,
-    CorporationRegisteredOfficeClass, CorporationRegistrationPolicy, CorporationRules,
-    CorporationTaxBracket, CorporationTaxInput, CorporationTaxPolicy,
+    BusinessOperationsRules, CorporationDividendInput, CorporationError,
+    CorporationEstablishmentInput, CorporationEstablishmentTerms, CorporationOfficerPayrollInput,
+    CorporationOfficerPayrollPlan, CorporationOperatingMonthInput, CorporationOperatingMonthPlan,
+    CorporationOperatingScaleTerms, CorporationRegisteredOfficeClass,
+    CorporationRegistrationPolicy, CorporationRules, CorporationTaxBracket, CorporationTaxInput,
+    CorporationTaxPolicy,
 };
 
 const COMPONENT_KEY: &str = "dev-unranked-m4-corporation-2026-v1";
@@ -187,6 +192,7 @@ struct OperatingCorporationRow {
     variable_cost_ppm: u32,
     fixed_monthly_cost_krw: i64,
     operating_scale_id: u64,
+    scale_key: String,
     scale_revenue_factor_ppm: u32,
     scale_fixed_cost_krw: i64,
 }
@@ -195,6 +201,7 @@ struct OperatingCorporationRow {
 struct SelectedOperatingSettingRow {
     operating_setting_id: u64,
     operating_scale_id: u64,
+    scale_key: String,
     scale_revenue_factor_ppm: u32,
     scale_fixed_cost_krw: i64,
     officer_gross_salary_krw: i64,
@@ -800,6 +807,7 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
     finance_rules: &dyn FinanceRules,
     payroll_rules: &dyn PayrollRules,
     corporation_rules: &dyn CorporationRules,
+    business_rules: &dyn BusinessOperationsRules,
     context: CorporationOperatingSettlementContext,
 ) -> Result<()> {
     let CorporationOperatingSettlementContext {
@@ -824,7 +832,7 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
                 corporation_row.retained_earnings_krw,
                 template.base_monthly_revenue_krw, template.revenue_variation_ppm,
                 template.variable_cost_ppm, template.fixed_monthly_cost_krw,
-                scale.id AS operating_scale_id,
+                scale.id AS operating_scale_id, scale.scale_key,
                 scale.revenue_factor_ppm AS scale_revenue_factor_ppm,
                 scale.fixed_cost_krw AS scale_fixed_cost_krw
          FROM corporation AS corporation_row
@@ -884,6 +892,7 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
     let selected_setting: Option<SelectedOperatingSettingRow> = sqlx::query_as(
         "SELECT setting_row.id AS operating_setting_id,
                 scale.id AS operating_scale_id,
+                scale.scale_key,
                 scale.revenue_factor_ppm AS scale_revenue_factor_ppm,
                 scale.fixed_cost_krw AS scale_fixed_cost_krw,
                 setting_row.officer_gross_salary_krw
@@ -912,6 +921,7 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
     let (
         operating_setting_id,
         operating_scale_id,
+        operating_scale_key,
         scale_revenue_factor_ppm,
         scale_fixed_cost_krw,
         officer_gross_salary_krw,
@@ -919,6 +929,7 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
         (
             None,
             corporation.operating_scale_id,
+            corporation.scale_key.clone(),
             corporation.scale_revenue_factor_ppm,
             corporation.scale_fixed_cost_krw,
             0,
@@ -927,13 +938,14 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
             (
                 Some(setting.operating_setting_id),
                 setting.operating_scale_id,
+                setting.scale_key,
                 setting.scale_revenue_factor_ppm,
                 setting.scale_fixed_cost_krw,
                 setting.officer_gross_salary_krw,
             )
         },
     );
-    let plan = corporation_rules
+    let base_plan = corporation_rules
         .plan_operating_month(CorporationOperatingMonthInput {
             world_seed: corporation.world_seed,
             corporation_id: ResourceId::from_u64(corporation.id),
@@ -950,11 +962,31 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
             },
         })
         .context("corporation operating month calculation failed")?;
+    let business_month = prepare_business_month_in_tx(
+        tx,
+        business_rules,
+        save_id,
+        run_revision,
+        corporation.id,
+        &corporation.template_key,
+        corporation.world_seed,
+        u16::try_from(operating_year).context("business operating year is out of range")?,
+        operating_month,
+        owner_capacity_units(&operating_scale_key)?,
+    )
+    .await?;
+    let plan = compose_business_operating_plan(base_plan, business_month.as_ref())?;
+    let protected_cash_buffer_krw = business_month
+        .as_ref()
+        .map(|month| month.plan.cash_buffer_krw)
+        .unwrap_or(0);
     let cash_available_krw = corporation
         .cash_krw
         .checked_add(plan.revenue_krw)
         .context("corporation operating cash overflowed")?;
-    let operating_cost_cash_paid_krw = cash_available_krw.min(plan.operating_expense_krw);
+    let operating_cost_cash_paid_krw = cash_available_krw
+        .saturating_sub(protected_cash_buffer_krw)
+        .min(plan.operating_expense_krw);
     let operating_cost_payable_krw = plan
         .operating_expense_krw
         .checked_sub(operating_cost_cash_paid_krw)
@@ -1169,6 +1201,18 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
     .execute(&mut **tx)
     .await?;
     let operating_month_id = inserted.last_insert_id();
+    if let Some(business_month) = business_month.as_ref() {
+        apply_business_month_in_tx(
+            tx,
+            save_id,
+            run_revision,
+            corporation.id,
+            operating_month_id,
+            target_game_day,
+            business_month,
+        )
+        .await?;
+    }
     let revenue_ledger_transaction_id = write_monthly_revenue_ledger(
         tx,
         save_id,
@@ -1338,6 +1382,53 @@ pub(super) async fn settle_corporation_operating_month_in_tx(
         "corporation operating month was not applied"
     );
     Ok(())
+}
+
+fn owner_capacity_units(scale_key: &str) -> Result<u16> {
+    match scale_key {
+        "lean" => Ok(2),
+        "standard" => Ok(4),
+        "growth" => Ok(6),
+        _ => bail!("unknown corporation scale capacity mapping"),
+    }
+}
+
+fn compose_business_operating_plan(
+    mut base: CorporationOperatingMonthPlan,
+    business: Option<&PreparedBusinessMonth>,
+) -> Result<CorporationOperatingMonthPlan> {
+    let Some(business) = business else {
+        return Ok(base);
+    };
+    let business_fixed_cost_krw = business
+        .plan
+        .marketing_cost_krw
+        .checked_add(business.plan.employee_gross_wage_krw)
+        .and_then(|amount| amount.checked_add(business.plan.employee_employer_cost_krw))
+        .and_then(|amount| amount.checked_add(business.plan.failed_contract_penalty_krw))
+        .context("business fixed operating cost overflowed")?;
+    base.revenue_krw = base
+        .revenue_krw
+        .checked_add(business.plan.contract_revenue_krw)
+        .context("business operating revenue overflowed")?;
+    base.variable_cost_krw = base
+        .variable_cost_krw
+        .checked_add(business.plan.contract_variable_cost_krw)
+        .context("business variable operating cost overflowed")?;
+    base.base_fixed_cost_krw = base
+        .base_fixed_cost_krw
+        .checked_add(business_fixed_cost_krw)
+        .context("business base fixed cost overflowed")?;
+    base.operating_expense_krw = base
+        .variable_cost_krw
+        .checked_add(base.base_fixed_cost_krw)
+        .and_then(|amount| amount.checked_add(base.scale_fixed_cost_krw))
+        .context("business operating expense overflowed")?;
+    base.pre_payroll_profit_krw = base
+        .revenue_krw
+        .checked_sub(base.operating_expense_krw)
+        .context("business pre-payroll profit overflowed")?;
+    Ok(base)
 }
 
 fn employment_industry(template_key: &str) -> Result<&'static str> {
@@ -1854,6 +1945,15 @@ async fn create_corporation_once(
         corporation_id,
         EstablishmentTransition::Active,
         command.command_id.as_str(),
+    )
+    .await?;
+    initialize_business_profile_in_tx(
+        &mut tx,
+        scope.save_id,
+        scope.run_revision,
+        corporation_id,
+        &template.template_key,
+        scope.current_date,
     )
     .await?;
 

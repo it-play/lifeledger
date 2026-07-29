@@ -337,10 +337,10 @@ mod tests {
         default_market_world,
     };
     use crate::store::{
-        ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt, CareerCatalogAssignment,
-        ContentBundleAssignment, EmploymentPolicyAssignment, GameCommandCursor,
-        GameCommandRejection, MarketWorldState, OfflinePolicyAssignment, ProgressHolderKind,
-        ProgressLeaseGuard, StartGameReceipt,
+        ActiveMarketWorld, ActiveRunConfiguration, AdvanceCommandReceipt,
+        BusinessCatalogAssignment, CareerCatalogAssignment, ContentBundleAssignment,
+        EmploymentPolicyAssignment, GameCommandCursor, GameCommandRejection, MarketWorldState,
+        OfflinePolicyAssignment, ProgressHolderKind, ProgressLeaseGuard, StartGameReceipt,
     };
 
     const USER_ID: u64 = 7;
@@ -829,6 +829,10 @@ mod tests {
             },
             offline_policy: OfflinePolicyAssignment {
                 policy_version_id: ResourceId::from_u64(1),
+                assignment_revision: 1,
+            },
+            business_catalog: BusinessCatalogAssignment {
+                catalog_version_id: ResourceId::from_u64(1),
                 assignment_revision: 1,
             },
         }

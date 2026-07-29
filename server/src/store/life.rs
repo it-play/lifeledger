@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{MySql, MySqlPool, Transaction};
 use time::{Date, Month};
 
+use super::business_operations::{manage_corporation_operations, read_corporation_operations};
 use super::corporations::{
     create_corporation, pay_corporation_dividend, read_corporation_detail,
     read_corporation_operating_months, read_corporation_snapshot_in_tx, read_corporation_templates,
@@ -53,9 +54,10 @@ use super::properties::{
     validate_property_projection_in_tx,
 };
 use super::types::{
-    ActOnInsolvencyCaseCommand, ApplyWelfareProgramCommand, CancelInsuranceContractCommand,
-    CancelPropertySaleOrderCommand, CorporationDividendReceipt, CorporationOperatingMonthPageState,
-    CorporationReadResult, CorporationReceipt, CorporationSettingsReceipt, CorporationSummaryState,
+    ActOnInsolvencyCaseCommand, ApplyWelfareProgramCommand, BusinessOperationReceipt,
+    BusinessOperationsState, CancelInsuranceContractCommand, CancelPropertySaleOrderCommand,
+    CorporationDividendReceipt, CorporationOperatingMonthPageState, CorporationReadResult,
+    CorporationReceipt, CorporationSettingsReceipt, CorporationSummaryState,
     CorporationTemplatesState, CreateCorporationCommand, CreateLeaseDepositLoanQuoteCommand,
     CreateLoanQuoteCommand, CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand,
     CreditOverviewState, CreditReasonState, EnrollInsuranceContractCommand,
@@ -71,15 +73,16 @@ use super::types::{
     LifeEventsReadResult, LifeFailureCode, LifeHouseholdState, LifeRateStatus, LifeResidenceState,
     LifeSnapshotState, LifeStore, LifeStoreResult, LivingCostMonthItemState, LivingCostMonthState,
     LoanDetailState, LoanExecutionReceipt, LoanInstallmentPageQuery, LoanInstallmentPageState,
-    LoanPrepaymentReceipt, LoanProductCatalogState, LoanQuoteReceipt, MortgageQuoteReceipt,
-    PayCorporationDividendCommand, PayEssentialArrearCommand, PayLeaseArrearCommand,
-    PrepareInsolvencyCaseCommand, PrepayLoanCommand, PropertyPurchaseReceipt,
-    PropertySaleOrderCancellationReceipt, PropertySaleOrderListingReceipt,
-    PropertySaleOrderPageQuery, PropertySaleOrderPageState, PropertyTaxEventPageQuery,
-    PropertyTaxEventPageState, PurchasePropertyCommand, RealEstateDailyPreparationStore,
-    RepricePropertySaleOrderCommand, ResidenceTenureKind, ResolveLifeEventCommand,
-    StartHousingLeaseCommand, UpdateCorporationSettingsCommand, UpdateLifeBudgetCommand,
-    UpdateLifeBudgetReceipt, WelfareApplicationReceipt, WelfareProgramsState,
+    LoanPrepaymentReceipt, LoanProductCatalogState, LoanQuoteReceipt,
+    ManageBusinessOperationsCommand, MortgageQuoteReceipt, PayCorporationDividendCommand,
+    PayEssentialArrearCommand, PayLeaseArrearCommand, PrepareInsolvencyCaseCommand,
+    PrepayLoanCommand, PropertyPurchaseReceipt, PropertySaleOrderCancellationReceipt,
+    PropertySaleOrderListingReceipt, PropertySaleOrderPageQuery, PropertySaleOrderPageState,
+    PropertyTaxEventPageQuery, PropertyTaxEventPageState, PurchasePropertyCommand,
+    RealEstateDailyPreparationStore, RepricePropertySaleOrderCommand, ResidenceTenureKind,
+    ResolveLifeEventCommand, StartHousingLeaseCommand, UpdateCorporationSettingsCommand,
+    UpdateLifeBudgetCommand, UpdateLifeBudgetReceipt, WelfareApplicationReceipt,
+    WelfareProgramsState,
 };
 use super::welfare::{
     apply_welfare_program, read_active_welfare_applications_in_tx, read_welfare_programs,
@@ -397,6 +400,22 @@ impl LifeStore for MySqlLifeStore {
         corporation_id: ResourceId,
     ) -> Result<CorporationReadResult<CorporationSummaryState>> {
         read_corporation_detail(&self.pool, user_id, corporation_id).await
+    }
+
+    async fn corporation_operations(
+        &self,
+        user_id: u64,
+        corporation_id: ResourceId,
+    ) -> Result<CorporationReadResult<BusinessOperationsState>> {
+        read_corporation_operations(&self.pool, user_id, corporation_id).await
+    }
+
+    async fn manage_corporation_operations(
+        &self,
+        user_id: u64,
+        command: &ManageBusinessOperationsCommand,
+    ) -> Result<LifeStoreResult<BusinessOperationReceipt>> {
+        manage_corporation_operations(&self.pool, user_id, command).await
     }
 
     async fn update_corporation_settings(

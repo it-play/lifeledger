@@ -52,21 +52,26 @@ use crate::state::{
     ActiveMilitarySavingsSummarySnapshot, ActiveMilitaryServiceStatusSnapshot,
     ActiveMilitaryServiceSummarySnapshot, ActiveWelfareApplicationSnapshot,
     ActiveWelfareApplicationStatusSnapshot, AdvanceCommandSnapshot, AdvanceResponse, AppState,
-    AssetCommandResult, AutoSpeed, BondOrderResponse, CareerActivitiesResponse,
-    CareerActivityCatalogSnapshot, CareerActivityHistorySnapshot, CareerActivityResponse,
-    CareerActivityResultSnapshot, CareerActivitySnapshot, CareerApplicationResponse,
-    CareerApplicationResultSnapshot, CareerApplicationSnapshot, CareerApplicationsResponse,
-    CareerArtifactResponse, CareerArtifactResultSnapshot, CareerArtifactSnapshot,
-    CareerArtifactVersionSnapshot, CareerArtifactsResponse, CareerCommandResult,
-    CareerEmploymentContractSnapshot, CareerEmploymentResponse, CareerEmploymentTaxYearSnapshot,
-    CareerEmploymentTaxYearSourceSnapshot, CareerEmploymentTaxYearStatusSnapshot,
-    CareerEvidenceSnapshot, CareerFocusResponse, CareerFocusResultSnapshot,
-    CareerInvitationResponse, CareerInvitationResultSnapshot, CareerInvitationSnapshot,
-    CareerJobSnapshot, CareerJobsResponse, CareerOfferResponse, CareerOfferResultSnapshot,
-    CareerOfferSnapshot, CareerOpenApplicationSnapshot, CareerPayrollResponse,
-    CareerPayrollSnapshot, CareerPendingScheduleItemSnapshot, CareerRewardPaymentSnapshot,
-    CareerScheduledActionKindSnapshot, CareerScheduledSettlementKindSnapshot, CareerScoresSnapshot,
-    CareerSnapshot, CareerSpecsResponse, CashContractSnapshot, CashProductCatalogResponse,
+    AssetCommandResult, AutoSpeed, BondOrderResponse, BusinessContractSnapshot,
+    BusinessContractStatusSnapshot, BusinessLoanProductSnapshot, BusinessMarketingBandSnapshot,
+    BusinessMonthSnapshot, BusinessMonthlyPlanSnapshot, BusinessOperationResponse,
+    BusinessOperationResultSnapshot, BusinessOperationsAvailabilitySnapshot,
+    BusinessOperationsResponse, BusinessPositionSnapshot, BusinessPositionStatusSnapshot,
+    CareerActivitiesResponse, CareerActivityCatalogSnapshot, CareerActivityHistorySnapshot,
+    CareerActivityResponse, CareerActivityResultSnapshot, CareerActivitySnapshot,
+    CareerApplicationResponse, CareerApplicationResultSnapshot, CareerApplicationSnapshot,
+    CareerApplicationsResponse, CareerArtifactResponse, CareerArtifactResultSnapshot,
+    CareerArtifactSnapshot, CareerArtifactVersionSnapshot, CareerArtifactsResponse,
+    CareerCommandResult, CareerEmploymentContractSnapshot, CareerEmploymentResponse,
+    CareerEmploymentTaxYearSnapshot, CareerEmploymentTaxYearSourceSnapshot,
+    CareerEmploymentTaxYearStatusSnapshot, CareerEvidenceSnapshot, CareerFocusResponse,
+    CareerFocusResultSnapshot, CareerInvitationResponse, CareerInvitationResultSnapshot,
+    CareerInvitationSnapshot, CareerJobSnapshot, CareerJobsResponse, CareerOfferResponse,
+    CareerOfferResultSnapshot, CareerOfferSnapshot, CareerOpenApplicationSnapshot,
+    CareerPayrollResponse, CareerPayrollSnapshot, CareerPendingScheduleItemSnapshot,
+    CareerRewardPaymentSnapshot, CareerScheduledActionKindSnapshot,
+    CareerScheduledSettlementKindSnapshot, CareerScoresSnapshot, CareerSnapshot,
+    CareerSpecsResponse, CashContractSnapshot, CashProductCatalogResponse,
     CashProductCommandResult, CashProductVersionSnapshot, CharacterStartResponse,
     CharacterStartSnapshot, CmaAccountCloseResponse, CmaAccountCloseSnapshot,
     CmaAccountOpenResponse, CmaAccountOpenSnapshot, CmaAccountSnapshot,
@@ -168,24 +173,25 @@ use crate::state::{
 };
 use crate::store::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, ActOnInsolvencyCaseCommand,
-    ApplyCareerCommand, ApplyWelfareProgramCommand, CancelCareerActivityCommand,
-    CancelInsuranceContractCommand, CancelPropertySaleOrderCommand, CareerArtifactPageQuery,
-    CareerJobsPageQuery, CareerPageQuery, CareerPlatform, CloseIsaAccountCommand,
-    CloseMilitarySavingsCommand, ConfirmCareerInterviewCommand, CreateCorporationCommand,
-    CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand, CreateMortgageQuoteCommand,
-    CreatePropertySaleOrderCommand, DeclineCareerInvitationCommand, DeclineCareerOfferCommand,
-    EnrollInsuranceContractCommand, ExecuteLoanCommand, FileInsuranceClaimCommand,
-    FocusCareerCommand, HousingListingsQueryState, InsolvencyActionState, InsuranceQueryState,
-    InterviewDecision, LifeBudgetSelectionState, LifeEventsQueryState, LifeFailureCode,
-    LoanInstallmentPageCursor, LoanInstallmentPageQuery, ManualAdvanceCommand,
-    OpenMilitarySavingsCommand, OpenTaxAccountCommand, PayCorporationDividendCommand,
-    PayEssentialArrearCommand, PayLeaseArrearCommand, PensionWithdrawalCommand,
-    PrepareInsolvencyCaseCommand, PrepayLoanCommand, PropertySaleOrderPageQuery,
-    PropertyTaxEventPageQuery, PublishCareerArtifactCommand, PurchasePropertyCommand,
-    RepricePropertySaleOrderCommand, ResolveLifeEventCommand, StartCareerActivityCommand,
-    StartGameCommand, StartGameManifestKind, StartHousingLeaseCommand, StartMilitaryServiceCommand,
-    StartPensionCommand, StartingLoanCommand, UpdateCorporationSettingsCommand,
-    UpdateLifeBudgetCommand, WithdrawCareerApplicationCommand,
+    ApplyCareerCommand, ApplyWelfareProgramCommand, BusinessOperationAction,
+    CancelCareerActivityCommand, CancelInsuranceContractCommand, CancelPropertySaleOrderCommand,
+    CareerArtifactPageQuery, CareerJobsPageQuery, CareerPageQuery, CareerPlatform,
+    CloseIsaAccountCommand, CloseMilitarySavingsCommand, ConfirmCareerInterviewCommand,
+    CreateCorporationCommand, CreateLeaseDepositLoanQuoteCommand, CreateLoanQuoteCommand,
+    CreateMortgageQuoteCommand, CreatePropertySaleOrderCommand, DeclineCareerInvitationCommand,
+    DeclineCareerOfferCommand, EnrollInsuranceContractCommand, ExecuteLoanCommand,
+    FileInsuranceClaimCommand, FocusCareerCommand, HousingListingsQueryState,
+    InsolvencyActionState, InsuranceQueryState, InterviewDecision, LifeBudgetSelectionState,
+    LifeEventsQueryState, LifeFailureCode, LoanInstallmentPageCursor, LoanInstallmentPageQuery,
+    ManageBusinessOperationsCommand, ManualAdvanceCommand, OpenMilitarySavingsCommand,
+    OpenTaxAccountCommand, PayCorporationDividendCommand, PayEssentialArrearCommand,
+    PayLeaseArrearCommand, PensionWithdrawalCommand, PrepareInsolvencyCaseCommand,
+    PrepayLoanCommand, PropertySaleOrderPageQuery, PropertyTaxEventPageQuery,
+    PublishCareerArtifactCommand, PurchasePropertyCommand, RepricePropertySaleOrderCommand,
+    ResolveLifeEventCommand, StartCareerActivityCommand, StartGameCommand, StartGameManifestKind,
+    StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
+    StartingLoanCommand, UpdateCorporationSettingsCommand, UpdateLifeBudgetCommand,
+    WithdrawCareerApplicationCommand,
 };
 use crate::store::{
     OfflineProgressFailure, OfflineProgressSettingStatus, OfflineProgressState,
@@ -270,6 +276,8 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         corporation_templates,
         create_corporation,
         corporation_detail,
+        corporation_operations,
+        manage_corporation_operations,
         update_corporation_settings,
         pay_corporation_dividend,
         corporation_operating_months,
@@ -620,6 +628,19 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         CorporationSnapshot,
         CorporationCreateRequest,
         CorporationCreateResponse,
+        CorporationOperationRequest,
+        BusinessOperationsAvailabilitySnapshot,
+        BusinessContractStatusSnapshot,
+        BusinessPositionStatusSnapshot,
+        BusinessMarketingBandSnapshot,
+        BusinessLoanProductSnapshot,
+        BusinessContractSnapshot,
+        BusinessPositionSnapshot,
+        BusinessMonthlyPlanSnapshot,
+        BusinessMonthSnapshot,
+        BusinessOperationsResponse,
+        BusinessOperationResultSnapshot,
+        BusinessOperationResponse,
         CorporationSettingsRequest,
         CorporationSettingsResponse,
         CorporationPayoutKindRequest,
@@ -882,6 +903,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/corporations/templates", get(corporation_templates))
         .route("/api/corporations", post(create_corporation))
         .route("/api/corporations/{corporationId}", get(corporation_detail))
+        .route(
+            "/api/corporations/{corporationId}/operations",
+            get(corporation_operations).post(manage_corporation_operations),
+        )
         .route(
             "/api/corporations/{corporationId}/settings",
             put(update_corporation_settings),
@@ -4295,6 +4320,59 @@ struct CorporationCreateRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+enum CorporationOperationRequest {
+    AcceptContract {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        contract_id: String,
+    },
+    CancelContract {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        contract_id: String,
+    },
+    HirePosition {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        position_id: String,
+    },
+    TerminatePosition {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        position_id: String,
+    },
+    SetMonthlyPlan {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        marketing_band_id: String,
+        cash_buffer_krw: i64,
+        #[schema(max_items = 50, value_type = Vec<String>)]
+        contract_priority_ids: Vec<String>,
+    },
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CorporationSettingsRequest {
     #[schema(
@@ -4372,6 +4450,142 @@ fn corporation_create_command(
     })
 }
 
+fn corporation_operation_command(
+    corporation_id: ResourceId,
+    request: CorporationOperationRequest,
+) -> Result<ManageBusinessOperationsCommand, LifeFailureCode> {
+    let (
+        command_id,
+        expected_run_revision,
+        expected_state_revision,
+        expected_game_day,
+        revision,
+        action,
+    ) = match request {
+        CorporationOperationRequest::AcceptContract {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            contract_id,
+        } => (
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            BusinessOperationAction::AcceptContract {
+                contract_id: ResourceId::parse(&contract_id)
+                    .map_err(|_| LifeFailureCode::InvalidCommand)?,
+            },
+        ),
+        CorporationOperationRequest::CancelContract {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            contract_id,
+        } => (
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            BusinessOperationAction::CancelContract {
+                contract_id: ResourceId::parse(&contract_id)
+                    .map_err(|_| LifeFailureCode::InvalidCommand)?,
+            },
+        ),
+        CorporationOperationRequest::HirePosition {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            position_id,
+        } => (
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            BusinessOperationAction::HirePosition {
+                position_id: ResourceId::parse(&position_id)
+                    .map_err(|_| LifeFailureCode::InvalidCommand)?,
+            },
+        ),
+        CorporationOperationRequest::TerminatePosition {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            position_id,
+        } => (
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            BusinessOperationAction::TerminatePosition {
+                position_id: ResourceId::parse(&position_id)
+                    .map_err(|_| LifeFailureCode::InvalidCommand)?,
+            },
+        ),
+        CorporationOperationRequest::SetMonthlyPlan {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            marketing_band_id,
+            cash_buffer_krw,
+            contract_priority_ids,
+        } => {
+            if !(0..=MAX_JSON_SAFE_INTEGER as i64).contains(&cash_buffer_krw)
+                || contract_priority_ids.len() > 50
+            {
+                return Err(LifeFailureCode::InvalidCommand);
+            }
+            let contract_priority_ids = contract_priority_ids
+                .into_iter()
+                .map(|id| ResourceId::parse(&id).map_err(|_| LifeFailureCode::InvalidCommand))
+                .collect::<Result<Vec<_>, _>>()?;
+            (
+                command_id,
+                expected_run_revision,
+                expected_state_revision,
+                expected_game_day,
+                expected_revision,
+                BusinessOperationAction::SetMonthlyPlan {
+                    marketing_band_id: ResourceId::parse(&marketing_band_id)
+                        .map_err(|_| LifeFailureCode::InvalidCommand)?,
+                    cash_buffer_krw,
+                    contract_priority_ids,
+                },
+            )
+        }
+    };
+    if revision == 0 || revision > MAX_JSON_SAFE_INTEGER {
+        return Err(LifeFailureCode::InvalidCommand);
+    }
+    let (command_id, cursor) = life_command_parts(
+        command_id,
+        expected_run_revision,
+        expected_state_revision,
+        expected_game_day,
+    )?;
+    Ok(ManageBusinessOperationsCommand {
+        command_id,
+        cursor,
+        corporation_id,
+        expected_revision: revision,
+        action,
+    })
+}
+
 #[utoipa::path(
     get,
     path = "/api/corporations/templates",
@@ -4441,6 +4655,69 @@ async fn corporation_detail(
     let corporation_id =
         ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
     match state.corporation_detail(user.id, corporation_id).await? {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/corporations/{corporationId}/operations",
+    params(("corporationId" = String, Path, description = "현재 run 법인 ID", pattern = "^[1-9][0-9]*$")),
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "고정된 카탈로그와 다음 달 계약·인력·운영 계획", body = BusinessOperationsResponse),
+        (status = 400, description = "법인 ID 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 법인을 찾을 수 없음", body = LifeFailure),
+        (status = 500, description = "법인 운영 상태 조회 또는 invariant 검증 실패"),
+    )
+)]
+async fn corporation_operations(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(corporation_id): Path<String>,
+) -> Result<Json<BusinessOperationsResponse>, LifeRouteError> {
+    let corporation_id =
+        ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    match state
+        .corporation_operations(user.id, corporation_id)
+        .await?
+    {
+        LifeCommandResult::Applied(response) => Ok(Json(*response)),
+        LifeCommandResult::Rejected(code) => Err(code.into()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/corporations/{corporationId}/operations",
+    params(("corporationId" = String, Path, description = "현재 run 법인 ID", pattern = "^[1-9][0-9]*$")),
+    request_body = CorporationOperationRequest,
+    security(("sessionCookie" = [])),
+    responses(
+        (status = 200, description = "계약·인력·월 계획 명령 결과 또는 멱등 재조회", body = BusinessOperationResponse),
+        (status = 400, description = "명령 tag·필드·식별자 형식이 잘못됨", body = LifeFailure),
+        (status = 401, description = "로그인하지 않음"),
+        (status = 404, description = "현재 run의 법인을 찾을 수 없음", body = LifeFailure),
+        (status = 409, description = "cursor·revision·멱등성 또는 대상 상태가 충돌함", body = LifeFailure),
+        (status = 500, description = "법인 운영 명령 transaction 또는 스냅샷 조립 실패"),
+    )
+)]
+async fn manage_corporation_operations(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(corporation_id): Path<String>,
+    request: Result<Json<CorporationOperationRequest>, JsonRejection>,
+) -> Result<Json<BusinessOperationResponse>, LifeRouteError> {
+    let corporation_id =
+        ResourceId::parse(&corporation_id).map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let Json(request) = request.map_err(|_| LifeFailureCode::InvalidCommand)?;
+    let command = corporation_operation_command(corporation_id, request)?;
+    match state
+        .manage_corporation_operations(user.id, &command)
+        .await?
+    {
         LifeCommandResult::Applied(response) => Ok(Json(*response)),
         LifeCommandResult::Rejected(code) => Err(code.into()),
     }

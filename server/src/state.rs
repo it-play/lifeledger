@@ -49,7 +49,11 @@ use crate::store::{
     ActOnInsolvencyCaseCommand, ActiveHousingLeaseState, ActiveLeaseTermState,
     ActiveMilitarySavingsState, ActiveMilitaryServiceState, ActiveWelfareApplicationState,
     AdvanceCommandReceipt, AnnualTaxAssessmentState, AnnualTaxCalculatedState, AnnualTaxYearState,
-    ApplyCareerCommand, ApplyWelfareProgramCommand, CancelCareerActivityCommand,
+    ApplyCareerCommand, ApplyWelfareProgramCommand, BusinessContractState,
+    BusinessContractStatusState, BusinessLoanProductState, BusinessMarketingBandState,
+    BusinessMonthState, BusinessMonthlyPlanState, BusinessOperationReceipt,
+    BusinessOperationResultState, BusinessOperationsAvailabilityState, BusinessOperationsState,
+    BusinessPositionState, BusinessPositionStatusState, CancelCareerActivityCommand,
     CancelInsuranceContractCommand, CancelPropertySaleOrderCommand, CareerActivitiesState,
     CareerActivityCatalogState, CareerActivityState, CareerApplicationReceipt,
     CareerApplicationState, CareerApplicationsPageState, CareerArtifactPageQuery,
@@ -99,22 +103,23 @@ use crate::store::{
     LoanPaymentKindState, LoanPaymentState, LoanPrepaymentReceipt, LoanPrepaymentStatusState,
     LoanProductCatalogState, LoanProductState, LoanQuoteDecisionState, LoanQuoteDsrState,
     LoanQuoteFirstInstallmentState, LoanQuoteLtvState, LoanQuoteReasonState, LoanQuoteReceipt,
-    LoanQuotedTermsState, LoanSummaryState, M2dAssetStore, ManualAdvanceCommand, MarketStore,
-    MilitaryCompensationKind, MilitaryOptionIneligibilityReason, MilitaryOptionState,
-    MilitaryOptionsState, MilitarySavingsClosureReason, MilitarySavingsCommandReceipt,
-    MilitarySavingsContractStatus, MilitarySavingsDayCountConvention,
-    MilitarySavingsHistoryItemState, MilitarySavingsIneligibilityReason,
-    MilitarySavingsInstallmentState, MilitarySavingsInstallmentStatusState,
-    MilitarySavingsInterestRounding, MilitarySavingsInterestTierState,
-    MilitarySavingsMaturityProjectionState, MilitarySavingsPageState, MilitarySavingsProductState,
-    MilitarySavingsProductsState, MilitarySavingsProjectionAssumption,
-    MilitaryServiceCommandReceipt, MilitaryServiceHistoryState, MilitaryServiceSourceKind,
-    MilitaryServiceState, MonthlyRentTerminationReviewTermsState, MonthlyRentTermsState,
-    MortgageExecutionReceipt, MortgageLtvRegionClassState, MortgageQuoteDecisionState,
-    MortgageQuoteReasonState, MortgageQuoteReceipt, MortgageStressTreatmentState,
-    NextLoanInstallmentState, OpenMilitarySavingsCommand, OpenTaxAccountCommand,
-    OpenTaxAccountReceipt, PayCorporationDividendCommand, PayEssentialArrearCommand,
-    PayLeaseArrearCommand, PendingInsuranceClaimState, PendingLifeEventState, PensionAccountState,
+    LoanQuotedTermsState, LoanSummaryState, M2dAssetStore, ManageBusinessOperationsCommand,
+    ManualAdvanceCommand, MarketStore, MilitaryCompensationKind, MilitaryOptionIneligibilityReason,
+    MilitaryOptionState, MilitaryOptionsState, MilitarySavingsClosureReason,
+    MilitarySavingsCommandReceipt, MilitarySavingsContractStatus,
+    MilitarySavingsDayCountConvention, MilitarySavingsHistoryItemState,
+    MilitarySavingsIneligibilityReason, MilitarySavingsInstallmentState,
+    MilitarySavingsInstallmentStatusState, MilitarySavingsInterestRounding,
+    MilitarySavingsInterestTierState, MilitarySavingsMaturityProjectionState,
+    MilitarySavingsPageState, MilitarySavingsProductState, MilitarySavingsProductsState,
+    MilitarySavingsProjectionAssumption, MilitaryServiceCommandReceipt,
+    MilitaryServiceHistoryState, MilitaryServiceSourceKind, MilitaryServiceState,
+    MonthlyRentTerminationReviewTermsState, MonthlyRentTermsState, MortgageExecutionReceipt,
+    MortgageLtvRegionClassState, MortgageQuoteDecisionState, MortgageQuoteReasonState,
+    MortgageQuoteReceipt, MortgageStressTreatmentState, NextLoanInstallmentState,
+    OpenMilitarySavingsCommand, OpenTaxAccountCommand, OpenTaxAccountReceipt,
+    PayCorporationDividendCommand, PayEssentialArrearCommand, PayLeaseArrearCommand,
+    PendingInsuranceClaimState, PendingLifeEventState, PensionAccountState,
     PensionWithdrawalCommand, PensionWithdrawalReceipt, PrepareInsolvencyCaseCommand,
     PrepayLoanCommand, PropertyHoldingPurposeState, PropertyHoldingState,
     PropertyHoldingStatusState, PropertyPurchaseReceipt, PropertySaleExecutionState,
@@ -2084,6 +2089,182 @@ pub struct CorporationOperatingMonthPageResponse {
     pub months: Vec<CorporationOperatingMonthSnapshot>,
     #[schema(required = true, nullable, max_length = 512)]
     pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessOperationsAvailabilitySnapshot {
+    Unavailable,
+    Active,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessContractStatusSnapshot {
+    Offered,
+    Accepted,
+    Active,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessPositionStatusSnapshot {
+    Vacant,
+    Hired,
+    Active,
+    Resigned,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessMarketingBandSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub band_key: String,
+    pub display_name: String,
+    pub band_order: u16,
+    pub monthly_cost_krw: i64,
+    pub offer_slots: u16,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessLoanProductSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub product_key: String,
+    pub display_name: String,
+    pub minimum_principal_krw: i64,
+    pub maximum_principal_krw: i64,
+    pub principal_step_krw: i64,
+    pub monthly_interest_rate_ppm: u32,
+    pub term_months: u16,
+    pub personal_guarantee: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessContractSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub template_key: String,
+    pub display_name: String,
+    pub status: BusinessContractStatusSnapshot,
+    pub service_year: u16,
+    pub service_month: u8,
+    pub required_capacity_units: u16,
+    pub revenue_krw: i64,
+    pub variable_cost_ppm: u32,
+    pub failure_penalty_krw: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessPositionSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub role_key: String,
+    pub display_name: String,
+    pub status: BusinessPositionStatusSnapshot,
+    pub capacity_units: u16,
+    pub monthly_gross_wage_krw: i64,
+    pub employer_cost_rate_ppm: u32,
+    #[schema(required = true, nullable)]
+    pub effective_year: Option<u16>,
+    #[schema(required = true, nullable)]
+    pub effective_month: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessMonthlyPlanSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub effective_year: u16,
+    pub effective_month: u8,
+    pub plan_revision: u64,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub marketing_band_id: ResourceId,
+    pub marketing_band_key: String,
+    pub cash_buffer_krw: i64,
+    #[schema(max_items = 50, value_type = Vec<String>)]
+    pub contract_priority_ids: Vec<ResourceId>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessMonthSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    pub operating_year: u16,
+    pub operating_month: u8,
+    pub total_capacity_units: u32,
+    pub used_capacity_units: u32,
+    pub contract_revenue_krw: i64,
+    pub contract_variable_cost_krw: i64,
+    pub marketing_cost_krw: i64,
+    pub employee_cost_krw: i64,
+    pub failed_contract_penalty_krw: i64,
+    pub completed_contract_count: u16,
+    pub failed_contract_count: u16,
+    pub active_employee_count: u16,
+    pub applied_game_day: u32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessOperationsResponse {
+    pub availability: BusinessOperationsAvailabilitySnapshot,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub corporation_id: ResourceId,
+    #[schema(required = true, nullable, value_type = Option<String>, pattern = "^[1-9][0-9]*$")]
+    pub catalog_version_id: Option<ResourceId>,
+    #[schema(required = true, nullable, pattern = "^[0-9a-f]{64}$")]
+    pub catalog_sha256: Option<String>,
+    pub revision: u64,
+    #[schema(required = true, nullable)]
+    pub next_operating_year: Option<u16>,
+    #[schema(required = true, nullable)]
+    pub next_operating_month: Option<u8>,
+    #[schema(max_items = 8)]
+    pub marketing_bands: Vec<BusinessMarketingBandSnapshot>,
+    #[schema(max_items = 8)]
+    pub loan_products: Vec<BusinessLoanProductSnapshot>,
+    #[schema(max_items = 50)]
+    pub contracts: Vec<BusinessContractSnapshot>,
+    #[schema(max_items = 32)]
+    pub positions: Vec<BusinessPositionSnapshot>,
+    #[schema(required = true, nullable)]
+    pub plan: Option<BusinessMonthlyPlanSnapshot>,
+    #[schema(required = true, nullable)]
+    pub latest_month: Option<BusinessMonthSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum BusinessOperationResultSnapshot {
+    AcceptContract { contract: BusinessContractSnapshot },
+    CancelContract { contract: BusinessContractSnapshot },
+    HirePosition { position: BusinessPositionSnapshot },
+    TerminatePosition { position: BusinessPositionSnapshot },
+    SetMonthlyPlan { plan: BusinessMonthlyPlanSnapshot },
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessOperationResponse {
+    pub result: BusinessOperationResultSnapshot,
+    pub revision: u64,
+    pub replayed: bool,
+    pub snapshot: GameSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -6500,6 +6681,52 @@ impl AppState {
             ))),
             CorporationReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
         }
+    }
+
+    pub async fn corporation_operations(
+        self: &Arc<Self>,
+        user_id: u64,
+        corporation_id: ResourceId,
+    ) -> Result<LifeCommandResult<BusinessOperationsResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        match self
+            .lives
+            .corporation_operations(user_id, corporation_id)
+            .await?
+        {
+            CorporationReadResult::Found(state) => Ok(LifeCommandResult::Applied(Box::new(
+                to_business_operations_response(state)?,
+            ))),
+            CorporationReadResult::Rejected(code) => Ok(LifeCommandResult::Rejected(code)),
+        }
+    }
+
+    pub async fn manage_corporation_operations(
+        self: &Arc<Self>,
+        user_id: u64,
+        command: &ManageBusinessOperationsCommand,
+    ) -> Result<LifeCommandResult<BusinessOperationResponse>> {
+        let runtime = self.runtime(user_id);
+        let _operation = runtime.operation.lock().await;
+        let (receipt, committed) = match self
+            .lives
+            .manage_corporation_operations(user_id, command)
+            .await?
+        {
+            LifeStoreResult::Applied { receipt, save } => (receipt, save),
+            LifeStoreResult::Rejected(code) => return Ok(LifeCommandResult::Rejected(code)),
+        };
+        let snapshot = if receipt.replayed {
+            self.reload_life_without_broadcast(user_id, &runtime, &committed)
+                .await?
+        } else {
+            self.reload_and_broadcast_life(user_id, &runtime, &committed)
+                .await?
+        };
+        Ok(LifeCommandResult::Applied(Box::new(
+            to_business_operation_response(receipt, snapshot)?,
+        )))
     }
 
     pub async fn update_corporation_settings(
@@ -12883,6 +13110,298 @@ fn to_corporation_operating_month_snapshot(
         cash_after_krw: state.cash_after_krw,
         operating_payable_after_krw: state.operating_payable_after_krw,
         retained_earnings_after_krw: state.retained_earnings_after_krw,
+        applied_game_day: state.applied_game_day,
+    })
+}
+
+fn to_business_operations_response(
+    state: BusinessOperationsState,
+) -> Result<BusinessOperationsResponse> {
+    let has_authority = state.availability == BusinessOperationsAvailabilityState::Active;
+    ensure!(
+        state.marketing_bands.len() <= 8
+            && state.loan_products.len() <= 8
+            && state.contracts.len() <= 50
+            && state.positions.len() <= 32
+            && (has_authority
+                == (state.catalog_version_id.is_some()
+                    && state.catalog_sha256.is_some()
+                    && state.next_operating_year.is_some()
+                    && state.next_operating_month.is_some())),
+        "business operations response is outside public bounds"
+    );
+    if let Some(sha256) = state.catalog_sha256.as_deref() {
+        ensure!(
+            is_lower_hex_sha256(sha256),
+            "business catalog SHA is invalid"
+        );
+    }
+    if !has_authority {
+        ensure!(
+            state.revision == 0
+                && state.marketing_bands.is_empty()
+                && state.loan_products.is_empty()
+                && state.contracts.is_empty()
+                && state.positions.is_empty()
+                && state.plan.is_none()
+                && state.latest_month.is_none(),
+            "unavailable business operations exposed authority"
+        );
+    }
+    Ok(BusinessOperationsResponse {
+        availability: match state.availability {
+            BusinessOperationsAvailabilityState::Unavailable => {
+                BusinessOperationsAvailabilitySnapshot::Unavailable
+            }
+            BusinessOperationsAvailabilityState::Active => {
+                BusinessOperationsAvailabilitySnapshot::Active
+            }
+        },
+        corporation_id: state.corporation_id,
+        catalog_version_id: state.catalog_version_id,
+        catalog_sha256: state.catalog_sha256,
+        revision: state.revision,
+        next_operating_year: state.next_operating_year,
+        next_operating_month: state.next_operating_month,
+        marketing_bands: state
+            .marketing_bands
+            .into_iter()
+            .map(to_business_marketing_band_snapshot)
+            .collect::<Result<Vec<_>>>()?,
+        loan_products: state
+            .loan_products
+            .into_iter()
+            .map(to_business_loan_product_snapshot)
+            .collect::<Result<Vec<_>>>()?,
+        contracts: state
+            .contracts
+            .into_iter()
+            .map(to_business_contract_snapshot)
+            .collect::<Result<Vec<_>>>()?,
+        positions: state
+            .positions
+            .into_iter()
+            .map(to_business_position_snapshot)
+            .collect::<Result<Vec<_>>>()?,
+        plan: state
+            .plan
+            .map(to_business_monthly_plan_snapshot)
+            .transpose()?,
+        latest_month: state
+            .latest_month
+            .map(to_business_month_snapshot)
+            .transpose()?,
+    })
+}
+
+fn is_lower_hex_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn to_business_operation_response(
+    receipt: BusinessOperationReceipt,
+    snapshot: GameSnapshot,
+) -> Result<BusinessOperationResponse> {
+    ensure!(
+        receipt.revision > 0,
+        "business operation revision is invalid"
+    );
+    let result = match receipt.result {
+        BusinessOperationResultState::AcceptContract { contract } => {
+            BusinessOperationResultSnapshot::AcceptContract {
+                contract: to_business_contract_snapshot(contract)?,
+            }
+        }
+        BusinessOperationResultState::CancelContract { contract } => {
+            BusinessOperationResultSnapshot::CancelContract {
+                contract: to_business_contract_snapshot(contract)?,
+            }
+        }
+        BusinessOperationResultState::HirePosition { position } => {
+            BusinessOperationResultSnapshot::HirePosition {
+                position: to_business_position_snapshot(position)?,
+            }
+        }
+        BusinessOperationResultState::TerminatePosition { position } => {
+            BusinessOperationResultSnapshot::TerminatePosition {
+                position: to_business_position_snapshot(position)?,
+            }
+        }
+        BusinessOperationResultState::SetMonthlyPlan { plan } => {
+            BusinessOperationResultSnapshot::SetMonthlyPlan {
+                plan: to_business_monthly_plan_snapshot(plan)?,
+            }
+        }
+    };
+    Ok(BusinessOperationResponse {
+        result,
+        revision: receipt.revision,
+        replayed: receipt.replayed,
+        snapshot,
+    })
+}
+
+fn to_business_marketing_band_snapshot(
+    state: BusinessMarketingBandState,
+) -> Result<BusinessMarketingBandSnapshot> {
+    ensure!(
+        is_canonical_welfare_identifier(&state.band_key)
+            && !state.display_name.trim().is_empty()
+            && state.monthly_cost_krw >= 0
+            && state.offer_slots > 0,
+        "business marketing band is invalid"
+    );
+    Ok(BusinessMarketingBandSnapshot {
+        id: state.id,
+        band_key: state.band_key,
+        display_name: state.display_name,
+        band_order: state.band_order,
+        monthly_cost_krw: state.monthly_cost_krw,
+        offer_slots: state.offer_slots,
+    })
+}
+
+fn to_business_loan_product_snapshot(
+    state: BusinessLoanProductState,
+) -> Result<BusinessLoanProductSnapshot> {
+    ensure!(
+        is_canonical_welfare_identifier(&state.product_key)
+            && !state.display_name.trim().is_empty()
+            && state.minimum_principal_krw > 0
+            && state.minimum_principal_krw <= state.maximum_principal_krw
+            && state.principal_step_krw > 0
+            && state.monthly_interest_rate_ppm <= 1_000_000
+            && state.term_months > 0,
+        "business loan product is invalid"
+    );
+    Ok(BusinessLoanProductSnapshot {
+        id: state.id,
+        product_key: state.product_key,
+        display_name: state.display_name,
+        minimum_principal_krw: state.minimum_principal_krw,
+        maximum_principal_krw: state.maximum_principal_krw,
+        principal_step_krw: state.principal_step_krw,
+        monthly_interest_rate_ppm: state.monthly_interest_rate_ppm,
+        term_months: state.term_months,
+        personal_guarantee: state.personal_guarantee,
+    })
+}
+
+fn to_business_contract_snapshot(state: BusinessContractState) -> Result<BusinessContractSnapshot> {
+    ensure!(
+        is_canonical_welfare_identifier(&state.template_key)
+            && !state.display_name.trim().is_empty()
+            && (1..=12).contains(&state.service_month)
+            && state.required_capacity_units > 0
+            && state.revenue_krw > 0
+            && state.variable_cost_ppm <= 1_000_000
+            && state.failure_penalty_krw >= 0,
+        "business contract is invalid"
+    );
+    Ok(BusinessContractSnapshot {
+        id: state.id,
+        template_key: state.template_key,
+        display_name: state.display_name,
+        status: match state.status {
+            BusinessContractStatusState::Offered => BusinessContractStatusSnapshot::Offered,
+            BusinessContractStatusState::Accepted => BusinessContractStatusSnapshot::Accepted,
+            BusinessContractStatusState::Active => BusinessContractStatusSnapshot::Active,
+            BusinessContractStatusState::Completed => BusinessContractStatusSnapshot::Completed,
+            BusinessContractStatusState::Failed => BusinessContractStatusSnapshot::Failed,
+            BusinessContractStatusState::Cancelled => BusinessContractStatusSnapshot::Cancelled,
+        },
+        service_year: state.service_year,
+        service_month: state.service_month,
+        required_capacity_units: state.required_capacity_units,
+        revenue_krw: state.revenue_krw,
+        variable_cost_ppm: state.variable_cost_ppm,
+        failure_penalty_krw: state.failure_penalty_krw,
+    })
+}
+
+fn to_business_position_snapshot(state: BusinessPositionState) -> Result<BusinessPositionSnapshot> {
+    ensure!(
+        is_canonical_welfare_identifier(&state.role_key)
+            && !state.display_name.trim().is_empty()
+            && state.capacity_units > 0
+            && state.monthly_gross_wage_krw > 0
+            && state.employer_cost_rate_ppm <= 1_000_000
+            && (state.effective_year.is_some() == state.effective_month.is_some())
+            && state
+                .effective_month
+                .is_none_or(|month| (1..=12).contains(&month)),
+        "business position is invalid"
+    );
+    Ok(BusinessPositionSnapshot {
+        id: state.id,
+        role_key: state.role_key,
+        display_name: state.display_name,
+        status: match state.status {
+            BusinessPositionStatusState::Vacant => BusinessPositionStatusSnapshot::Vacant,
+            BusinessPositionStatusState::Hired => BusinessPositionStatusSnapshot::Hired,
+            BusinessPositionStatusState::Active => BusinessPositionStatusSnapshot::Active,
+            BusinessPositionStatusState::Resigned => BusinessPositionStatusSnapshot::Resigned,
+            BusinessPositionStatusState::Terminated => BusinessPositionStatusSnapshot::Terminated,
+        },
+        capacity_units: state.capacity_units,
+        monthly_gross_wage_krw: state.monthly_gross_wage_krw,
+        employer_cost_rate_ppm: state.employer_cost_rate_ppm,
+        effective_year: state.effective_year,
+        effective_month: state.effective_month,
+    })
+}
+
+fn to_business_monthly_plan_snapshot(
+    state: BusinessMonthlyPlanState,
+) -> Result<BusinessMonthlyPlanSnapshot> {
+    ensure!(
+        (1..=12).contains(&state.effective_month)
+            && state.plan_revision > 0
+            && is_canonical_welfare_identifier(&state.marketing_band_key)
+            && state.cash_buffer_krw >= 0
+            && state.contract_priority_ids.len() <= 50,
+        "business monthly plan is invalid"
+    );
+    Ok(BusinessMonthlyPlanSnapshot {
+        id: state.id,
+        effective_year: state.effective_year,
+        effective_month: state.effective_month,
+        plan_revision: state.plan_revision,
+        marketing_band_id: state.marketing_band_id,
+        marketing_band_key: state.marketing_band_key,
+        cash_buffer_krw: state.cash_buffer_krw,
+        contract_priority_ids: state.contract_priority_ids,
+    })
+}
+
+fn to_business_month_snapshot(state: BusinessMonthState) -> Result<BusinessMonthSnapshot> {
+    ensure!(
+        (1..=12).contains(&state.operating_month)
+            && state.used_capacity_units <= state.total_capacity_units
+            && state.contract_revenue_krw >= 0
+            && state.contract_variable_cost_krw >= 0
+            && state.marketing_cost_krw >= 0
+            && state.employee_cost_krw >= 0
+            && state.failed_contract_penalty_krw >= 0,
+        "business month is invalid"
+    );
+    Ok(BusinessMonthSnapshot {
+        id: state.id,
+        operating_year: state.operating_year,
+        operating_month: state.operating_month,
+        total_capacity_units: state.total_capacity_units,
+        used_capacity_units: state.used_capacity_units,
+        contract_revenue_krw: state.contract_revenue_krw,
+        contract_variable_cost_krw: state.contract_variable_cost_krw,
+        marketing_cost_krw: state.marketing_cost_krw,
+        employee_cost_krw: state.employee_cost_krw,
+        failed_contract_penalty_krw: state.failed_contract_penalty_krw,
+        completed_contract_count: state.completed_contract_count,
+        failed_contract_count: state.failed_contract_count,
+        active_employee_count: state.active_employee_count,
         applied_game_day: state.applied_game_day,
     })
 }
