@@ -5,7 +5,7 @@
 
 - 최초 작성: 2026-07-25
 - 최근 갱신: 2026-07-29
-- 상태: **M4 전체·M5-A 완료**, M5-B content bundle 다음, 시각 스타일링 보류
+- 상태: **M4 전체·M5-A·M5-B 완료**, M5-C 시즌·리그 다음, 시각 스타일링 보류
 
 ---
 
@@ -550,15 +550,16 @@ SSE만 그 채널을 구독한다. 전역 채널에서 `save_id`로 사후 필�
 
 ## 12. 로드맵
 
-현재 production 완료 상태는 **M0·M1·M2·M3·M4 전체와 M5-A 전체**다. production DB는
-migration `52/52`, 실패 0이며
+현재 production 완료 상태는 **M0·M1·M2·M3·M4 전체와 M5-A·M5-B 전체**다. production DB는
+migration `53/53`, 실패 0이며
 스타일 없는 `/corporation` client까지 Vercel production에 전달됐다. 정상 paired fixture의 1일 step
 10,950회와 30일 step 365회는 같은 day 10950 상태·정규화 SHA-256으로 수렴했고, 별도 append-only run의
 30년 장기 연체와 도산 재기 exclusive 경계도 완료했다. 정확한 수치·불변식·재시작 검증은
 [M4 생애](./m4-life.md) §13.24를 따른다. versioned preset·point budget, 기존 9개 run의 immutable
 manifest 백필, `GET /api/run-options`, `POST /api/runs/point-preview`, strict `POST /api/runs` sandbox 생성과
-스타일 없는 `/new` client는 실제 development production에서 인수했다. 다음 재개는
-[M5 확장](./m5-expansion.md) §1.1의 M5-B content bundle 첫 vertical slice이며 시각 스타일링은 계속 보류한다.
+스타일 없는 `/new` client는 실제 development production에서 인수했다. M5-B에서는 기존 typed authority
+12개를 묶은 immutable content bundle과 새 run manifest pin을 production에서 인수했다. 다음 재개는
+[M5 확장](./m5-expansion.md) §1.1의 M5-C 시즌·리그·랭킹 첫 vertical slice이며 시각 스타일링은 계속 보류한다.
 기존 월드 v1·v2·v3와 그 월드에 고정된 런은 보존하고, M2-D 이후 새 런만 CPI·LLX·금 상품 묶음이 있는 v4를
 사용한다. M3는 style 없는 기능 화면,
 fresh MySQL 8 전진 마이그레이션과 실제 HTTP 스모크까지 완료했다. M3-C는 지급일 귀속 월 급여,
@@ -632,9 +633,10 @@ M2 금융소득, bounded month history까지 server transaction으로 연결했�
 2026-08~2027-01 월 row, 대표 급여, 2026 결산, 배당·replay, 균형 원장과 재시작 불변을 실제 public HTTP와
 DB projection으로 확인했다. 상세 금액·CD run·checksum·hash는 [M4 생애](./m4-life.md) §13.21을 따른다.
 이후 client production, 장기 연체 30년, 도산 재기 경계, paired 1일·30일 30년 동등성까지 같은 문서
-§13.22~§13.24에서 닫아 M4 전체를 완료했다. M5-A catalog·point preview, strict server run start,
-스타일 없는 client의 구현·migration 52·production HTTP/DB/Vercel 인수와 실패 CD 복구 기록,
-정확한 M5-B 재개점은 [M5 확장](./m5-expansion.md) §1.1에 있으며 시각 스타일링은 계속 보류한다.
+§13.22~§13.24에서 닫아 M4 전체를 완료했다. M5-A catalog·point preview, strict server run start와 스타일
+없는 client를 production에서 인수했다. M5-B immutable content bundle·run manifest pin과 migration 53의
+실패 CD 복구·production 인수 기록, 정확한 M5-C 재개점은 [M5 확장](./m5-expansion.md) §1.1에 있으며 시각
+스타일링은 계속 보류한다.
 
 | 마일스톤 | 범위 | 완료 기준 |
 |---------|------|-----------|

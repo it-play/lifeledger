@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4 production 완료, **M5-A 전체 production 완료, M5-B content bundle 다음**
+- 상태: M4 production 완료, **M5-A·M5-B production 완료, M5-C 시즌·리그 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -109,20 +109,46 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
   사용자의 OAuth를 대신 진행하거나 새 session/run을 만들지 않았으므로 server 인수의 DB 10/10 상태는
   그대로 보존했다.
 
-다음 재개는 **M5-B 콘텐츠 seed·versioning·게시의 첫 vertical slice**다. 먼저 `database-schema`와
-`migration-guide` 스킬, 이 문서 §4.1·§4.2·§10을 읽고 아래 순서로 진행한다.
+2026-07-29에 **M5-B를 development production까지 완료**했다.
 
-1. migration `0017_m3a_career_catalog.sql`, `0024_m4a_rule_bundle.sql`, M4의 `life_catalog_set`·사건·복지·보험·
-   법인 typed catalog, `0052_m5a_run_modes_point_budget.sql`을 대조해 현재 published/sealed authority와
-   assignment를 표로 만든다. `content_bundle`이 pin할 exact ID·key/version·source note·canonical ordering과
-   hash 입력을 이 문서 §4.1에 먼저 확정한다. 기존 typed authority를 버리고 generic JSON으로 복제하지 않는다.
-2. 그 설계 뒤 migration `0053`에 immutable bundle header·exact membership·publish/retire 상태·`newRun`
-   assignment를 추가하고 현재 M3/M4 development 콘텐츠로 sealed bundle 하나를 게시한다. 기존 10개
-   `run_manifest`는 hash가 고정된 역사이므로 update/backfill하지 않고 `contentBundleId=null`을 유지한다.
-3. store reader와 start transaction이 새 run에 활성 sealed `content_bundle_id`와 canonical hash를 함께 pin하게
-   연결한다. 참조 존재·sealed 상태·중복·canonical hash처럼 순수 publish 규칙만 작은 BDD로 검증하고,
-   migration `53/53`, 기존 run 10건 보존, 새 sandbox 한 건의 bundle pin과 replay를 production DB/HTTP에서
-   확인한다. 별도 DB·schema·recovery dump와 시각 스타일링은 만들지 않는다.
+- `0053_m5b_content_bundle.sql`은 immutable `content_bundle` header·member·canonical manifest·`newRun`
+  assignment를 추가했다. 기존 typed authority 12개를 8개 kind로 묶은 bundle
+  `dev-unranked-m5-content-2026` v1은 ID 1, schema 1, `rankedEligible=false`, sealed이며 canonical SHA-256은
+  `49e0f5522b690c762672f6ff4177987696a4b04590305ed19558ea77c11f9398`이다. 실제 계산 payload는 원본 typed
+  table에 남고 bundle은 exact ID·key·version·SHA만 고정한다.
+- Rust publish validator는 참조 존재, sealed 상태, 중복 kind/ID, canonical 순서·hash 일치를 순수 규칙으로
+  검증한다. start transaction은 활성 bundle assignment와 revision을 같은 transaction에서 읽고
+  `content_bundle_id`와 SHA를 schema 2 canonical run manifest에 함께 기록한다.
+- 첫 CD `30421402763`은 `0052`가 이미 후속 확장을 위해 예약한 nullable `run_manifest.content_bundle_id`를
+  `0053`이 다시 추가해 실패했다. 새 server를 중지하고 production DB에서 실패한 `0053`이 만든 M5-B table
+  4개와 migration 53 실패 row만 역순 제거했다. 기존 migration·10개 run manifest·사용자 데이터는 건드리지
+  않았고 별도 schema나 복구 dump를 만들지 않았다. `f01d852`에서 예약 컬럼을 재사용하도록 수정한 뒤 CD
+  `30421802244`가 성공했고 migration 52·53은 모두 성공 상태다.
+- 기존 run manifest 10개는 역사 hash를 보존해 `content_bundle_id/content_bundle_sha256=null/null` 그대로다.
+  production HTTP에서 QA save 29의 sandbox를 run 5/state 0/day 0으로 만들었고 새 manifest는 bundle 1과 위
+  SHA를 고정했다. API와 DB manifest SHA는
+  `706ac8026b0b606cfed25248c9fa1244ad48202c2ed279bea3507a1e695c992c`로 일치하며 같은 command/body 재전송은
+  같은 cursor·hash와 `replayed=true`였다. `run_rule_bundle/run_manifest`는 11/11, bundle join 불일치 0,
+  해당 `startGame` identity/receipt 각 1, 열린 InnoDB transaction 0이었다.
+- container는 healthy이고 배포·smoke 구간 WARN/ERROR/panic/failed 로그가 없었다. public same-origin
+  `/api/health`도 200이었다. 검증용 raw token은 DB나 문서에 저장하지 않았고 임시 session row를 삭제해 QA
+  user의 session 0건을 확인했다. check·clippy·fmt와 publish validator·manifest의 작은 BDD만 실행했고
+  DOM/network/DB 단위 테스트나 무관한 전체 회귀는 추가하지 않았다.
+
+다음 재개는 **M5-C 시즌·리그·랭킹의 첫 vertical slice**다. 먼저 `database-schema`·`migration-guide`·
+`api-design`·`security-checklist` 스킬과 이 문서 §2, §4.2, §5.1~§5.3, §8을 읽고 다음 순서로 진행한다.
+
+1. migration `0054` 설계를 이 문서 §5에 먼저 기록한다. immutable ranking rule, season manifest와 상태 전이,
+   preset version/point budget version별 league definition, 공개 이름·참가·완주 상태의 exact key·index·FK를
+   확정한다. 현재 M5-B bundle은 의도적으로 unranked이므로 이를 ranked season에 억지로 연결하지 않는다.
+2. ranked 자격을 갖춘 exact authority set과 content bundle을 새 version으로 게시한 뒤 development season과
+   preset/custom league를 게시한다. `GET /api/run-options`와 `POST /api/runs`의 닫혀 있던 ranked 경로를 이
+   게시 authority에만 연다. season·league·market·policy·content·engine·목표 day가 모두 일치하지 않으면
+   시작 transaction을 실패시킨다.
+3. 목표 day 도달 시 실제 보유 상태를 바꾸지 않는 immutable `run_finalization`·liquidation line과 안정된
+   ranking 정렬을 구현하고 `GET /api/seasons/{id}/leagues`, `GET /api/leagues/{id}/rankings`,
+   `GET /api/runs/{id}/finalization`의 최소 server vertical slice를 연결한다. 순수 결산·동점 규칙만 작은 BDD로
+   검증하고 production migration·ranked start/replay·결산 재시도·공개 조회를 직접 인수한다.
 
 새 `POST /api/runs`가 client에 연결되기 전에도 manifest 없는 run을 허용하지 않는다. 기존
 `POST /api/characters` v1/v2는 호환 기간 동안 **sandbox 전용 legacy start**로 해석하고, 기존 command
