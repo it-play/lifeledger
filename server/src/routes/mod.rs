@@ -40,10 +40,10 @@ use crate::life::{
     LoanProductKind,
 };
 use crate::runs::{
-    CharacterPresetVersion, PointBudgetCatalog, PointBudgetEvaluation, PointBudgetFailure,
-    PointBudgetFailureCode, PointBudgetOption, PointCondition, PointCostKind, PointEffect,
-    PointExclusiveGroup, PointFactComparison, PointFactValue, PointLedgerLine, PointSelection,
-    PointTier, RunMode, RunOptions,
+    CharacterPresetVersion, LeagueDefinition, PointBudgetCatalog, PointBudgetEvaluation,
+    PointBudgetFailure, PointBudgetFailureCode, PointBudgetOption, PointCondition, PointCostKind,
+    PointEffect, PointExclusiveGroup, PointFactComparison, PointFactValue, PointLedgerLine,
+    PointSelection, PointTier, RunMode, RunOptions, SeasonLeagues, SeasonStatus, SeasonSummary,
 };
 use crate::state::{
     ActiveHousingLeaseSnapshot, ActiveLeaseTermSnapshot, ActiveMilitarySavingsStatusSnapshot,
@@ -217,6 +217,7 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         health,
         presets,
         run_options,
+        season_leagues,
         preview_point_budget,
         create_run,
         create_character,
@@ -417,6 +418,10 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         Health,
         RunMode,
         RunOptions,
+        SeasonStatus,
+        SeasonSummary,
+        LeagueDefinition,
+        SeasonLeagues,
         CharacterPresetVersion,
         PointBudgetCatalog,
         PointBudgetOption,
@@ -799,6 +804,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/health", get(health))
         .route("/api/presets", get(presets))
         .route("/api/run-options", get(run_options))
+        .route("/api/seasons/{id}/leagues", get(season_leagues))
         .route("/api/runs/point-preview", post(preview_point_budget))
         .route("/api/runs", post(create_run))
         .route("/api/characters", post(create_character))
@@ -1010,6 +1016,30 @@ async fn run_options(State(state): State<Arc<AppState>>) -> Result<Json<RunOptio
     Ok(Json(state.run_options().await?))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/seasons/{id}/leagues",
+    params(("id" = String, Path, description = "시즌 ID")),
+    responses(
+        (status = 200, description = "시즌과 분리된 공개 리그", body = SeasonLeagues),
+        (status = 400, description = "시즌 ID 형식 오류", body = RunRequestFailure),
+        (status = 404, description = "시즌 없음", body = RunRequestFailure),
+        (status = 500, description = "조회 실패")
+    )
+)]
+async fn season_leagues(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<SeasonLeagues>, PointBudgetPreviewError> {
+    let season_id = parse_run_resource_id(&id)?;
+    let response = state
+        .season_leagues(season_id)
+        .await?
+        .ok_or(PointBudgetPreviewError::VersionNotFound)?;
+
+    Ok(Json(response))
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PointBudgetPreviewRequest {
@@ -1187,8 +1217,18 @@ struct SandboxRunStartRequest {
 }
 
 enum RunStartAction {
-    Start(StartGameCommand),
-    ModeUnavailable,
+    Start(Box<StartGameCommand>),
+    RankedPreset {
+        command_id: CommandId,
+        cursor: CommandCursor,
+        preset_version_id: ResourceId,
+    },
+    RankedCustom {
+        command_id: CommandId,
+        cursor: CommandCursor,
+        budget_version_id: ResourceId,
+        selections: Vec<PointSelection>,
+    },
 }
 
 impl RunStartRequest {
@@ -1203,38 +1243,47 @@ impl RunStartRequest {
 
 impl RankedPresetRunStartRequest {
     fn into_action(self) -> Result<RunStartAction, GameLoopError> {
-        parse_start_command_id(self.command_id)?;
-        parse_start_resource_id(&self.character_preset_version_id)?;
-        let _ = start_cursor(
-            self.expected_run_revision,
-            self.expected_state_revision,
-            self.expected_game_day,
-        );
-
-        Ok(RunStartAction::ModeUnavailable)
+        Ok(RunStartAction::RankedPreset {
+            command_id: parse_start_command_id(self.command_id)?,
+            cursor: start_cursor(
+                self.expected_run_revision,
+                self.expected_state_revision,
+                self.expected_game_day,
+            ),
+            preset_version_id: parse_start_resource_id(&self.character_preset_version_id)?,
+        })
     }
 }
 
 impl RankedCustomRunStartRequest {
     fn into_action(self) -> Result<RunStartAction, GameLoopError> {
-        parse_start_command_id(self.command_id)?;
-        parse_start_resource_id(&self.point_budget_version_id)?;
         if self.selections.len() > 64 {
             return Err(GameLoopError::InvalidCommand);
         }
-        for selection in self.selections {
-            parse_start_resource_id(&selection.option_id)?;
-            if selection.quantity == 0 || selection.quantity > 1_000_000 {
-                return Err(GameLoopError::InvalidCommand);
-            }
-        }
-        let _ = start_cursor(
-            self.expected_run_revision,
-            self.expected_state_revision,
-            self.expected_game_day,
-        );
+        let selections = self
+            .selections
+            .into_iter()
+            .map(|selection| {
+                if selection.quantity == 0 || selection.quantity > 1_000_000 {
+                    return Err(GameLoopError::InvalidCommand);
+                }
+                Ok(PointSelection {
+                    option_id: parse_start_resource_id(&selection.option_id)?,
+                    quantity: selection.quantity,
+                })
+            })
+            .collect::<Result<Vec<_>, GameLoopError>>()?;
 
-        Ok(RunStartAction::ModeUnavailable)
+        Ok(RunStartAction::RankedCustom {
+            command_id: parse_start_command_id(self.command_id)?,
+            cursor: start_cursor(
+                self.expected_run_revision,
+                self.expected_state_revision,
+                self.expected_game_day,
+            ),
+            budget_version_id: parse_start_resource_id(&self.point_budget_version_id)?,
+            selections,
+        })
     }
 }
 
@@ -1251,7 +1300,7 @@ impl SandboxRunStartRequest {
         .into_command()?;
         command.manifest_kind = StartGameManifestKind::Sandbox;
 
-        Ok(RunStartAction::Start(command))
+        Ok(RunStartAction::Start(Box::new(command)))
     }
 }
 
@@ -1293,9 +1342,44 @@ async fn create_run(
     let Json(request) =
         request.map_err(|_| CreateRunError::Command(GameLoopError::InvalidCommand))?;
     let command = match request.into_action().map_err(CreateRunError::Command)? {
-        RunStartAction::Start(command) => command,
-        RunStartAction::ModeUnavailable => return Err(CreateRunError::ModeUnavailable),
+        RunStartAction::Start(command) => *command,
+        RunStartAction::RankedPreset {
+            command_id,
+            cursor,
+            preset_version_id,
+        } => {
+            let preparation = state
+                .prepare_ranked_preset(preset_version_id)
+                .await?
+                .ok_or(CreateRunError::ModeUnavailable)?;
+            StartGameCommand {
+                command_id,
+                cursor,
+                draft: preparation.draft,
+                starting_loans: None,
+                manifest_kind: StartGameManifestKind::Ranked(preparation.context),
+            }
+        }
+        RunStartAction::RankedCustom {
+            command_id,
+            cursor,
+            budget_version_id,
+            selections,
+        } => {
+            let preparation = state
+                .prepare_ranked_custom(budget_version_id, &selections)
+                .await?
+                .ok_or(CreateRunError::ModeUnavailable)?;
+            StartGameCommand {
+                command_id,
+                cursor,
+                draft: preparation.draft,
+                starting_loans: None,
+                manifest_kind: StartGameManifestKind::Ranked(preparation.context),
+            }
+        }
     };
+    let expected_mode = command.manifest_kind.run_mode();
     let response = state
         .start_game(user.id, &command)
         .await
@@ -1305,7 +1389,7 @@ async fn create_run(
         .run_manifest(user.id, run_revision)
         .await?
         .ok_or_else(|| anyhow::anyhow!("committed run has no manifest"))?;
-    if manifest.run_revision != run_revision || manifest.mode != RunMode::Sandbox {
+    if manifest.run_revision != run_revision || manifest.mode != expected_mode {
         return Err(anyhow::anyhow!("committed run manifest disagrees with response").into());
     }
 
@@ -1751,6 +1835,11 @@ impl axum::response::IntoResponse for GameCommandError {
                 StatusCode::CONFLICT,
                 GameCommandFailureCode::CharacterRequired,
                 "먼저 캐릭터를 생성해야 합니다",
+            ),
+            GameLoopError::ModeUnavailable => (
+                StatusCode::CONFLICT,
+                GameCommandFailureCode::ModeUnavailable,
+                "현재 게시된 ranked season에서 이 실행을 시작할 수 없습니다",
             ),
             GameLoopError::ActiveStreamRequired => (
                 StatusCode::CONFLICT,
@@ -8039,10 +8128,11 @@ mod tests {
 
             assert!(matches!(
                 action,
-                RunStartAction::Start(StartGameCommand {
-                    manifest_kind: StartGameManifestKind::Sandbox,
-                    ..
-                })
+                RunStartAction::Start(command)
+                    if matches!(
+                        command.manifest_kind,
+                        StartGameManifestKind::Sandbox
+                    )
             ));
         }
 
@@ -8060,7 +8150,7 @@ mod tests {
         }
 
         #[test]
-        fn given_valid_ranked_shape_without_season_when_converted_then_mode_is_unavailable() {
+        fn given_valid_ranked_shape_when_converted_then_ranked_selection_is_preserved() {
             let request = serde_json::from_value::<RunStartRequest>(serde_json::json!({
                 "mode": "rankedCustom",
                 "commandId": "4f521f4c-9dd8-4d20-8e1f-15cb13cbe0f2",
@@ -8074,7 +8164,18 @@ mod tests {
 
             let action = request.into_action().expect("구조 검증은 통과해야 한다");
 
-            assert!(matches!(action, RunStartAction::ModeUnavailable));
+            assert!(matches!(
+                action,
+                RunStartAction::RankedCustom {
+                    budget_version_id,
+                    selections,
+                    ..
+                } if budget_version_id == ResourceId::from_u64(1)
+                    && selections == vec![PointSelection {
+                        option_id: ResourceId::from_u64(1),
+                        quantity: 1,
+                    }]
+            ));
         }
 
         #[test]

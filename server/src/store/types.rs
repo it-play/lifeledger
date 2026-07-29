@@ -36,7 +36,10 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{MarketCalibration, MarketDay, MarketWorld};
-use crate::runs::{PointBudgetEvaluation, PointSelection, RunManifestSummary, RunOptions};
+use crate::runs::{
+    PointBudgetEvaluation, PointSelection, RankedRunContext, RankedRunPreparation,
+    RunManifestSummary, RunMode, RunOptions, SeasonLeagues,
+};
 use crate::trading::{PositionState, TradeExecution, TradeFailure, TradeOrder};
 
 use super::annual_tax::AnnualTaxYearState;
@@ -3238,10 +3241,20 @@ pub struct StartingLoanCommand {
     pub principal_krw: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartGameManifestKind {
     LegacySandbox,
     Sandbox,
+    Ranked(RankedRunContext),
+}
+
+impl StartGameManifestKind {
+    pub const fn run_mode(&self) -> RunMode {
+        match self {
+            Self::LegacySandbox | Self::Sandbox => RunMode::Sandbox,
+            Self::Ranked(context) => context.mode,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3287,6 +3300,7 @@ pub enum GameCommandRejection {
     IdempotencyConflict,
     Busy,
     CharacterRequired,
+    ModeUnavailable,
 }
 
 /// Versioned pointer used to prepare a new run without an active-world ABA race.
@@ -3580,6 +3594,19 @@ pub trait UserStore: Send + Sync + 'static {
 #[async_trait]
 pub trait RunStore: Send + Sync + 'static {
     async fn run_options(&self) -> Result<RunOptions>;
+
+    async fn season_leagues(&self, season_id: ResourceId) -> Result<Option<SeasonLeagues>>;
+
+    async fn prepare_ranked_preset(
+        &self,
+        preset_version_id: ResourceId,
+    ) -> Result<Option<RankedRunPreparation>>;
+
+    async fn prepare_ranked_custom(
+        &self,
+        budget_version_id: ResourceId,
+        selections: &[PointSelection],
+    ) -> Result<Option<RankedRunPreparation>>;
 
     async fn preview_point_budget(
         &self,

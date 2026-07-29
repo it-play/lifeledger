@@ -9,10 +9,11 @@ use super::types::RunStore;
 use crate::character::CharacterDraft;
 use crate::finance::ResourceId;
 use crate::runs::{
-    CharacterPresetVersion, PointBudgetCatalog, PointBudgetEvaluation, PointBudgetOption,
-    PointBudgetRules, PointCondition, PointCostKind, PointEffect, PointExclusiveGroup,
-    PointFactComparison, PointFactValue, PointSelection, PointTier, RunManifestSummary, RunMode,
-    RunOptions, create_point_budget_rules,
+    CharacterPresetVersion, LeagueDefinition, PointBudgetCatalog, PointBudgetEvaluation,
+    PointBudgetOption, PointBudgetRules, PointCondition, PointCostKind, PointEffect,
+    PointExclusiveGroup, PointFactComparison, PointFactValue, PointSelection, PointTier,
+    RankedRunContext, RankedRunPreparation, RunManifestSummary, RunMode, RunOptions, SeasonLeagues,
+    SeasonStatus, SeasonSummary, create_point_budget_rules,
 };
 
 #[derive(Clone)]
@@ -99,9 +100,62 @@ struct ManifestRow {
     manifest_sha256: String,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct SeasonRow {
+    id: u64,
+    season_key: String,
+    version_no: u32,
+    display_name: String,
+    status: String,
+    target_game_day: u32,
+    registration_open_at: String,
+    registration_close_at: String,
+    operation_close_at: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct LeagueRow {
+    id: u64,
+    season_id: u64,
+    league_key: String,
+    display_name: String,
+    mode: String,
+    character_preset_version_id: Option<u64>,
+    point_budget_version_id: Option<u64>,
+    minimum_participants: u32,
+    participant_count: u64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct RankedContextRow {
+    season_id: u64,
+    league_definition_id: u64,
+    mode: String,
+    season_assignment_revision: u64,
+    ranked_ruleset_release_id: u64,
+    ranked_ruleset_release_sha256: String,
+    ranking_rule_version_id: u64,
+    ranking_rule_sha256: String,
+    target_game_day: u32,
+    character_preset_version_id: Option<u64>,
+    point_budget_version_id: Option<u64>,
+}
+
 #[async_trait]
 impl RunStore for MySqlRunStore {
     async fn run_options(&self) -> Result<RunOptions> {
+        let active_season_id = sqlx::query_scalar::<_, u64>(
+            "SELECT season_row.id
+             FROM season_assignment AS assignment
+             INNER JOIN season AS season_row ON season_row.id = assignment.season_id
+             WHERE assignment.assignment_key = 'rankedRun'
+               AND season_row.status IN ('registrationOpen', 'active')
+               AND CURRENT_TIMESTAMP(6) >= season_row.registration_open_at
+               AND CURRENT_TIMESTAMP(6) < season_row.registration_close_at",
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .map(ResourceId::from_u64);
         let presets = sqlx::query_as::<_, PresetRow>(
             "SELECT id, preset_key, version_no, display_name, summary, ranked_eligible,
                     canonical_draft_json, canonical_sha256
@@ -140,11 +194,166 @@ impl RunStore for MySqlRunStore {
                 RunMode::RankedCustom,
                 RunMode::Sandbox,
             ],
-            active_season_id: None,
+            active_season_id,
             presets,
             point_budgets,
             sandbox_available: true,
         })
+    }
+
+    async fn season_leagues(&self, season_id: ResourceId) -> Result<Option<SeasonLeagues>> {
+        let season = sqlx::query_as::<_, SeasonRow>(
+            "SELECT season_row.id, season_row.season_key, season_row.version_no,
+                    season_row.display_name, season_row.status, ranking_rule.target_game_day,
+                    DATE_FORMAT(
+                        season_row.registration_open_at,
+                        '%Y-%m-%dT%H:%i:%s.%fZ'
+                    ) AS registration_open_at,
+                    DATE_FORMAT(
+                        season_row.registration_close_at,
+                        '%Y-%m-%dT%H:%i:%s.%fZ'
+                    ) AS registration_close_at,
+                    DATE_FORMAT(
+                        season_row.operation_close_at,
+                        '%Y-%m-%dT%H:%i:%s.%fZ'
+                    ) AS operation_close_at
+             FROM season AS season_row
+             INNER JOIN ranking_rule_version AS ranking_rule
+                ON ranking_rule.id = season_row.ranking_rule_version_id
+               AND BINARY ranking_rule.ranking_rule_sha256
+                    = BINARY season_row.ranking_rule_sha256
+             WHERE season_row.id = ?",
+        )
+        .bind(season_id.get())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(season) = season else {
+            return Ok(None);
+        };
+        let season_status = to_season_status(&season.status)?;
+        let league_rows = sqlx::query_as::<_, LeagueRow>(
+            "SELECT league.id, league.season_id, league.league_key, league.display_name,
+                    league.mode, league.character_preset_version_id,
+                    league.point_budget_version_id, league.minimum_participants,
+                    COUNT(manifest.save_id) AS participant_count
+             FROM league_definition AS league
+             LEFT JOIN run_manifest AS manifest
+               ON manifest.season_id = league.season_id
+              AND manifest.league_definition_id = league.id
+              AND manifest.ranking_eligible = TRUE
+             WHERE league.season_id = ?
+             GROUP BY league.id, league.season_id, league.league_key, league.display_name,
+                      league.mode, league.character_preset_version_id,
+                      league.point_budget_version_id, league.minimum_participants,
+                      league.display_order
+             ORDER BY league.display_order, league.id",
+        )
+        .bind(season_id.get())
+        .fetch_all(&self.pool)
+        .await?;
+        let leagues = league_rows
+            .into_iter()
+            .map(|league| {
+                Ok(LeagueDefinition {
+                    id: ResourceId::from_u64(league.id),
+                    season_id: ResourceId::from_u64(league.season_id),
+                    league_key: league.league_key,
+                    display_name: league.display_name,
+                    mode: to_run_mode(&league.mode)?,
+                    character_preset_version_id: league
+                        .character_preset_version_id
+                        .map(ResourceId::from_u64),
+                    point_budget_version_id: league
+                        .point_budget_version_id
+                        .map(ResourceId::from_u64),
+                    minimum_participants: league.minimum_participants,
+                    participant_count: league.participant_count,
+                    provisional: season_status != SeasonStatus::Finalized
+                        || league.participant_count < u64::from(league.minimum_participants),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Some(SeasonLeagues {
+            season: SeasonSummary {
+                id: ResourceId::from_u64(season.id),
+                season_key: season.season_key,
+                version: season.version_no,
+                display_name: season.display_name,
+                status: season_status,
+                target_game_day: season.target_game_day,
+                registration_open_at: season.registration_open_at,
+                registration_close_at: season.registration_close_at,
+                operation_close_at: season.operation_close_at,
+            },
+            leagues,
+        }))
+    }
+
+    async fn prepare_ranked_preset(
+        &self,
+        preset_version_id: ResourceId,
+    ) -> Result<Option<RankedRunPreparation>> {
+        let Some(context) =
+            read_ranked_context(&self.pool, RunMode::RankedPreset, preset_version_id).await?
+        else {
+            return Ok(None);
+        };
+        let preset = sqlx::query_as::<_, PresetRow>(
+            "SELECT id, preset_key, version_no, display_name, summary, ranked_eligible,
+                    canonical_draft_json, canonical_sha256
+             FROM character_preset_version
+             WHERE id = ? AND status = 'sealed'",
+        )
+        .bind(preset_version_id.get())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(preset) = preset else {
+            return Ok(None);
+        };
+
+        Ok(Some(RankedRunPreparation {
+            context: to_ranked_context(context, "[]".to_owned())?,
+            draft: to_preset(preset)?.draft,
+        }))
+    }
+
+    async fn prepare_ranked_custom(
+        &self,
+        budget_version_id: ResourceId,
+        selections: &[PointSelection],
+    ) -> Result<Option<RankedRunPreparation>> {
+        let Some(context) =
+            read_ranked_context(&self.pool, RunMode::RankedCustom, budget_version_id).await?
+        else {
+            return Ok(None);
+        };
+        let budget = sqlx::query_as::<_, BudgetRow>(
+            "SELECT id, budget_key, version_no, display_name, description,
+                    total_points, ranked_eligible, canonical_sha256
+             FROM point_budget_version
+             WHERE id = ? AND status = 'sealed'",
+        )
+        .bind(budget_version_id.get())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(budget) = budget else {
+            return Ok(None);
+        };
+        let catalog = read_budget_children(&self.pool, budget).await?;
+        let prepared = self.rules.prepare(&catalog, selections);
+        let Some(draft) = prepared.draft else {
+            return Ok(None);
+        };
+        let mut canonical_selections = selections.to_vec();
+        canonical_selections.sort_by_key(|selection| selection.option_id.get());
+        let canonical_selections_json = serde_json::to_string(&canonical_selections)
+            .context("failed to serialize ranked point selections")?;
+
+        Ok(Some(RankedRunPreparation {
+            context: to_ranked_context(context, canonical_selections_json)?,
+            draft,
+        }))
     }
 
     async fn preview_point_budget(
@@ -207,6 +416,73 @@ fn to_preset(row: PresetRow) -> Result<CharacterPresetVersion> {
         ranked_eligible: row.ranked_eligible,
         canonical_sha256: row.canonical_sha256,
         draft,
+    })
+}
+
+async fn read_ranked_context(
+    pool: &MySqlPool,
+    mode: RunMode,
+    version_id: ResourceId,
+) -> Result<Option<RankedContextRow>> {
+    let mode = match mode {
+        RunMode::RankedPreset => "rankedPreset",
+        RunMode::RankedCustom => "rankedCustom",
+        RunMode::Sandbox => bail!("sandbox has no ranked context"),
+    };
+    sqlx::query_as::<_, RankedContextRow>(
+        "SELECT season_row.id AS season_id, league.id AS league_definition_id,
+                league.mode, assignment.assignment_revision AS season_assignment_revision,
+                release_row.id AS ranked_ruleset_release_id,
+                release_row.release_sha256 AS ranked_ruleset_release_sha256,
+                ranking_rule.id AS ranking_rule_version_id,
+                ranking_rule.ranking_rule_sha256, ranking_rule.target_game_day,
+                league.character_preset_version_id, league.point_budget_version_id
+         FROM season_assignment AS assignment
+         INNER JOIN season AS season_row ON season_row.id = assignment.season_id
+         INNER JOIN ranked_ruleset_release AS release_row
+            ON release_row.id = season_row.ranked_ruleset_release_id
+           AND BINARY release_row.release_sha256
+                = BINARY season_row.ranked_ruleset_release_sha256
+         INNER JOIN ranking_rule_version AS ranking_rule
+            ON ranking_rule.id = season_row.ranking_rule_version_id
+           AND BINARY ranking_rule.ranking_rule_sha256 = BINARY season_row.ranking_rule_sha256
+         INNER JOIN league_definition AS league ON league.season_id = season_row.id
+         WHERE assignment.assignment_key = 'rankedRun'
+           AND season_row.status IN ('registrationOpen', 'active')
+           AND CURRENT_TIMESTAMP(6) >= season_row.registration_open_at
+           AND CURRENT_TIMESTAMP(6) < season_row.registration_close_at
+           AND league.mode = ?
+           AND (
+               (league.mode = 'rankedPreset' AND league.character_preset_version_id = ?)
+               OR (league.mode = 'rankedCustom' AND league.point_budget_version_id = ?)
+           )",
+    )
+    .bind(mode)
+    .bind(version_id.get())
+    .bind(version_id.get())
+    .fetch_optional(pool)
+    .await
+    .map_err(Into::into)
+}
+
+fn to_ranked_context(
+    row: RankedContextRow,
+    canonical_selections_json: String,
+) -> Result<RankedRunContext> {
+    let mode = to_run_mode(&row.mode)?;
+    Ok(RankedRunContext {
+        mode,
+        season_id: ResourceId::from_u64(row.season_id),
+        league_definition_id: ResourceId::from_u64(row.league_definition_id),
+        season_assignment_revision: row.season_assignment_revision,
+        ranked_ruleset_release_id: ResourceId::from_u64(row.ranked_ruleset_release_id),
+        ranked_ruleset_release_sha256: row.ranked_ruleset_release_sha256,
+        ranking_rule_version_id: ResourceId::from_u64(row.ranking_rule_version_id),
+        ranking_rule_sha256: row.ranking_rule_sha256,
+        target_game_day: row.target_game_day,
+        character_preset_version_id: row.character_preset_version_id.map(ResourceId::from_u64),
+        point_budget_version_id: row.point_budget_version_id.map(ResourceId::from_u64),
+        canonical_selections_json,
     })
 }
 
@@ -335,6 +611,18 @@ fn to_run_mode(raw: &str) -> Result<RunMode> {
         "rankedCustom" => Ok(RunMode::RankedCustom),
         "sandbox" => Ok(RunMode::Sandbox),
         _ => bail!("stored run mode is invalid"),
+    }
+}
+
+fn to_season_status(raw: &str) -> Result<SeasonStatus> {
+    match raw {
+        "draft" => Ok(SeasonStatus::Draft),
+        "registrationOpen" => Ok(SeasonStatus::RegistrationOpen),
+        "active" => Ok(SeasonStatus::Active),
+        "locked" => Ok(SeasonStatus::Locked),
+        "finalized" => Ok(SeasonStatus::Finalized),
+        "archived" => Ok(SeasonStatus::Archived),
+        _ => bail!("stored season status is invalid"),
     }
 }
 

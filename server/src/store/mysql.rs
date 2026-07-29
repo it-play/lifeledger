@@ -109,6 +109,7 @@ use crate::life::{
     create_property_tax_rules, create_welfare_rules,
 };
 use crate::market::MarketDay;
+use crate::runs::{RankedRunContext, RunMode};
 use crate::trading::{
     AccountId, LLX_SYMBOL, OrderSide, PositionState, TradeCharges, TradeExecution, TradeFailure,
     TradeOrder, apply_trade_with_charges, checked_net_worth_krw, value_portfolio,
@@ -363,6 +364,16 @@ impl SaveStore for MySqlSaveStore {
         .await
         .context("active content bundle is not sealed")?;
 
+        if let StartGameManifestKind::Ranked(context) = &command.manifest_kind
+            && !ranked_context_is_active(&mut tx, context, &expected, &content_bundle_sha256)
+                .await?
+        {
+            tx.commit().await?;
+            return Ok(StartGameResult::Rejected(
+                GameCommandRejection::ModeUnavailable,
+            ));
+        }
+
         write_command_identity(&mut tx, save_id, &identity).await?;
 
         cancel_tax_accounts_for_new_run(
@@ -553,43 +564,14 @@ impl SaveStore for MySqlSaveStore {
         .bind(expected.rule_bundle.assignment_revision)
         .execute(&mut *tx)
         .await?;
-        let ranking_ineligibility_reason = match command.manifest_kind {
-            StartGameManifestKind::LegacySandbox => "legacyStartEndpoint",
-            StartGameManifestKind::Sandbox => "sandboxMode",
-        };
-        let manifest_canonical_json = sandbox_manifest_canonical(
+        write_run_manifest_in_tx(
+            &mut tx,
             save_id,
             new_run_revision,
             &expected,
             &content_bundle_sha256,
-            ranking_ineligibility_reason,
-        )?;
-        sqlx::query(
-            "INSERT INTO run_manifest
-                 (save_id, run_revision, mode, market_world_id, policy_set_id,
-                  career_catalog_bundle_id, employment_policy_set_id, life_catalog_set_id,
-                  credit_model_version_id, real_estate_model_version_id,
-                  content_bundle_id, content_bundle_sha256,
-                  canonical_selections_json, engine_version, start_game_day,
-                  ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
-             VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
-                     FALSE, ?, ?)",
+            &command.manifest_kind,
         )
-        .bind(save_id)
-        .bind(new_run_revision)
-        .bind(expected.market_world.world_id)
-        .bind(expected.policy_set.policy_set_id.get())
-        .bind(expected.career_catalog.bundle_id.get())
-        .bind(expected.employment_policy.policy_set_id.get())
-        .bind(expected.rule_bundle.life_catalog_set_id.get())
-        .bind(expected.rule_bundle.credit_model_version_id.get())
-        .bind(expected.rule_bundle.real_estate_model_version_id.get())
-        .bind(expected.content_bundle.bundle_id.get())
-        .bind(&content_bundle_sha256)
-        .bind(M5A_ENGINE_VERSION)
-        .bind(ranking_ineligibility_reason)
-        .bind(manifest_canonical_json)
-        .execute(&mut *tx)
         .await?;
         let (market_date, cpi_index): (time::Date, Option<i64>) = sqlx::query_as(
             "SELECT market_date, cpi_index FROM market_daily
@@ -1944,19 +1926,213 @@ fn validate_advance_steps(
     Ok(())
 }
 
+async fn write_run_manifest_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    save_id: u64,
+    run_revision: u32,
+    configuration: &ActiveRunConfiguration,
+    content_bundle_sha256: &str,
+    manifest_kind: &StartGameManifestKind,
+) -> Result<()> {
+    match manifest_kind {
+        StartGameManifestKind::LegacySandbox | StartGameManifestKind::Sandbox => {
+            let ranking_ineligibility_reason = match manifest_kind {
+                StartGameManifestKind::LegacySandbox => "legacyStartEndpoint",
+                StartGameManifestKind::Sandbox => "sandboxMode",
+                StartGameManifestKind::Ranked(_) => unreachable!(),
+            };
+            let manifest_canonical_json = sandbox_manifest_canonical(
+                save_id,
+                run_revision,
+                configuration,
+                content_bundle_sha256,
+                ranking_ineligibility_reason,
+            )?;
+            sqlx::query(
+                "INSERT INTO run_manifest
+                     (save_id, run_revision, mode, market_world_id, policy_set_id,
+                      career_catalog_bundle_id, employment_policy_set_id, life_catalog_set_id,
+                      credit_model_version_id, real_estate_model_version_id,
+                      content_bundle_id, content_bundle_sha256,
+                      canonical_selections_json, engine_version, start_game_day,
+                      ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
+                 VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
+                         FALSE, ?, ?)",
+            )
+            .bind(save_id)
+            .bind(run_revision)
+            .bind(configuration.market_world.world_id)
+            .bind(configuration.policy_set.policy_set_id.get())
+            .bind(configuration.career_catalog.bundle_id.get())
+            .bind(configuration.employment_policy.policy_set_id.get())
+            .bind(configuration.rule_bundle.life_catalog_set_id.get())
+            .bind(configuration.rule_bundle.credit_model_version_id.get())
+            .bind(configuration.rule_bundle.real_estate_model_version_id.get())
+            .bind(configuration.content_bundle.bundle_id.get())
+            .bind(content_bundle_sha256)
+            .bind(M5A_ENGINE_VERSION)
+            .bind(ranking_ineligibility_reason)
+            .bind(manifest_canonical_json)
+            .execute(&mut **tx)
+            .await?;
+        }
+        StartGameManifestKind::Ranked(context) => {
+            let manifest_canonical_json = ranked_manifest_canonical(
+                save_id,
+                run_revision,
+                configuration,
+                content_bundle_sha256,
+                context,
+            )?;
+            let mode = run_mode_db_value(context.mode)?;
+            sqlx::query(
+                "INSERT INTO run_manifest
+                     (save_id, run_revision, mode, season_id, league_definition_id,
+                      season_assignment_revision, ranked_ruleset_release_id,
+                      ranked_ruleset_release_sha256, ranking_rule_version_id,
+                      ranking_rule_sha256, market_world_id, policy_set_id,
+                      career_catalog_bundle_id, employment_policy_set_id,
+                      life_catalog_set_id, credit_model_version_id,
+                      real_estate_model_version_id, content_bundle_id, content_bundle_sha256,
+                      character_preset_version_id, point_budget_version_id,
+                      canonical_selections_json, engine_version, start_game_day,
+                      target_game_day, ranking_eligible, ranking_ineligibility_reason,
+                      manifest_canonical_json)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                         0, ?, TRUE, NULL, ?)",
+            )
+            .bind(save_id)
+            .bind(run_revision)
+            .bind(mode)
+            .bind(context.season_id.get())
+            .bind(context.league_definition_id.get())
+            .bind(context.season_assignment_revision)
+            .bind(context.ranked_ruleset_release_id.get())
+            .bind(&context.ranked_ruleset_release_sha256)
+            .bind(context.ranking_rule_version_id.get())
+            .bind(&context.ranking_rule_sha256)
+            .bind(configuration.market_world.world_id)
+            .bind(configuration.policy_set.policy_set_id.get())
+            .bind(configuration.career_catalog.bundle_id.get())
+            .bind(configuration.employment_policy.policy_set_id.get())
+            .bind(configuration.rule_bundle.life_catalog_set_id.get())
+            .bind(configuration.rule_bundle.credit_model_version_id.get())
+            .bind(configuration.rule_bundle.real_estate_model_version_id.get())
+            .bind(configuration.content_bundle.bundle_id.get())
+            .bind(content_bundle_sha256)
+            .bind(context.character_preset_version_id.map(ResourceId::get))
+            .bind(context.point_budget_version_id.map(ResourceId::get))
+            .bind(&context.canonical_selections_json)
+            .bind(M5A_ENGINE_VERSION)
+            .bind(context.target_game_day)
+            .bind(manifest_canonical_json)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
 fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
     let legacy_canonical = match &command.starting_loans {
         Some(starting_loans) => start_game_v2_canonical(command, starting_loans)?,
         None => start_game_v1_canonical(command)?,
     };
-    let canonical = match command.manifest_kind {
+    let canonical = match &command.manifest_kind {
         StartGameManifestKind::LegacySandbox => legacy_canonical,
         StartGameManifestKind::Sandbox => {
             format!("lifeledger.run.start.sandbox.v1\n{legacy_canonical}")
         }
+        StartGameManifestKind::Ranked(context) => format!(
+            concat!(
+                "lifeledger.run.start.ranked.v1\n",
+                "mode={}\n",
+                "seasonId={}\n",
+                "leagueDefinitionId={}\n",
+                "seasonAssignmentRevision={}\n",
+                "rankedRulesetReleaseId={}\n",
+                "rankedRulesetReleaseSha256={}\n",
+                "rankingRuleVersionId={}\n",
+                "rankingRuleSha256={}\n",
+                "targetGameDay={}\n",
+                "characterPresetVersionId={}\n",
+                "pointBudgetVersionId={}\n",
+                "selections={}\n",
+                "{}"
+            ),
+            run_mode_db_value(context.mode)?,
+            context.season_id.get(),
+            context.league_definition_id.get(),
+            context.season_assignment_revision,
+            context.ranked_ruleset_release_id.get(),
+            context.ranked_ruleset_release_sha256,
+            context.ranking_rule_version_id.get(),
+            context.ranking_rule_sha256,
+            context.target_game_day,
+            optional_resource_id(context.character_preset_version_id),
+            optional_resource_id(context.point_budget_version_id),
+            context.canonical_selections_json,
+            legacy_canonical,
+        ),
     };
 
     Ok(sha256_hex(canonical.as_bytes()))
+}
+
+fn ranked_manifest_canonical(
+    save_id: u64,
+    run_revision: u32,
+    configuration: &ActiveRunConfiguration,
+    content_bundle_sha256: &str,
+    context: &RankedRunContext,
+) -> Result<String> {
+    let selections = serde_json::from_str::<Value>(&context.canonical_selections_json)
+        .context("ranked selections are not valid JSON")?;
+    ensure!(selections.is_array(), "ranked selections must be an array");
+    serde_json::to_string(&serde_json::json!({
+        "careerCatalogBundleId": configuration.career_catalog.bundle_id.get().to_string(),
+        "characterPresetVersionId": context.character_preset_version_id.map(|id| id.get().to_string()),
+        "contentBundleId": configuration.content_bundle.bundle_id.get().to_string(),
+        "contentBundleSha256": content_bundle_sha256,
+        "creditModelVersionId": configuration.rule_bundle.credit_model_version_id.get().to_string(),
+        "employmentPolicySetId": configuration.employment_policy.policy_set_id.get().to_string(),
+        "engineVersion": M5A_ENGINE_VERSION,
+        "leagueDefinitionId": context.league_definition_id.get().to_string(),
+        "lifeCatalogSetId": configuration.rule_bundle.life_catalog_set_id.get().to_string(),
+        "marketWorldId": configuration.market_world.world_id.to_string(),
+        "mode": run_mode_db_value(context.mode)?,
+        "pointBudgetVersionId": context.point_budget_version_id.map(|id| id.get().to_string()),
+        "policySetId": configuration.policy_set.policy_set_id.get().to_string(),
+        "rankedRulesetReleaseId": context.ranked_ruleset_release_id.get().to_string(),
+        "rankedRulesetReleaseSha256": context.ranked_ruleset_release_sha256,
+        "rankingEligible": true,
+        "rankingIneligibilityReason": Value::Null,
+        "rankingRuleSha256": context.ranking_rule_sha256,
+        "rankingRuleVersionId": context.ranking_rule_version_id.get().to_string(),
+        "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
+        "runRevision": run_revision,
+        "saveId": save_id.to_string(),
+        "schemaVersion": 3,
+        "seasonAssignmentRevision": context.season_assignment_revision,
+        "seasonId": context.season_id.get().to_string(),
+        "selections": selections,
+        "startGameDay": 0,
+        "targetGameDay": context.target_game_day
+    }))
+    .context("failed to serialize the ranked run manifest")
+}
+
+fn run_mode_db_value(mode: RunMode) -> Result<&'static str> {
+    match mode {
+        RunMode::RankedPreset => Ok("rankedPreset"),
+        RunMode::RankedCustom => Ok("rankedCustom"),
+        RunMode::Sandbox => bail!("sandbox is not a ranked run mode"),
+    }
+}
+
+fn optional_resource_id(id: Option<ResourceId>) -> String {
+    id.map_or_else(|| "null".to_owned(), |id| id.get().to_string())
 }
 
 fn sandbox_manifest_canonical(
@@ -2360,6 +2536,94 @@ async fn read_active_run_configuration(pool: &MySqlPool) -> Result<ActiveRunConf
         },
     )
     .context("an active run assignment is missing")
+}
+
+async fn ranked_context_is_active(
+    tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    context: &RankedRunContext,
+    configuration: &ActiveRunConfiguration,
+    content_bundle_sha256: &str,
+) -> Result<bool> {
+    let valid_shape = match context.mode {
+        RunMode::RankedPreset => {
+            context.character_preset_version_id.is_some()
+                && context.point_budget_version_id.is_none()
+                && context.canonical_selections_json == "[]"
+        }
+        RunMode::RankedCustom => {
+            context.character_preset_version_id.is_none()
+                && context.point_budget_version_id.is_some()
+        }
+        RunMode::Sandbox => false,
+    };
+    if !valid_shape {
+        return Ok(false);
+    }
+    let row = sqlx::query_scalar::<_, u64>(
+        "SELECT season_row.id
+         FROM season_assignment AS assignment
+         INNER JOIN season AS season_row ON season_row.id = assignment.season_id
+         INNER JOIN ranked_ruleset_release AS release_row
+            ON release_row.id = season_row.ranked_ruleset_release_id
+           AND BINARY release_row.release_sha256
+                = BINARY season_row.ranked_ruleset_release_sha256
+         INNER JOIN ranking_rule_version AS ranking_rule
+            ON ranking_rule.id = season_row.ranking_rule_version_id
+           AND BINARY ranking_rule.ranking_rule_sha256 = BINARY season_row.ranking_rule_sha256
+         INNER JOIN league_definition AS league
+            ON league.season_id = season_row.id
+           AND league.id = ?
+         WHERE assignment.assignment_key = 'rankedRun'
+           AND assignment.assignment_revision = ?
+           AND season_row.id = ?
+           AND season_row.status IN ('registrationOpen', 'active')
+           AND CURRENT_TIMESTAMP(6) >= season_row.registration_open_at
+           AND CURRENT_TIMESTAMP(6) < season_row.registration_close_at
+           AND release_row.id = ?
+           AND BINARY release_row.release_sha256 = BINARY ?
+           AND ranking_rule.id = ?
+           AND BINARY ranking_rule.ranking_rule_sha256 = BINARY ?
+           AND ranking_rule.target_game_day = ?
+           AND release_row.market_world_id = ?
+           AND release_row.policy_set_id = ?
+           AND release_row.career_catalog_bundle_id = ?
+           AND release_row.employment_policy_set_id = ?
+           AND release_row.life_catalog_set_id = ?
+           AND release_row.credit_model_version_id = ?
+           AND release_row.real_estate_model_version_id = ?
+           AND release_row.content_bundle_id = ?
+           AND BINARY release_row.content_bundle_sha256 = BINARY ?
+           AND BINARY release_row.engine_version = BINARY ?
+           AND league.mode = ?
+           AND league.character_preset_version_id <=> ?
+           AND league.point_budget_version_id <=> ?
+         FOR SHARE",
+    )
+    .bind(context.league_definition_id.get())
+    .bind(context.season_assignment_revision)
+    .bind(context.season_id.get())
+    .bind(context.ranked_ruleset_release_id.get())
+    .bind(&context.ranked_ruleset_release_sha256)
+    .bind(context.ranking_rule_version_id.get())
+    .bind(&context.ranking_rule_sha256)
+    .bind(context.target_game_day)
+    .bind(configuration.market_world.world_id)
+    .bind(configuration.policy_set.policy_set_id.get())
+    .bind(configuration.career_catalog.bundle_id.get())
+    .bind(configuration.employment_policy.policy_set_id.get())
+    .bind(configuration.rule_bundle.life_catalog_set_id.get())
+    .bind(configuration.rule_bundle.credit_model_version_id.get())
+    .bind(configuration.rule_bundle.real_estate_model_version_id.get())
+    .bind(configuration.content_bundle.bundle_id.get())
+    .bind(content_bundle_sha256)
+    .bind(M5A_ENGINE_VERSION)
+    .bind(run_mode_db_value(context.mode)?)
+    .bind(context.character_preset_version_id.map(ResourceId::get))
+    .bind(context.point_budget_version_id.map(ResourceId::get))
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(row.is_some())
 }
 
 async fn lock_active_run_configuration(
@@ -4058,6 +4322,51 @@ mod tests {
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             );
             assert_eq!(parsed["schemaVersion"], 2);
+        }
+    }
+
+    mod context_a_ranked_manifest_is_projected {
+        use super::*;
+
+        #[test]
+        fn given_certified_season_when_projected_then_all_ranked_authorities_are_pinned() {
+            let configuration = given_active_run_configuration();
+            let context = RankedRunContext {
+                mode: RunMode::RankedPreset,
+                season_id: ResourceId::from_u64(2),
+                league_definition_id: ResourceId::from_u64(3),
+                season_assignment_revision: 4,
+                ranked_ruleset_release_id: ResourceId::from_u64(5),
+                ranked_ruleset_release_sha256:
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned(),
+                ranking_rule_version_id: ResourceId::from_u64(6),
+                ranking_rule_sha256:
+                    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_owned(),
+                target_game_day: 10_950,
+                character_preset_version_id: Some(ResourceId::from_u64(7)),
+                point_budget_version_id: None,
+                canonical_selections_json: "[]".to_owned(),
+            };
+
+            let when = ranked_manifest_canonical(
+                8,
+                9,
+                &configuration,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &context,
+            )
+            .expect("ranked manifest를 직렬화할 수 있어야 한다");
+            let parsed: serde_json::Value =
+                serde_json::from_str(&when).expect("manifest는 JSON이어야 한다");
+
+            assert_eq!(parsed["schemaVersion"], 3);
+            assert_eq!(parsed["mode"], "rankedPreset");
+            assert_eq!(parsed["seasonId"], "2");
+            assert_eq!(parsed["leagueDefinitionId"], "3");
+            assert_eq!(parsed["rankedRulesetReleaseId"], "5");
+            assert_eq!(parsed["rankingRuleVersionId"], "6");
+            assert_eq!(parsed["targetGameDay"], 10_950);
+            assert_eq!(parsed["rankingEligible"], true);
         }
     }
 

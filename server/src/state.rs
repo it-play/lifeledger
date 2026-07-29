@@ -40,7 +40,10 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{InterestRateState, MarketRegime};
-use crate::runs::{PointBudgetEvaluation, PointSelection, RunManifestSummary, RunOptions};
+use crate::runs::{
+    PointBudgetEvaluation, PointSelection, RankedRunPreparation, RunManifestSummary, RunOptions,
+    SeasonLeagues,
+};
 use crate::store::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
     ActOnInsolvencyCaseCommand, ActiveHousingLeaseState, ActiveLeaseTermState,
@@ -5042,6 +5045,7 @@ pub enum GameLoopError {
     IdempotencyConflict,
     Busy,
     CharacterRequired,
+    ModeUnavailable,
     ActiveStreamRequired,
     Internal(anyhow::Error),
 }
@@ -5054,6 +5058,7 @@ impl From<GameCommandRejection> for GameLoopError {
             GameCommandRejection::IdempotencyConflict => Self::IdempotencyConflict,
             GameCommandRejection::Busy => Self::Busy,
             GameCommandRejection::CharacterRequired => Self::CharacterRequired,
+            GameCommandRejection::ModeUnavailable => Self::ModeUnavailable,
         }
     }
 }
@@ -5441,6 +5446,27 @@ impl AppState {
 
     pub async fn run_options(&self) -> Result<RunOptions> {
         self.runs.run_options().await
+    }
+
+    pub async fn season_leagues(&self, season_id: ResourceId) -> Result<Option<SeasonLeagues>> {
+        self.runs.season_leagues(season_id).await
+    }
+
+    pub async fn prepare_ranked_preset(
+        &self,
+        preset_version_id: ResourceId,
+    ) -> Result<Option<RankedRunPreparation>> {
+        self.runs.prepare_ranked_preset(preset_version_id).await
+    }
+
+    pub async fn prepare_ranked_custom(
+        &self,
+        budget_version_id: ResourceId,
+        selections: &[PointSelection],
+    ) -> Result<Option<RankedRunPreparation>> {
+        self.runs
+            .prepare_ranked_custom(budget_version_id, selections)
+            .await
     }
 
     pub async fn preview_point_budget(
@@ -14196,6 +14222,25 @@ mod tests {
                 point_budgets: Vec::new(),
                 sandbox_available: true,
             })
+        }
+
+        async fn season_leagues(&self, _season_id: ResourceId) -> Result<Option<SeasonLeagues>> {
+            Ok(None)
+        }
+
+        async fn prepare_ranked_preset(
+            &self,
+            _preset_version_id: ResourceId,
+        ) -> Result<Option<RankedRunPreparation>> {
+            Ok(None)
+        }
+
+        async fn prepare_ranked_custom(
+            &self,
+            _budget_version_id: ResourceId,
+            _selections: &[PointSelection],
+        ) -> Result<Option<RankedRunPreparation>> {
+            Ok(None)
         }
 
         async fn preview_point_budget(

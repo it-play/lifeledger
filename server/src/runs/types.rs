@@ -288,6 +288,77 @@ pub struct RunOptions {
     pub sandbox_available: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SeasonStatus {
+    Draft,
+    RegistrationOpen,
+    Active,
+    Locked,
+    Finalized,
+    Archived,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SeasonSummary {
+    pub id: ResourceId,
+    pub season_key: String,
+    pub version: u32,
+    pub display_name: String,
+    pub status: SeasonStatus,
+    pub target_game_day: u32,
+    pub registration_open_at: String,
+    pub registration_close_at: String,
+    pub operation_close_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LeagueDefinition {
+    pub id: ResourceId,
+    pub season_id: ResourceId,
+    pub league_key: String,
+    pub display_name: String,
+    pub mode: RunMode,
+    #[schema(required = true, nullable)]
+    pub character_preset_version_id: Option<ResourceId>,
+    #[schema(required = true, nullable)]
+    pub point_budget_version_id: Option<ResourceId>,
+    pub minimum_participants: u32,
+    pub participant_count: u64,
+    pub provisional: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SeasonLeagues {
+    pub season: SeasonSummary,
+    pub leagues: Vec<LeagueDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankedRunContext {
+    pub mode: RunMode,
+    pub season_id: ResourceId,
+    pub league_definition_id: ResourceId,
+    pub season_assignment_revision: u64,
+    pub ranked_ruleset_release_id: ResourceId,
+    pub ranked_ruleset_release_sha256: String,
+    pub ranking_rule_version_id: ResourceId,
+    pub ranking_rule_sha256: String,
+    pub target_game_day: u32,
+    pub character_preset_version_id: Option<ResourceId>,
+    pub point_budget_version_id: Option<ResourceId>,
+    pub canonical_selections_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankedRunPreparation {
+    pub context: RankedRunContext,
+    pub draft: CharacterDraft,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunManifestSummary {
     pub run_revision: u32,
