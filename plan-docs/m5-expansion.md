@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4 production 완료, **M5-A catalog·point preview production 완료, `POST /api/runs` 다음**
+- 상태: M4 production 완료, **M5-A server 실행 생성 production 완료, 스타일 없는 client 연결 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -40,11 +40,12 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
 2. **완료** — option ID를 canonical 정렬해 fixed/perUnit/tiered와 exclusive/requires/forbids를 i64 checked arithmetic로
    평가하는 순수 point ledger를 만들고 `GET /api/run-options`, `POST /api/runs/point-preview`를 strict API로
    공개한다. preview 합계는 시작 transaction에서 다시 계산한다.
-3. **다음 재개점** — `rankedPreset · rankedCustom · sandbox`의 필수·금지 필드, immutable manifest hash, command replay를
-   `POST /api/runs`에 연결한 뒤 스타일 없는 생성 화면을 추가한다. ranked season·league의 실제 게시와
-   랭킹 계산은 M5-C가 소유하므로 M5-A fixture는 게시 전 development season만 사용한다.
+3. **server 완료, client 다음** — `rankedPreset · rankedCustom · sandbox`의 필수·금지 필드, immutable manifest
+   hash, command replay를 `POST /api/runs`에 연결해 production에서 인수했다. 다음은 기존 캐릭터 생성 흐름을
+   이 API로 옮기는 스타일 없는 생성 화면이다. ranked season·league의 실제 게시와 랭킹 계산은 M5-C가
+   소유하므로 현재 두 ranked variant는 `modeUnavailable`로 닫혀 있다.
 
-2026-07-29 현재 1·2단계의 구현과 development production 인수를 마쳤다.
+2026-07-29 현재 1·2단계와 3단계의 server 구현·development production 인수를 마쳤다.
 
 - `0052_m5a_run_modes_point_budget.sql`은 sealed preset 5개, point budget 1개, exclusive group 5개,
   option 12개, tier 3개, 활성 assignment 1개와 immutable `run_manifest`를 추가했다. 기존
@@ -53,6 +54,10 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
 - `server/src/runs/`의 순수 evaluator는 option ID canonical 순서, fixed/perUnit/tiered 누진 정수 비용,
   exclusive/condition/effect와 checked i64 ledger를 처리한다. `server/src/store/runs.rs`가 sealed catalog만
   읽고, `GET /api/run-options`와 `POST /api/runs/point-preview`가 strict JSON 경계로 이를 공개한다.
+- point budget v1 시작 materializer는 preview와 같은 evaluator 결과만 사용한다. engine base는 25세,
+  `other · completed · capitalArea · independent · highSchool`, 경력·자격 0, 현금·학자금·신용대출 0,
+  `normal`, 부양가족 0으로 고정하고 허용 목록에 없는 effect path/type은 catalog 오류로 닫는다. base 변경은
+  engine과 budget schema/version을 함께 올리는 설계 변경이다.
 - 기존 `POST /api/characters`는 계속 sandbox 전용 호환 경로이며, 시작 transaction 안에서
   `legacyStartEndpoint` manifest를 함께 기록한다. manifest 없는 새 legacy run을 만들지 않는다.
 - 최초 CD `30416923330`은 migration 52의 `tr_point_budget_version_seal_only` 조건 괄호 누락으로 실패했다.
@@ -67,26 +72,39 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
 - public HTTP에서 run options는 세 mode, active season null, preset 5개, budget 1개, group 5개, option
   12개를 반환했다. 기준 선택은 total 100, spent 10, remaining 90, ledger line 5개, failure 0으로 유효했고,
   빈 선택은 필수 group 누락 5개를 반환했다. unknown request field는 `400 invalidCommand`로 거절됐다.
-- 검증은 기능에 필요한 범위로 제한했다. 순수 point evaluator 4건과 camelCase effect/condition parser 2건,
-  server check·clippy·fmt, 실제 production migration·HTTP smoke를 실행했으며 DOM/network/DB 단위 테스트나
-  전체 회귀는 추가하지 않았다.
+- strict `POST /api/runs`는 공통 cursor·UUID 외에 mode별 필드만 받는다. sandbox는 기존 V2 start 검증과
+  transaction을 재사용하되 별도 fingerprint와 `sandboxMode` manifest를 쓰고, ranked preset/custom은 게시된
+  season이 생길 때까지 version 존재 여부를 노출하지 않고 `409 modeUnavailable`을 반환한다. 구현 계약은
+  `64c3506`, server 코드는 `1e59716`이며 CD `30419059942`가 5분 38초에 성공했다.
+- production QA save 29의 run 3/state 4/day 2에서 sandbox를 생성해 `200`, run 4/state 0/day 0,
+  manifest SHA-256 `5a18fc381a418dfd51a16b69b680c4e417f1d22b12fa8f7aa182c5a1f6ddf64a`를 받았다. 같은
+  command/body 재전송은 같은 hash와 `replayed=true`, 같은 command의 변조 body는
+  `409 idempotencyConflict`였다. ranked preset은 `409 modeUnavailable`, ranked 요청에 sandbox 필드를 섞으면
+  `400 invalidCommand`였다.
+- DB는 migration `52/52`를 유지했다. 새 run의 manifest는 `sandbox · rankingEligible=false · sandboxMode`,
+  canonical selection 0개이며 API hash와 generated DB hash가 같았다. `run_rule_bundle/run_manifest`는
+  `10/10`, 양방향 누락 0, 해당 `startGame` command identity/receipt 각 1, 열린 InnoDB transaction 0이었다.
+  새 container는 healthy이고 smoke 동안 WARN/ERROR/panic/failed 로그가 없었다. 검증용 raw token은 DB에
+  저장하지 않았고 임시 session row를 삭제해 QA user의 session 0건을 확인했다.
+- 검증은 기능에 필요한 범위로 제한했다. run start protocol/OpenAPI, fingerprint 구분, durable command
+  replay/conflict, point materializer의 production 조합과 unknown path를 작은 BDD로 확인하고
+  check·clippy·fmt와 실제 production HTTP/DB smoke를 실행했다. DOM/network/DB 단위 테스트와 전체 회귀는
+  추가하지 않았다.
 
-다음 작업은 이 문서 §2, §3.1, §3.2, §8을 다시 읽고 현재 `server/src/routes/mod.rs`,
-`server/src/runs/types.rs`, `server/src/store/runs.rs`, `server/src/store/mysql.rs`의 character start transaction을
-기준으로 진행한다.
+다음 재개는 **M5-A 스타일 없는 client 실행 생성 연결**이다. 먼저 `client-foundation` 스킬 전체와 이 문서
+§2, §3.1, §3.2, §8을 읽는다. 그다음 아래 순서와 파일을 기준으로 진행한다.
 
-1. `POST /api/runs`의 mode별 strict request를 먼저 정의한다. ranked preset은 preset version만, ranked
-   custom은 budget version과 canonical selection만 허용하고 sandbox만 허용된 draft/override를 받는다.
-   mode에 없는 필드, unknown field, 사용할 수 없는 sealed version은 stable failure code로 거절한다.
-2. preview와 같은 evaluator/effect materializer로 시작 draft와 ledger를 transaction 안에서 다시 계산한다.
-   character·save·`run_rule_bundle`·`run_manifest`를 한 번에 commit하고 manifest canonical JSON/hash와 모든
-   pinned ID를 저장한다. `commandId` replay는 같은 fingerprint면 같은 run을 반환하고 다른 payload면
-   conflict여야 한다. active season이 아직 null이므로 실제 ranked 게시를 흉내 내지 말고 unavailable로
-   닫으며, 게시 fixture와 리그 연결은 M5-C에서 연다.
-3. mode validation, preview/start 동등성, manifest canonicalization, replay처럼 순수 core/service 규칙만
-   작은 BDD로 검증한다. server production CD와 실제 MySQL/HTTP smoke까지 통과한 뒤에만
-   `client-foundation`을 읽고 스타일 없는 생성 화면을 연결한다. M5-B로 넘어가거나 시각 스타일링을
-   시작하지 않는다.
+1. `client/src/api/contracts.ts`, `client/src/api/zod-adapters.ts`, `client/src/api/game-api.ts`에
+   `GET /api/run-options`, `POST /api/runs/point-preview`, strict tagged `POST /api/runs`의 zod 계약과 API를
+   추가한다. 서버 응답은 화면 전에 검증하고, 다른 모드 필드를 섞는 union을 만들지 않는다.
+2. `client/src/app/character-start/`, `client/src/app/game-command-retry/`의 기존 draft builder와 UUID/cursor
+   재사용 규칙을 run start에 맞게 확장한다. 알 수 없는 응답에서는 같은 request를 보존하고 성공 또는
+   stable conflict에서만 비운다. 순수 retry/materialization 규칙이 새로 생길 때만 작은 BDD를 추가한다.
+3. `client/src/app/screens/character-create.ts`, `client/src/app/state.ts`, `client/src/main.ts`의 기존
+   `/character` 흐름을 세 mode 선택·point preview·start로 연결한다. active season null이면 두 ranked mode를
+   이유와 함께 비활성화하고 sandbox가 실제 생성되어 dashboard로 이동하는 기능만 먼저 완성한다. DOM
+   rendering/interaction 테스트와 시각 스타일링은 하지 않고 typecheck·lint·build와 production HTTP smoke만
+   통과시킨 뒤 M5-A를 닫는다. 그 전에는 M5-B로 넘어가지 않는다.
 
 새 `POST /api/runs`가 client에 연결되기 전에도 manifest 없는 run을 허용하지 않는다. 기존
 `POST /api/characters` v1/v2는 호환 기간 동안 **sandbox 전용 legacy start**로 해석하고, 기존 command
