@@ -1,10 +1,17 @@
 import {
+  type BusinessCapitalContributionDraft,
+  BusinessCapitalContributionDraftSchema,
   type BusinessContract,
   type BusinessMonthlyPlanDraft,
   BusinessMonthlyPlanDraftSchema,
   type BusinessOperationRequest,
   type BusinessOperationsResponse,
   type BusinessPosition,
+  type BusinessWorkingCapitalLoan,
+  type BusinessWorkingCapitalLoanDrawDraft,
+  BusinessWorkingCapitalLoanDrawDraftSchema,
+  type BusinessWorkingCapitalLoanRepayDraft,
+  BusinessWorkingCapitalLoanRepayDraftSchema,
   type CorporationCreateDraft,
   CorporationCreateDraftSchema,
   type CorporationCreateRequest,
@@ -60,7 +67,19 @@ type BusinessOperationActionDraft =
       readonly marketingBandId: string;
       readonly cashBufferKrw: number;
       readonly contractPriorityIds: string[];
-    };
+    }
+  | { readonly action: 'capitalContribution'; readonly amountKrw: number }
+  | {
+      readonly action: 'drawWorkingCapitalLoan';
+      readonly loanProductId: string;
+      readonly principalKrw: number;
+    }
+  | {
+      readonly action: 'repayWorkingCapitalLoan';
+      readonly loanId: string;
+      readonly principalKrw: number;
+    }
+  | { readonly action: 'dissolve' };
 
 interface MonthSlot {
   readonly element: HTMLLIElement;
@@ -80,12 +99,18 @@ interface PositionSlot {
   readonly action: HTMLButtonElement;
 }
 
+interface WorkingCapitalLoanSlot {
+  readonly element: HTMLLIElement;
+  readonly text: HTMLSpanElement;
+}
+
 const TEMPLATE_CAPACITY = 3;
 const SCALE_CAPACITY = 3;
 const MONTH_CAPACITY = 20;
 const MARKETING_CAPACITY = 8;
 const CONTRACT_CAPACITY = 50;
 const POSITION_CAPACITY = 32;
+const WORKING_CAPITAL_LOAN_CAPACITY = 8;
 
 const PLACEHOLDER_TEMPLATE_OPTIONS = Array.from({ length: TEMPLATE_CAPACITY }, (_, index) => ({
   value: String(index + 1),
@@ -101,6 +126,22 @@ const PLACEHOLDER_MARKETING_OPTIONS = Array.from({ length: MARKETING_CAPACITY },
   value: String(index + 1),
   label: '마케팅 정책 조회 중',
 }));
+
+const PLACEHOLDER_LOAN_OPTIONS = Array.from(
+  { length: WORKING_CAPITAL_LOAN_CAPACITY },
+  (_, index) => ({
+    value: String(index + 1),
+    label: '운전자금 상품 조회 중',
+  }),
+);
+
+const PLACEHOLDER_ACTIVE_LOAN_OPTIONS = Array.from(
+  { length: WORKING_CAPITAL_LOAN_CAPACITY },
+  (_, index) => ({
+    value: String(index + 1),
+    label: '상환할 운전자금 조회 중',
+  }),
+);
 
 const CREATE_FIELDS = [
   {
@@ -155,6 +196,45 @@ const BUSINESS_PLAN_FIELDS = [
     label: '계약 우선순위 ID',
     kind: 'text',
     help: '수행할 계약 ID를 쉼표로 구분해 우선순위대로 입력합니다.',
+  },
+] as const;
+
+const CAPITAL_CONTRIBUTION_FIELDS = [
+  {
+    name: 'amountKrw',
+    label: '추가 출자액',
+    kind: 'number',
+    help: '개인 지갑에서 법인 현금으로 옮기며 출자원금에 합산합니다.',
+  },
+] as const;
+
+const WORKING_CAPITAL_LOAN_DRAW_FIELDS = [
+  {
+    name: 'loanProductId',
+    label: '운전자금 상품',
+    kind: 'select',
+    options: PLACEHOLDER_LOAN_OPTIONS,
+  },
+  {
+    name: 'principalKrw',
+    label: '대출 원금',
+    kind: 'number',
+    help: '상품의 최소·최대·증액 단위를 따라야 합니다.',
+  },
+] as const;
+
+const WORKING_CAPITAL_LOAN_REPAY_FIELDS = [
+  {
+    name: 'loanId',
+    label: '상환할 대출',
+    kind: 'select',
+    options: PLACEHOLDER_ACTIVE_LOAN_OPTIONS,
+  },
+  {
+    name: 'principalKrw',
+    label: '상환 원금',
+    kind: 'number',
+    help: '법인 현금과 남은 원금 범위에서 일부 또는 전액 상환합니다.',
   },
 ] as const;
 
@@ -218,6 +298,7 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
       let pendingOperation: PendingCommand<BusinessOperationRequest> | undefined;
       let lastSettingKey = '';
       let lastPlanKey = '';
+      let lastFinanceOptionsKey = '';
 
       const creationForm = renderForm<CorporationCreateDraft>(
         {
@@ -264,10 +345,46 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
           onSubmit: submitBusinessPlan,
         },
       );
+      const capitalContributionForm = renderForm<BusinessCapitalContributionDraft>(
+        {
+          fields: CAPITAL_CONTRIBUTION_FIELDS,
+          validator: asFormValidator(BusinessCapitalContributionDraftSchema),
+          submitLabel: '추가 출자',
+          idPrefix: 'corporation-capital-contribution',
+        },
+        { initial: { amountKrw: 1 }, onSubmit: submitCapitalContribution },
+      );
+      const workingCapitalLoanDrawForm = renderForm<BusinessWorkingCapitalLoanDrawDraft>(
+        {
+          fields: WORKING_CAPITAL_LOAN_DRAW_FIELDS,
+          validator: asFormValidator(BusinessWorkingCapitalLoanDrawDraftSchema),
+          submitLabel: '운전자금 대출 실행',
+          idPrefix: 'corporation-working-capital-draw',
+        },
+        {
+          initial: { loanProductId: '1', principalKrw: 1 },
+          onSubmit: submitWorkingCapitalLoanDraw,
+        },
+      );
+      const workingCapitalLoanRepayForm = renderForm<BusinessWorkingCapitalLoanRepayDraft>(
+        {
+          fields: WORKING_CAPITAL_LOAN_REPAY_FIELDS,
+          validator: asFormValidator(BusinessWorkingCapitalLoanRepayDraftSchema),
+          submitLabel: '운전자금 원금 상환',
+          idPrefix: 'corporation-working-capital-repay',
+        },
+        {
+          initial: { loanId: '1', principalKrw: 1 },
+          onSubmit: submitWorkingCapitalLoanRepay,
+        },
+      );
       ctx.bag.add(creationForm);
       ctx.bag.add(settingsForm);
       ctx.bag.add(payoutForm);
       ctx.bag.add(planForm);
+      ctx.bag.add(capitalContributionForm);
+      ctx.bag.add(workingCapitalLoanDrawForm);
+      ctx.bag.add(workingCapitalLoanRepayForm);
 
       const templateSelect = formSelect(creationForm, 'industryTemplateId');
       const scaleSelect = formSelect(settingsForm, 'operatingScaleId');
@@ -276,6 +393,11 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
       const payoutSubmit = formSubmit(payoutForm);
       const marketingSelect = formSelect(planForm, 'marketingBandId');
       const planSubmit = formSubmit(planForm);
+      const capitalContributionSubmit = formSubmit(capitalContributionForm);
+      const loanProductSelect = formSelect(workingCapitalLoanDrawForm, 'loanProductId');
+      const workingCapitalLoanDrawSubmit = formSubmit(workingCapitalLoanDrawForm);
+      const activeLoanSelect = formSelect(workingCapitalLoanRepayForm, 'loanId');
+      const workingCapitalLoanRepaySubmit = formSubmit(workingCapitalLoanRepayForm);
       const queryStatus = el('p', { attrs: { role: 'status', 'aria-live': 'polite' } });
       const commandStatus = el('p', { attrs: { role: 'status', 'aria-live': 'polite' } });
       const summaryStatus = el('dd');
@@ -292,9 +414,15 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
       const monthSlots = Array.from({ length: MONTH_CAPACITY }, createMonthSlot);
       const contractSlots = Array.from({ length: CONTRACT_CAPACITY }, createContractSlot);
       const positionSlots = Array.from({ length: POSITION_CAPACITY }, createPositionSlot);
+      const workingCapitalLoanSlots = Array.from(
+        { length: WORKING_CAPITAL_LOAN_CAPACITY },
+        createWorkingCapitalLoanSlot,
+      );
       const operationsSummary = el('p');
       const latestBusinessMonth = el('p');
       const refreshOperations = el('button', { type: 'button' }, '사업 운영 새로고침');
+      const dissolveCorporation = el('button', { type: 'button' }, '법인 해산');
+      const dissolutionStatus = el('p');
       const createSection = el(
         'section',
         {},
@@ -339,6 +467,12 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
         el('ol', {}, ...positionSlots.map((slot) => slot.element)),
         el('h3', {}, '다음 달 사업 계획'),
         planForm.element,
+        el('h3', {}, '자본·운전자금'),
+        capitalContributionForm.element,
+        workingCapitalLoanDrawForm.element,
+        el('h4', {}, '운전자금 대출 현황'),
+        el('ol', {}, ...workingCapitalLoanSlots.map((slot) => slot.element)),
+        workingCapitalLoanRepayForm.element,
         el('h3', {}, '최근 사업 실적'),
         latestBusinessMonth,
         el('h2', {}, '배당'),
@@ -347,6 +481,14 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
         refreshMonths,
         nextMonths,
         el('ol', {}, ...monthSlots.map((slot) => slot.element)),
+        el('h2', {}, '법인 해산'),
+        el(
+          'p',
+          {},
+          '해산하면 되돌릴 수 없습니다. 계약·직원·미지급금·운전자금 대출을 모두 정리해야 합니다.',
+        ),
+        dissolutionStatus,
+        dissolveCorporation,
       );
 
       host.replaceChildren(
@@ -403,6 +545,42 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
           state.value.marketingBands.length === 0
         );
       });
+      h.bindAttribute(capitalContributionSubmit, 'disabled', () => {
+        const state = operationsRequest.state.get();
+        return (
+          !canIssueCommand.get() ||
+          currentCorporation.get()?.status !== 'active' ||
+          state.status !== 'success' ||
+          state.value.availability !== 'active'
+        );
+      });
+      h.bindAttribute(workingCapitalLoanDrawSubmit, 'disabled', () => {
+        const state = operationsRequest.state.get();
+        return (
+          !canIssueCommand.get() ||
+          currentCorporation.get()?.status !== 'active' ||
+          state.status !== 'success' ||
+          state.value.availability !== 'active' ||
+          state.value.loanProducts.length === 0 ||
+          state.value.workingCapitalLoans.some((loan) => loan.outstandingPrincipalKrw > 0)
+        );
+      });
+      h.bindAttribute(workingCapitalLoanRepaySubmit, 'disabled', () => {
+        const state = operationsRequest.state.get();
+        return (
+          !canIssueCommand.get() ||
+          state.status !== 'success' ||
+          state.value.availability !== 'active' ||
+          !state.value.workingCapitalLoans.some((loan) => loan.outstandingPrincipalKrw > 0)
+        );
+      });
+      h.bindAttribute(
+        dissolveCorporation,
+        'disabled',
+        () =>
+          !canIssueCommand.get() ||
+          !isDissolutionReady(currentCorporation.get(), operationsRequest.state.get()),
+      );
       h.bindAttribute(refreshOperations, 'disabled', () => {
         return (
           corporationId.get() === undefined || operationsRequest.state.get().status === 'loading'
@@ -432,6 +610,9 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
       h.bindText(summaryNextSetting, () => settingText(currentCorporation.get()));
       h.bindText(operationsSummary, () => operationsSummaryText(operationsRequest.state.get()));
       h.bindText(latestBusinessMonth, () => latestBusinessMonthText(operationsRequest.state.get()));
+      h.bindText(dissolutionStatus, () =>
+        dissolutionReadinessText(currentCorporation.get(), operationsRequest.state.get()),
+      );
 
       for (const [index, slot] of monthSlots.entries()) {
         h.bindAttribute(
@@ -508,6 +689,19 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
         });
       }
 
+      for (const [index, slot] of workingCapitalLoanSlots.entries()) {
+        h.bindAttribute(
+          slot.element,
+          'hidden',
+          () => operationWorkingCapitalLoanAt(operationsRequest.state.get(), index) === undefined,
+        );
+        h.bindText(slot.text, () =>
+          workingCapitalLoanText(
+            operationWorkingCapitalLoanAt(operationsRequest.state.get(), index),
+          ),
+        );
+      }
+
       h.useEffect(() => {
         const state = templateRequest.state.get();
         if (state.status !== 'success') return;
@@ -538,24 +732,15 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
       h.useEffect(() => {
         const state = operationsRequest.state.get();
         if (state.status !== 'success' || state.value.availability !== 'active') return;
-        const operations = state.value;
-        syncOptions(
-          marketingSelect,
-          operations.marketingBands.map((band) => ({
-            value: band.id,
-            label: `${band.displayName} · 월 ${formatWon(band.monthlyCostKrw)}`,
-          })),
+        lastPlanKey = syncBusinessPlanForm(state.value, marketingSelect, planForm, lastPlanKey);
+        lastFinanceOptionsKey = syncBusinessFinanceForms(
+          state.value,
+          loanProductSelect,
+          activeLoanSelect,
+          workingCapitalLoanDrawForm,
+          workingCapitalLoanRepayForm,
+          lastFinanceOptionsKey,
         );
-        const plan = operations.plan;
-        const planKey = `${operations.revision}:${plan?.id ?? 'initial'}:${plan?.planRevision ?? 0}`;
-        if (planKey !== lastPlanKey) {
-          lastPlanKey = planKey;
-          planForm.setValues({
-            marketingBandId: plan?.marketingBandId ?? operations.marketingBands[0]?.id ?? '1',
-            cashBufferKrw: plan?.cashBufferKrw ?? 0,
-            contractPriorityText: plan?.contractPriorityIds.join(', ') ?? '',
-          });
-        }
       });
       h.useWatch(gameReady, (ready) => {
         if (ready) templateRequest.run();
@@ -567,6 +752,9 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
         operationsRequest.run();
       });
       h.useEventListener(refreshOperations, 'click', () => operationsRequest.run());
+      h.useEventListener(dissolveCorporation, 'click', () => {
+        void submitOperation({ action: 'dissolve' }).catch(showButtonError);
+      });
       h.useEventListener(refreshMonths, 'click', () => {
         monthCursor.set(undefined);
         monthRequest.run();
@@ -578,11 +766,13 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
         monthRequest.run();
       });
 
-      if (gameReady.peek()) templateRequest.run();
-      if (corporationId.peek() !== undefined) {
-        monthRequest.run();
-        operationsRequest.run();
-      }
+      startCorporationQueries(
+        gameReady.peek(),
+        corporationId.peek(),
+        templateRequest.run,
+        monthRequest.run,
+        operationsRequest.run,
+      );
 
       async function submitCreate(draft: CorporationCreateDraft): Promise<void> {
         const current = commandSnapshot(deps, '법인을 설립');
@@ -706,6 +896,53 @@ export function createCorporationView(deps: CorporationDeps): ViewFactory {
         });
       }
 
+      async function submitCapitalContribution(
+        draft: BusinessCapitalContributionDraft,
+      ): Promise<void> {
+        await submitOperation({ action: 'capitalContribution', amountKrw: draft.amountKrw });
+      }
+
+      async function submitWorkingCapitalLoanDraw(
+        draft: BusinessWorkingCapitalLoanDrawDraft,
+      ): Promise<void> {
+        const state = operationsRequest.state.peek();
+        const product =
+          state.status === 'success'
+            ? state.value.loanProducts.find((candidate) => candidate.id === draft.loanProductId)
+            : undefined;
+        if (
+          product === undefined ||
+          draft.principalKrw < product.minimumPrincipalKrw ||
+          draft.principalKrw > product.maximumPrincipalKrw ||
+          (draft.principalKrw - product.minimumPrincipalKrw) % product.principalStepKrw !== 0
+        ) {
+          throw new Error('대출 원금은 선택한 상품의 최소·최대·증액 단위를 따라야 합니다.');
+        }
+        await submitOperation({
+          action: 'drawWorkingCapitalLoan',
+          loanProductId: draft.loanProductId,
+          principalKrw: draft.principalKrw,
+        });
+      }
+
+      async function submitWorkingCapitalLoanRepay(
+        draft: BusinessWorkingCapitalLoanRepayDraft,
+      ): Promise<void> {
+        const state = operationsRequest.state.peek();
+        const loan =
+          state.status === 'success'
+            ? state.value.workingCapitalLoans.find((candidate) => candidate.id === draft.loanId)
+            : undefined;
+        if (loan === undefined || draft.principalKrw > loan.outstandingPrincipalKrw) {
+          throw new Error('상환 원금은 현재 대출 잔액을 넘을 수 없습니다.');
+        }
+        await submitOperation({
+          action: 'repayWorkingCapitalLoan',
+          loanId: draft.loanId,
+          principalKrw: draft.principalKrw,
+        });
+      }
+
       async function submitOperation(action: BusinessOperationActionDraft): Promise<void> {
         const current = commandSnapshot(deps, '사업 운영 명령을 실행');
         const corporation = requireCorporation(current);
@@ -825,6 +1062,87 @@ function syncOptions(
   }
 }
 
+function syncBusinessPlanForm(
+  operations: BusinessOperationsResponse,
+  marketingSelect: HTMLSelectElement,
+  planForm: FormHandle,
+  previousKey: string,
+): string {
+  syncOptions(
+    marketingSelect,
+    operations.marketingBands.map((band) => ({
+      value: band.id,
+      label: `${band.displayName} · 월 ${formatWon(band.monthlyCostKrw)}`,
+    })),
+  );
+  const plan = operations.plan;
+  const key = `${operations.revision}:${plan?.id ?? 'initial'}:${plan?.planRevision ?? 0}`;
+  if (key === previousKey) return previousKey;
+  planForm.setValues({
+    marketingBandId: plan?.marketingBandId ?? operations.marketingBands[0]?.id ?? '1',
+    cashBufferKrw: plan?.cashBufferKrw ?? 0,
+    contractPriorityText: plan?.contractPriorityIds.join(', ') ?? '',
+  });
+  return key;
+}
+
+function syncBusinessFinanceForms(
+  operations: BusinessOperationsResponse,
+  loanProductSelect: HTMLSelectElement,
+  activeLoanSelect: HTMLSelectElement,
+  drawForm: FormHandle,
+  repayForm: FormHandle,
+  previousKey: string,
+): string {
+  const outstandingLoans = operations.workingCapitalLoans.filter(
+    (loan) => loan.outstandingPrincipalKrw > 0,
+  );
+  syncOptions(
+    loanProductSelect,
+    operations.loanProducts.map((product) => ({
+      value: product.id,
+      label: `${product.displayName} · 월 이율 ${(product.monthlyInterestRatePpm / 10_000).toFixed(2)}% · ${product.termMonths}개월`,
+    })),
+  );
+  syncOptions(
+    activeLoanSelect,
+    outstandingLoans.map((loan) => ({
+      value: loan.id,
+      label: `${loan.displayName} · 잔액 ${formatWon(loan.outstandingPrincipalKrw)}`,
+    })),
+  );
+  const key = `${operations.revision}:${operations.workingCapitalLoans.map((loan) => `${loan.id}:${loan.outstandingPrincipalKrw}`).join(',')}`;
+  if (key === previousKey) return previousKey;
+  const firstProduct = operations.loanProducts[0];
+  if (firstProduct !== undefined) {
+    drawForm.setValues({
+      loanProductId: firstProduct.id,
+      principalKrw: firstProduct.minimumPrincipalKrw,
+    });
+  }
+  const firstOutstandingLoan = outstandingLoans[0];
+  if (firstOutstandingLoan !== undefined) {
+    repayForm.setValues({
+      loanId: firstOutstandingLoan.id,
+      principalKrw: firstOutstandingLoan.outstandingPrincipalKrw,
+    });
+  }
+  return key;
+}
+
+function startCorporationQueries(
+  gameReady: boolean,
+  corporationId: string | undefined,
+  runTemplates: () => void,
+  runMonths: () => void,
+  runOperations: () => void,
+): void {
+  if (gameReady) runTemplates();
+  if (corporationId === undefined) return;
+  runMonths();
+  runOperations();
+}
+
 function createMonthSlot(): MonthSlot {
   const text = el('span');
   return { element: el('li', {}, text), text };
@@ -841,6 +1159,11 @@ function createPositionSlot(): PositionSlot {
   const text = el('span');
   const action = el('button', { type: 'button' });
   return { element: el('li', {}, text, ' ', action), text, action };
+}
+
+function createWorkingCapitalLoanSlot(): WorkingCapitalLoanSlot {
+  const text = el('span');
+  return { element: el('li', {}, text), text };
 }
 
 function monthAt(
@@ -869,6 +1192,13 @@ function operationPositionAt(
   return state.status === 'success' ? state.value.positions[index] : undefined;
 }
 
+function operationWorkingCapitalLoanAt(
+  state: AsyncState<BusinessOperationsResponse>,
+  index: number,
+): BusinessWorkingCapitalLoan | undefined {
+  return state.status === 'success' ? state.value.workingCapitalLoans[index] : undefined;
+}
+
 function contractText(contract: BusinessContract | undefined): string {
   if (contract === undefined) return '';
   return `#${contract.id} ${contract.displayName} · ${contract.serviceYear}년 ${contract.serviceMonth}월 · 매출 ${formatWon(contract.revenueKrw)} · 필요 역량 ${contract.requiredCapacityUnits} · ${contract.status}`;
@@ -883,18 +1213,70 @@ function positionActionText(position: BusinessPosition | undefined): string {
   return position?.status === 'vacant' ? '채용' : '종료';
 }
 
+function workingCapitalLoanText(loan: BusinessWorkingCapitalLoan | undefined): string {
+  if (loan === undefined) return '';
+  return `#${loan.id} ${loan.displayName} · 원금 ${formatWon(loan.originalPrincipalKrw)} · 잔액 ${formatWon(loan.outstandingPrincipalKrw)} · 만기 ${loan.maturityYear}년 ${loan.maturityMonth}월 · ${loan.status}`;
+}
+
 function operationsSummaryText(state: AsyncState<BusinessOperationsResponse>): string {
   if (state.status !== 'success') return '';
   if (state.value.availability !== 'active') return '현재 실행에는 상세 사업 운영 규칙이 없습니다.';
   const operations = state.value;
-  return `${operations.nextOperatingYear ?? '—'}년 ${operations.nextOperatingMonth ?? '—'}월 · 운영 revision ${operations.revision} · 계약 ${operations.contracts.length}건 · 인력 자리 ${operations.positions.length}개`;
+  return `${operations.nextOperatingYear ?? '—'}년 ${operations.nextOperatingMonth ?? '—'}월 · 운영 revision ${operations.revision} · 계약 ${operations.contracts.length}건 · 인력 자리 ${operations.positions.length}개 · 운전자금 ${operations.workingCapitalLoans.filter((loan) => loan.outstandingPrincipalKrw > 0).length}건`;
 }
 
 function latestBusinessMonthText(state: AsyncState<BusinessOperationsResponse>): string {
   if (state.status !== 'success' || state.value.latestMonth === null)
     return '아직 확정된 상세 사업 실적이 없습니다.';
   const month = state.value.latestMonth;
-  return `${month.operatingYear}년 ${month.operatingMonth}월 · 계약 매출 ${formatWon(month.contractRevenueKrw)} · 계약 변동비 ${formatWon(month.contractVariableCostKrw)} · 마케팅 ${formatWon(month.marketingCostKrw)} · 직원 비용 ${formatWon(month.employeeCostKrw)} · 역량 ${month.usedCapacityUnits}/${month.totalCapacityUnits}`;
+  return `${month.operatingYear}년 ${month.operatingMonth}월 · 계약 매출 ${formatWon(month.contractRevenueKrw)} · 계약 변동비 ${formatWon(month.contractVariableCostKrw)} · 마케팅 ${formatWon(month.marketingCostKrw)} · 직원 비용 ${formatWon(month.employeeCostKrw)} · 운전자금 이자 ${formatWon(month.loanInterestCostKrw)} · 역량 ${month.usedCapacityUnits}/${month.totalCapacityUnits}`;
+}
+
+function dissolutionBlockers(
+  corporation: CorporationSummary | null,
+  state: AsyncState<BusinessOperationsResponse>,
+): string[] {
+  if (corporation === null) return ['법인이 없습니다.'];
+  if (!['active', 'dormant', 'insolvent'].includes(corporation.status)) {
+    return ['현재 법인 상태에서는 해산할 수 없습니다.'];
+  }
+  if (state.status !== 'success' || state.value.availability !== 'active') {
+    return ['사업 운영 정보를 먼저 새로고침해 주세요.'];
+  }
+  const blockers: string[] = [];
+  if (corporation.operatingPayableKrw > 0) blockers.push('운영 미지급금');
+  if (corporation.corporateTaxPayableKrw > 0) blockers.push('법인세 미지급금');
+  if (
+    state.value.contracts.some((contract) =>
+      ['offered', 'accepted', 'active'].includes(contract.status),
+    )
+  ) {
+    blockers.push('정리되지 않은 고객 계약');
+  }
+  if (state.value.positions.some((position) => ['hired', 'active'].includes(position.status))) {
+    blockers.push('재직 중인 직원');
+  }
+  if (state.value.workingCapitalLoans.some((loan) => loan.outstandingPrincipalKrw > 0)) {
+    blockers.push('미상환 운전자금 대출');
+  }
+  return blockers;
+}
+
+function isDissolutionReady(
+  corporation: CorporationSummary | null,
+  state: AsyncState<BusinessOperationsResponse>,
+): boolean {
+  return dissolutionBlockers(corporation, state).length === 0;
+}
+
+function dissolutionReadinessText(
+  corporation: CorporationSummary | null,
+  state: AsyncState<BusinessOperationsResponse>,
+): string {
+  const blockers = dissolutionBlockers(corporation, state);
+  return blockers.length === 0
+    ? '해산 조건을 충족했습니다. 남은 법인 현금은 개인 지갑으로 청산됩니다.'
+    : `해산 전 정리 필요: ${blockers.join(', ')}`;
 }
 
 function queryStatusText(
@@ -923,6 +1305,14 @@ function operationActionLabel(action: BusinessOperationRequest['action']): strin
       return '직원 종료';
     case 'setMonthlyPlan':
       return '사업 계획 저장';
+    case 'capitalContribution':
+      return '추가 출자';
+    case 'drawWorkingCapitalLoan':
+      return '운전자금 대출 실행';
+    case 'repayWorkingCapitalLoan':
+      return '운전자금 원금 상환';
+    case 'dissolve':
+      return '법인 해산';
   }
 }
 

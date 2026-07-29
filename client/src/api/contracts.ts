@@ -3606,6 +3606,27 @@ export const BusinessLoanProductSchema = z
   })
   .strict();
 
+export const BusinessWorkingCapitalLoanStatusSchema = z.enum(['active', 'matured', 'repaid']);
+
+export const BusinessWorkingCapitalLoanSchema = z
+  .object({
+    id: ResourceIdSchema,
+    productId: ResourceIdSchema,
+    productKey: z.string().min(1).max(64),
+    displayName: z.string().min(1).max(100),
+    status: BusinessWorkingCapitalLoanStatusSchema,
+    originalPrincipalKrw: PositiveKrwSchema,
+    outstandingPrincipalKrw: NonnegativeKrwSchema,
+    monthlyInterestRatePpm: z.number().int().min(0).max(1_000_000),
+    termMonths: z.number().int().min(1).max(65_535),
+    originatedYear: z.number().int().min(1).max(65_535),
+    originatedMonth: z.number().int().min(1).max(12),
+    maturityYear: z.number().int().min(1).max(65_535),
+    maturityMonth: z.number().int().min(1).max(12),
+    personalGuarantee: z.boolean(),
+  })
+  .strict();
+
 export const BusinessContractSchema = z
   .object({
     id: ResourceIdSchema,
@@ -3660,6 +3681,7 @@ export const BusinessMonthSchema = z
     marketingCostKrw: NonnegativeKrwSchema,
     employeeCostKrw: NonnegativeKrwSchema,
     failedContractPenaltyKrw: NonnegativeKrwSchema,
+    loanInterestCostKrw: NonnegativeKrwSchema,
     completedContractCount: z.number().int().min(0).max(65_535),
     failedContractCount: z.number().int().min(0).max(65_535),
     activeEmployeeCount: z.number().int().min(0).max(65_535),
@@ -3681,6 +3703,7 @@ export const BusinessOperationsResponseSchema = z
     nextOperatingMonth: z.number().int().min(1).max(12).nullable(),
     marketingBands: z.array(BusinessMarketingBandSchema).max(8),
     loanProducts: z.array(BusinessLoanProductSchema).max(8),
+    workingCapitalLoans: z.array(BusinessWorkingCapitalLoanSchema).max(8),
     contracts: z.array(BusinessContractSchema).max(50),
     positions: z.array(BusinessPositionSchema).max(32),
     plan: BusinessMonthlyPlanSchema.nullable(),
@@ -4025,6 +4048,24 @@ export const BusinessMonthlyPlanDraftSchema = z
   })
   .strict();
 
+export const BusinessCapitalContributionDraftSchema = z
+  .object({ amountKrw: PositiveKrwSchema })
+  .strict();
+
+export const BusinessWorkingCapitalLoanDrawDraftSchema = z
+  .object({
+    loanProductId: ResourceIdSchema,
+    principalKrw: PositiveKrwSchema,
+  })
+  .strict();
+
+export const BusinessWorkingCapitalLoanRepayDraftSchema = z
+  .object({
+    loanId: ResourceIdSchema,
+    principalKrw: PositiveKrwSchema,
+  })
+  .strict();
+
 export const BusinessOperationRequestSchema = z.discriminatedUnion('action', [
   z
     .object({
@@ -4063,6 +4104,35 @@ export const BusinessOperationRequestSchema = z.discriminatedUnion('action', [
       contractPriorityIds: z.array(ResourceIdSchema).max(50),
     })
     .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('capitalContribution'),
+      amountKrw: PositiveKrwSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('drawWorkingCapitalLoan'),
+      loanProductId: ResourceIdSchema,
+      principalKrw: PositiveKrwSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('repayWorkingCapitalLoan'),
+      loanId: ResourceIdSchema,
+      principalKrw: PositiveKrwSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...BusinessOperationCursorFields,
+      action: z.literal('dissolve'),
+    })
+    .strict(),
 ]);
 
 export const BusinessOperationResultSchema = z.discriminatedUnion('action', [
@@ -4071,6 +4141,42 @@ export const BusinessOperationResultSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('hirePosition'), position: BusinessPositionSchema }).strict(),
   z.object({ action: z.literal('terminatePosition'), position: BusinessPositionSchema }).strict(),
   z.object({ action: z.literal('setMonthlyPlan'), plan: BusinessMonthlyPlanSchema }).strict(),
+  z
+    .object({
+      action: z.literal('capitalContribution'),
+      contributionId: ResourceIdSchema,
+      amountKrw: PositiveKrwSchema,
+      corporationCashAfterKrw: NonnegativeKrwSchema,
+      contributedCapitalAfterKrw: PositiveKrwSchema,
+      walletCashAfterKrw: NonnegativeKrwSchema,
+      corporationLedgerTransactionId: ResourceIdSchema,
+      personalLedgerTransactionId: ResourceIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('drawWorkingCapitalLoan'),
+      loan: BusinessWorkingCapitalLoanSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('repayWorkingCapitalLoan'),
+      loan: BusinessWorkingCapitalLoanSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('dissolve'),
+      dissolutionId: ResourceIdSchema,
+      distributionKrw: NonnegativeKrwSchema,
+      capitalBasisKrw: PositiveKrwSchema,
+      realizedGainLossKrw: z.number().int().safe(),
+      walletCashAfterKrw: NonnegativeKrwSchema,
+      corporationLedgerTransactionId: ResourceIdSchema,
+      personalLedgerTransactionId: ResourceIdSchema,
+    })
+    .strict(),
 ]);
 
 export const CorporationDividendSchema = z
@@ -10552,6 +10658,10 @@ export type BusinessContractStatus = z.infer<typeof BusinessContractStatusSchema
 export type BusinessPositionStatus = z.infer<typeof BusinessPositionStatusSchema>;
 export type BusinessMarketingBand = z.infer<typeof BusinessMarketingBandSchema>;
 export type BusinessLoanProduct = z.infer<typeof BusinessLoanProductSchema>;
+export type BusinessWorkingCapitalLoanStatus = z.infer<
+  typeof BusinessWorkingCapitalLoanStatusSchema
+>;
+export type BusinessWorkingCapitalLoan = z.infer<typeof BusinessWorkingCapitalLoanSchema>;
 export type BusinessContract = z.infer<typeof BusinessContractSchema>;
 export type BusinessPosition = z.infer<typeof BusinessPositionSchema>;
 export type BusinessMonthlyPlan = z.infer<typeof BusinessMonthlyPlanSchema>;
@@ -10575,6 +10685,15 @@ export type BusinessOperationRequest = z.infer<typeof BusinessOperationRequestSc
 export type BusinessOperationResult = z.infer<typeof BusinessOperationResultSchema>;
 export type BusinessOperationResponse = z.infer<typeof BusinessOperationResponseSchema>;
 export type BusinessMonthlyPlanDraft = z.infer<typeof BusinessMonthlyPlanDraftSchema>;
+export type BusinessCapitalContributionDraft = z.infer<
+  typeof BusinessCapitalContributionDraftSchema
+>;
+export type BusinessWorkingCapitalLoanDrawDraft = z.infer<
+  typeof BusinessWorkingCapitalLoanDrawDraftSchema
+>;
+export type BusinessWorkingCapitalLoanRepayDraft = z.infer<
+  typeof BusinessWorkingCapitalLoanRepayDraftSchema
+>;
 export type LifeBudgetUpdateDraft = z.infer<typeof LifeBudgetUpdateDraftSchema>;
 export type LifeBudgetUpdateRequest = z.infer<typeof LifeBudgetUpdateRequestSchema>;
 export type EssentialArrearPaymentDraft = z.infer<typeof EssentialArrearPaymentDraftSchema>;
