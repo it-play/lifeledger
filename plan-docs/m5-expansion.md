@@ -344,6 +344,42 @@ ranked run은 목표 day를 넘어 전진할 수 없으며 마지막 advance는 
 요청을 거절하는 정책 중 **고정 기본값으로 remaining days까지만 실행**하고 receipt에 truncated days를
 명시한다.
 
+#### M5-C 첫 ranked authority 계약 (2026-07-29)
+
+M5-B의 `dev-unranked-m5-content-2026` v1과 그 12개 원본 authority를 이름만 바꿔 복제하지 않는다. 이미
+published/sealed 뒤 update/delete가 막힌 exact authority 조합을, 같은 binary로 완료한 30년 회귀 evidence와
+함께 새 immutable `ranked_ruleset_release`로 인증한다. 원본 row와 `content_bundle.ranked_eligible=false`는
+수정하지 않는다. ranked 자격은 원본 하나하나가 아니라 **release가 고정한 전체 조합**에만 생기며 다른
+market·policy·content·engine 조합에는 전이되지 않는다.
+
+첫 release는 다음 값을 모두 직접 pin한다.
+
+- market world, finance policy, career catalog, employment policy, life catalog, credit model, real-estate model
+- M5-B content bundle ID와 canonical SHA-256
+- server engine version
+- 검증 evidence key와 paired 30년 최종 상태 SHA-256
+- 위 필드의 canonical JSON과 generated release SHA-256
+
+`ranking_rule_version`은 목표 game day, metric, liquidation/carry policy, 동점 순서를 canonical JSON으로 봉인한다.
+첫 규칙은 target day 10,950, `afterTaxNetWorthKrw` 내림차순 뒤 insolvency day·player command 수·run ID
+오름차순이다. 결산 planner가 구현되기 전에는 이 규칙으로 완주 row를 만들지 않는다.
+
+`season`은 release와 ranking rule의 `(id, sha)` 쌍, 등록·운영 벽시계, 표시 이름을 pin한다. 의미 필드는 생성
+뒤 바꾸지 않고 상태만 revision과 함께
+`draft → registrationOpen → active → locked → finalized → archived`로 전진한다. `season_assignment`의
+`rankedRun` 한 행만 새 ranked 시작에 쓰며 assignment revision으로 ABA를 막는다.
+
+`league_definition`은 한 season에 속하고 mode가 `rankedPreset`이면 정확한
+`character_preset_version_id` 하나, `rankedCustom`이면 정확한 `point_budget_version_id` 하나만 가진다. 첫
+season은 content bundle에 들어 있는 preset 5개와 point budget 1개를 각각 별도 league로 게시한다. 서로 다른
+preset이나 budget version은 같은 ranking 표에 섞지 않는다.
+
+ranked run manifest는 기존 `season_id · league_definition_id` 외에 release와 ranking rule의 `(id, sha)` 쌍을
+함께 기록한다. 시작 transaction은 활성 season/league, release의 모든 direct authority, 현재 assignment,
+content SHA, engine, 요청한 preset/budget을 `FOR SHARE` 아래 다시 대조한다. 어느 하나라도 달라지면 run·command
+identity·receipt를 만들지 않고 `modeUnavailable`로 닫는다. sandbox manifest의 네 ranked authority field는
+항상 null이다.
+
 ### 5.2 결산과 세후순자산
 
 랭킹 지표는 manifest의 고정 목표일(초기 의도는 game 30년 시점)에 만들어진 `run_finalization`의
