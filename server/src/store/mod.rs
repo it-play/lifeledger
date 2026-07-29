@@ -22,6 +22,7 @@ mod mysql;
 mod properties;
 mod property_tax;
 mod recruitment;
+mod runs;
 mod tax_accounts;
 mod types;
 mod user;
@@ -33,6 +34,7 @@ pub use finance::create_mysql_finance_store;
 pub use life::create_mysql_life_store;
 pub use market::create_mysql_market_store;
 pub use mysql::create_mysql_save_store;
+pub use runs::create_mysql_run_store;
 pub use types::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
     ActOnInsolvencyCaseCommand, ActiveHousingLeaseState, ActiveLeaseTermState,
@@ -117,7 +119,7 @@ pub use types::{
     PropertyTaxEventStatusState, PropertyTaxPaymentState, PropertyTaxPaymentStatusState,
     PublishCareerArtifactCommand, PurchasePropertyCommand, RealEstateDailyPreparationStore,
     RecruitmentPostingStore, RepaidDepositLoanReceipt, RepricePropertySaleOrderCommand,
-    ResidenceTenureKind, ResolveLifeEventCommand, SaveCursor, SaveState, SaveStore,
+    ResidenceTenureKind, ResolveLifeEventCommand, RunStore, SaveCursor, SaveState, SaveStore,
     StartCareerActivityCommand, StartGameCommand, StartGameReceipt, StartGameResult,
     StartHousingLeaseCommand, StartMilitaryServiceCommand, StartPensionCommand,
     StartPensionReceipt, StartingLoanCommand, TaxAccountStore, TaxAccountStoreResult,

@@ -119,6 +119,7 @@ const INITIAL_CASH_KRW: i64 = 10_000_000;
 const COMMAND_KIND_START_GAME: &str = "startGame";
 const COMMAND_KIND_ADVANCE: &str = "advance";
 const COMMAND_KIND_TRADE: &str = "trade";
+const M5A_ENGINE_VERSION: &str = "m5a-dev-v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CommandIdentityState {
@@ -539,6 +540,31 @@ impl SaveStore for MySqlSaveStore {
         .bind(expected.career_catalog.assignment_revision)
         .bind(expected.employment_policy.assignment_revision)
         .bind(expected.rule_bundle.assignment_revision)
+        .execute(&mut *tx)
+        .await?;
+        let manifest_canonical_json =
+            legacy_sandbox_manifest_canonical(save_id, new_run_revision, &expected)?;
+        sqlx::query(
+            "INSERT INTO run_manifest
+                 (save_id, run_revision, mode, market_world_id, policy_set_id,
+                  career_catalog_bundle_id, employment_policy_set_id, life_catalog_set_id,
+                  credit_model_version_id, real_estate_model_version_id,
+                  canonical_selections_json, engine_version, start_game_day,
+                  ranking_eligible, ranking_ineligibility_reason, manifest_canonical_json)
+             VALUES (?, ?, 'sandbox', ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?, 0,
+                     FALSE, 'legacyStartEndpoint', ?)",
+        )
+        .bind(save_id)
+        .bind(new_run_revision)
+        .bind(expected.market_world.world_id)
+        .bind(expected.policy_set.policy_set_id.get())
+        .bind(expected.career_catalog.bundle_id.get())
+        .bind(expected.employment_policy.policy_set_id.get())
+        .bind(expected.rule_bundle.life_catalog_set_id.get())
+        .bind(expected.rule_bundle.credit_model_version_id.get())
+        .bind(expected.rule_bundle.real_estate_model_version_id.get())
+        .bind(M5A_ENGINE_VERSION)
+        .bind(manifest_canonical_json)
         .execute(&mut *tx)
         .await?;
         let (market_date, cpi_index): (time::Date, Option<i64>) = sqlx::query_as(
@@ -1901,6 +1927,32 @@ fn start_game_fingerprint(command: &StartGameCommand) -> Result<String> {
     };
 
     Ok(sha256_hex(canonical.as_bytes()))
+}
+
+fn legacy_sandbox_manifest_canonical(
+    save_id: u64,
+    run_revision: u32,
+    configuration: &ActiveRunConfiguration,
+) -> Result<String> {
+    serde_json::to_string(&serde_json::json!({
+        "careerCatalogBundleId": configuration.career_catalog.bundle_id.get().to_string(),
+        "creditModelVersionId": configuration.rule_bundle.credit_model_version_id.get().to_string(),
+        "employmentPolicySetId": configuration.employment_policy.policy_set_id.get().to_string(),
+        "engineVersion": M5A_ENGINE_VERSION,
+        "lifeCatalogSetId": configuration.rule_bundle.life_catalog_set_id.get().to_string(),
+        "marketWorldId": configuration.market_world.world_id.to_string(),
+        "mode": "sandbox",
+        "policySetId": configuration.policy_set.policy_set_id.get().to_string(),
+        "rankingEligible": false,
+        "rankingIneligibilityReason": "legacyStartEndpoint",
+        "realEstateModelVersionId": configuration.rule_bundle.real_estate_model_version_id.get().to_string(),
+        "runRevision": run_revision,
+        "saveId": save_id.to_string(),
+        "schemaVersion": 1,
+        "selections": [],
+        "startGameDay": 0
+    }))
+    .context("failed to serialize the legacy sandbox run manifest")
 }
 
 fn start_game_v1_canonical(command: &StartGameCommand) -> Result<String> {

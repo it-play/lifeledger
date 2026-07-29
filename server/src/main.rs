@@ -7,6 +7,7 @@ pub mod finance;
 pub mod life;
 pub mod market;
 mod routes;
+pub mod runs;
 mod state;
 mod store;
 pub mod trading;
@@ -65,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
         finance_rules.clone(),
     ));
     let lives = Arc::new(store::create_mysql_life_store(pool.clone(), finance_rules));
+    let runs = Arc::new(store::create_mysql_run_store(pool.clone()));
     let users = store::create_mysql_user_store(pool);
     let games = day::create_daily_pipeline(
         saves.clone(),
@@ -82,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         careers,
         lives,
         markets,
+        runs,
         users: Arc::new(users),
     });
     let state = state::AppState::new(app_stores, providers);

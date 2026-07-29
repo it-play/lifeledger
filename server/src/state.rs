@@ -40,6 +40,7 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{InterestRateState, MarketRegime};
+use crate::runs::{PointBudgetEvaluation, PointSelection, RunOptions};
 use crate::store::{
     AcceptCareerInvitationCommand, AcceptCareerOfferCommand, AccountUser,
     ActOnInsolvencyCaseCommand, ActiveHousingLeaseState, ActiveLeaseTermState,
@@ -121,7 +122,7 @@ use crate::store::{
     PropertyTaxEventPageQuery, PropertyTaxEventPageState, PropertyTaxEventState,
     PropertyTaxEventStatusState, PropertyTaxPaymentState, PropertyTaxPaymentStatusState,
     PublishCareerArtifactCommand, PurchasePropertyCommand, RepaidDepositLoanReceipt,
-    RepricePropertySaleOrderCommand, ResidenceTenureKind, ResolveLifeEventCommand,
+    RepricePropertySaleOrderCommand, ResidenceTenureKind, ResolveLifeEventCommand, RunStore,
     StartCareerActivityCommand, StartGameCommand, StartGameReceipt, StartHousingLeaseCommand,
     StartMilitaryServiceCommand, StartPensionCommand, StartPensionReceipt, TaxAccountStore,
     TaxAccountStoreResult, TradeStoreResult, TradingStore, UpdateCorporationSettingsCommand,
@@ -5315,6 +5316,7 @@ pub struct AppState {
     careers: Arc<dyn CareerStore>,
     lives: Arc<dyn LifeStore>,
     markets: Arc<dyn MarketStore>,
+    runs: Arc<dyn RunStore>,
     users: Arc<dyn UserStore>,
     pub providers: Providers,
     runtimes: StdMutex<HashMap<u64, Arc<SaveRuntime>>>,
@@ -5331,6 +5333,7 @@ pub struct AppStores {
     careers: Arc<dyn CareerStore>,
     lives: Arc<dyn LifeStore>,
     markets: Arc<dyn MarketStore>,
+    runs: Arc<dyn RunStore>,
     users: Arc<dyn UserStore>,
 }
 
@@ -5344,6 +5347,7 @@ pub struct AppStoreDependencies {
     pub careers: Arc<dyn CareerStore>,
     pub lives: Arc<dyn LifeStore>,
     pub markets: Arc<dyn MarketStore>,
+    pub runs: Arc<dyn RunStore>,
     pub users: Arc<dyn UserStore>,
 }
 
@@ -5358,6 +5362,7 @@ pub fn create_app_stores(dependencies: AppStoreDependencies) -> AppStores {
         careers,
         lives,
         markets,
+        runs,
         users,
     } = dependencies;
     AppStores {
@@ -5370,6 +5375,7 @@ pub fn create_app_stores(dependencies: AppStoreDependencies) -> AppStores {
         careers,
         lives,
         markets,
+        runs,
         users,
     }
 }
@@ -5406,6 +5412,7 @@ impl AppState {
             careers: dependencies.stores.careers,
             lives: dependencies.stores.lives,
             markets: dependencies.stores.markets,
+            runs: dependencies.stores.runs,
             users: dependencies.stores.users,
             providers: dependencies.providers,
             runtimes: StdMutex::new(HashMap::new()),
@@ -5430,6 +5437,18 @@ impl AppState {
 
         self.spawn_runner(user_id, &runtime);
         runtime
+    }
+
+    pub async fn run_options(&self) -> Result<RunOptions> {
+        self.runs.run_options().await
+    }
+
+    pub async fn preview_point_budget(
+        &self,
+        version_id: ResourceId,
+        selections: &[PointSelection],
+    ) -> Result<Option<PointBudgetEvaluation>> {
+        self.runs.preview_point_budget(version_id, selections).await
     }
 
     fn spawn_runner(self: &Arc<Self>, user_id: u64, runtime: &Arc<SaveRuntime>) {
@@ -14157,6 +14176,29 @@ mod tests {
 
     struct FakeUserStore;
 
+    struct FakeRunStore;
+
+    #[async_trait]
+    impl RunStore for FakeRunStore {
+        async fn run_options(&self) -> Result<RunOptions> {
+            Ok(RunOptions {
+                modes: Vec::new(),
+                active_season_id: None,
+                presets: Vec::new(),
+                point_budgets: Vec::new(),
+                sandbox_available: true,
+            })
+        }
+
+        async fn preview_point_budget(
+            &self,
+            _version_id: ResourceId,
+            _selections: &[PointSelection],
+        ) -> Result<Option<PointBudgetEvaluation>> {
+            Ok(None)
+        }
+    }
+
     #[async_trait]
     impl UserStore for FakeUserStore {
         async fn upsert(&self, _identity: &OAuthIdentity) -> Result<AccountUser> {
@@ -14901,6 +14943,7 @@ mod tests {
         let careers: Arc<dyn CareerStore> = Arc::new(FakeCareerStore);
         let lives: Arc<dyn LifeStore> = Arc::new(FakeLifeStore);
         let markets: Arc<dyn MarketStore> = Arc::new(FakeMarketStore);
+        let runs: Arc<dyn RunStore> = Arc::new(FakeRunStore);
         let users: Arc<dyn UserStore> = Arc::new(FakeUserStore);
         let timer = Arc::new(ManualTimer::new());
         let game_timer: Arc<dyn GameTimer> = timer.clone();
@@ -14918,6 +14961,7 @@ mod tests {
                     careers,
                     lives,
                     markets,
+                    runs,
                     users,
                 }),
                 providers,
@@ -15155,6 +15199,7 @@ mod tests {
             let careers: Arc<dyn CareerStore> = Arc::new(FakeCareerStore);
             let lives: Arc<dyn LifeStore> = Arc::new(FakeLifeStore);
             let markets: Arc<dyn MarketStore> = Arc::new(FakeMarketStore);
+            let runs: Arc<dyn RunStore> = Arc::new(FakeRunStore);
             let users: Arc<dyn UserStore> = Arc::new(FakeUserStore);
             let timer = Arc::new(ManualTimer::new());
             let providers = Providers::from_env("http://localhost:8080".to_owned())
@@ -15171,6 +15216,7 @@ mod tests {
                         careers,
                         lives,
                         markets,
+                        runs,
                         users,
                     }),
                     providers,

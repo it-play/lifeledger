@@ -39,6 +39,12 @@ use crate::life::{
     HousingLeaseOfferKind, InsolvencyProcedureKind, LifeRegionKey, LivingCostCategory,
     LoanProductKind,
 };
+use crate::runs::{
+    CharacterPresetVersion, PointBudgetCatalog, PointBudgetEvaluation, PointBudgetFailure,
+    PointBudgetFailureCode, PointBudgetOption, PointCondition, PointCostKind, PointEffect,
+    PointExclusiveGroup, PointFactComparison, PointFactValue, PointLedgerLine, PointSelection,
+    PointTier, RunMode, RunOptions,
+};
 use crate::state::{
     ActiveHousingLeaseSnapshot, ActiveLeaseTermSnapshot, ActiveMilitarySavingsStatusSnapshot,
     ActiveMilitarySavingsSummarySnapshot, ActiveMilitaryServiceStatusSnapshot,
@@ -210,6 +216,8 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
     paths(
         health,
         presets,
+        run_options,
+        preview_point_budget,
         create_character,
         snapshot,
         advance,
@@ -406,6 +414,27 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         crate::market::MarketRegime,
         AutoSpeed,
         Health,
+        RunMode,
+        RunOptions,
+        CharacterPresetVersion,
+        PointBudgetCatalog,
+        PointBudgetOption,
+        PointExclusiveGroup,
+        PointCostKind,
+        PointTier,
+        PointEffect,
+        PointCondition,
+        PointFactComparison,
+        PointFactValue,
+        PointSelection,
+        PointLedgerLine,
+        PointBudgetFailureCode,
+        PointBudgetFailure,
+        PointBudgetEvaluation,
+        PointBudgetPreviewRequest,
+        PointSelectionRequest,
+        RunRequestFailure,
+        RunRequestFailureCode,
         CharacterStartRequest,
         CharacterStartResponse,
         CharacterStartSnapshot,
@@ -763,6 +792,8 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/presets", get(presets))
+        .route("/api/run-options", get(run_options))
+        .route("/api/runs/point-preview", post(preview_point_budget))
         .route("/api/characters", post(create_character))
         .route("/api/state", get(snapshot))
         .route("/api/advance", post(advance))
@@ -958,6 +989,132 @@ pub fn router(state: Arc<AppState>) -> Router {
 )]
 async fn presets() -> Json<&'static [character::Preset]> {
     Json(character::presets())
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/run-options",
+    responses(
+        (status = 200, description = "사용 가능한 실행 모드와 versioned 시작 catalog", body = RunOptions),
+        (status = 500, description = "조회 실패")
+    )
+)]
+async fn run_options(State(state): State<Arc<AppState>>) -> Result<Json<RunOptions>, AppError> {
+    Ok(Json(state.run_options().await?))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PointBudgetPreviewRequest {
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]{0,19}$")]
+    point_budget_version_id: String,
+    #[schema(max_items = 64)]
+    selections: Vec<PointSelectionRequest>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PointSelectionRequest {
+    #[schema(min_length = 1, max_length = 20, pattern = "^[1-9][0-9]{0,19}$")]
+    option_id: String,
+    #[schema(minimum = 1, maximum = 1000000)]
+    quantity: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum RunRequestFailureCode {
+    InvalidCommand,
+    VersionNotFound,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct RunRequestFailure {
+    code: RunRequestFailureCode,
+}
+
+enum PointBudgetPreviewError {
+    InvalidCommand,
+    VersionNotFound,
+    Internal(AppError),
+}
+
+impl From<anyhow::Error> for PointBudgetPreviewError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(AppError::from(error))
+    }
+}
+
+impl axum::response::IntoResponse for PointBudgetPreviewError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::InvalidCommand => (
+                StatusCode::BAD_REQUEST,
+                Json(RunRequestFailure {
+                    code: RunRequestFailureCode::InvalidCommand,
+                }),
+            )
+                .into_response(),
+            Self::VersionNotFound => (
+                StatusCode::NOT_FOUND,
+                Json(RunRequestFailure {
+                    code: RunRequestFailureCode::VersionNotFound,
+                }),
+            )
+                .into_response(),
+            Self::Internal(error) => error.into_response(),
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/runs/point-preview",
+    request_body = PointBudgetPreviewRequest,
+    responses(
+        (status = 200, description = "서버가 계산한 point ledger", body = PointBudgetEvaluation),
+        (status = 400, description = "strict 요청 형식 또는 범위 오류", body = RunRequestFailure),
+        (status = 404, description = "사용할 수 없는 budget version", body = RunRequestFailure),
+        (status = 500, description = "조회 실패")
+    )
+)]
+async fn preview_point_budget(
+    State(state): State<Arc<AppState>>,
+    request: Result<Json<PointBudgetPreviewRequest>, JsonRejection>,
+) -> Result<Json<PointBudgetEvaluation>, PointBudgetPreviewError> {
+    let Json(request) = request.map_err(|_| PointBudgetPreviewError::InvalidCommand)?;
+    if request.selections.len() > 64 {
+        return Err(PointBudgetPreviewError::InvalidCommand);
+    }
+    let version_id = parse_run_resource_id(&request.point_budget_version_id)?;
+    let selections = request
+        .selections
+        .into_iter()
+        .map(|selection| {
+            if selection.quantity == 0 || selection.quantity > 1_000_000 {
+                return Err(PointBudgetPreviewError::InvalidCommand);
+            }
+            Ok(PointSelection {
+                option_id: parse_run_resource_id(&selection.option_id)?,
+                quantity: selection.quantity,
+            })
+        })
+        .collect::<Result<Vec<_>, PointBudgetPreviewError>>()?;
+    let evaluation = state
+        .preview_point_budget(version_id, &selections)
+        .await?
+        .ok_or(PointBudgetPreviewError::VersionNotFound)?;
+
+    Ok(Json(evaluation))
+}
+
+fn parse_run_resource_id(raw: &str) -> Result<ResourceId, PointBudgetPreviewError> {
+    raw.parse::<u64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .map(ResourceId::from_u64)
+        .ok_or(PointBudgetPreviewError::InvalidCommand)
 }
 
 #[derive(Deserialize, ToSchema)]

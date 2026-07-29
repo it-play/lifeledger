@@ -36,6 +36,7 @@ use crate::life::{
     PropertyType, YearMonth,
 };
 use crate::market::{MarketCalibration, MarketDay, MarketWorld};
+use crate::runs::{PointBudgetEvaluation, PointSelection, RunOptions};
 use crate::trading::{PositionState, TradeExecution, TradeFailure, TradeOrder};
 
 use super::annual_tax::AnnualTaxYearState;
@@ -3559,6 +3560,17 @@ pub trait UserStore: Send + Sync + 'static {
 
     /// Closes one session (logout).
     async fn close_session(&self, token_hash: &str) -> Result<()>;
+}
+
+#[async_trait]
+pub trait RunStore: Send + Sync + 'static {
+    async fn run_options(&self) -> Result<RunOptions>;
+
+    async fn preview_point_budget(
+        &self,
+        version_id: ResourceId,
+        selections: &[PointSelection],
+    ) -> Result<Option<PointBudgetEvaluation>>;
 }
 
 /// Save reads and writes. Every access is scoped to an account (§4.5).
