@@ -9952,6 +9952,57 @@ export const LeagueRankingPageSchema = z
   })
   .strict();
 
+export const RunFinalizationLineSchema = z
+  .object({
+    lineNo: z.number().int().positive().max(256),
+    componentKey: z.string().min(1).max(64),
+    grossKrw: z.number().int().safe(),
+    costKrw: z.number().int().safe().nonnegative(),
+    taxKrw: z.number().int().safe().nonnegative(),
+    netKrw: z.number().int().safe(),
+    policyReference: z.string().min(1).max(128),
+    lineSha256: Sha256Schema,
+  })
+  .strict();
+
+const RunFinalizationIdentitySchema = z.object({
+  runRevision: z.number().int().nonnegative(),
+  targetGameDay: z.number().int().positive(),
+});
+
+export const RunFinalizationSchema = z.discriminatedUnion('status', [
+  RunFinalizationIdentitySchema.extend({
+    status: z.literal('pending'),
+    afterTaxNetWorthKrw: z.null(),
+    insolvencyDays: z.null(),
+    playerCommandCount: z.null(),
+    liquidationSha256: z.null(),
+    failureCode: z.null(),
+    completedAt: z.null(),
+    lines: z.array(RunFinalizationLineSchema).length(0),
+  }).strict(),
+  RunFinalizationIdentitySchema.extend({
+    status: z.literal('completed'),
+    afterTaxNetWorthKrw: z.number().int().safe(),
+    insolvencyDays: z.number().int().safe().nonnegative(),
+    playerCommandCount: z.number().int().safe().nonnegative(),
+    liquidationSha256: Sha256Schema,
+    failureCode: z.null(),
+    completedAt: z.string().min(1),
+    lines: z.array(RunFinalizationLineSchema).min(1).max(256),
+  }).strict(),
+  RunFinalizationIdentitySchema.extend({
+    status: z.literal('failed'),
+    afterTaxNetWorthKrw: z.null(),
+    insolvencyDays: z.null(),
+    playerCommandCount: z.null(),
+    liquidationSha256: z.null(),
+    failureCode: z.string().min(1).max(64),
+    completedAt: z.string().min(1),
+    lines: z.array(RunFinalizationLineSchema).length(0),
+  }).strict(),
+]);
+
 const RunStartCommandFields = {
   commandId: CanonicalUuidSchema,
   expectedRunRevision: z.number().int().nonnegative(),
@@ -10620,6 +10671,8 @@ export type LeagueDefinition = z.infer<typeof LeagueDefinitionSchema>;
 export type SeasonLeagues = z.infer<typeof SeasonLeaguesSchema>;
 export type LeagueRankingItem = z.infer<typeof LeagueRankingItemSchema>;
 export type LeagueRankingPage = z.infer<typeof LeagueRankingPageSchema>;
+export type RunFinalizationLine = z.infer<typeof RunFinalizationLineSchema>;
+export type RunFinalization = z.infer<typeof RunFinalizationSchema>;
 export type RankedPresetRunStartDraft = z.infer<typeof RankedPresetRunStartDraftSchema>;
 export type RankedCustomRunStartDraft = z.infer<typeof RankedCustomRunStartDraftSchema>;
 export type SandboxRunStartDraft = z.infer<typeof SandboxRunStartDraftSchema>;

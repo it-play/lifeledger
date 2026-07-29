@@ -56,6 +56,7 @@ import {
   type PortfolioExecution,
   type PortfolioOrderDraft,
   PortfolioOrderDraftSchema,
+  type RunFinalization,
   STEP_DAYS,
   type StepUnit,
   type TaxAccountOpenDraft,
@@ -483,6 +484,13 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         const cashProductRequest = h.useAsync(() => api.listCashProducts());
         const bondCatalogRequest = h.useAsync((signal) => api.listBonds(signal));
         const goldProductRequest = h.useAsync((signal) => api.listGoldProducts(signal));
+        const finalizationRequest = h.useAsync((signal) => {
+          const runRevision = snapshot.peek()?.runRevision;
+          if (runRevision === undefined) {
+            return Promise.reject(new Error('run revision is unavailable'));
+          }
+          return api.getRunFinalization(runRevision, signal);
+        });
         const refreshLatestLedger = h.useDebounced(() => {
           ledgerBefore.set(undefined);
           ledgerRequest.run();
@@ -573,6 +581,19 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           if (snapshot.get() === undefined) return '—';
           const speed = autoSpeed.get();
           return speed === null ? '정지' : `x${speed}`;
+        });
+        const finalizationStatusText = h.useComputed(() =>
+          finalizationStatusLabel(finalizationRequest.state.get()),
+        );
+        const finalizationLinesText = h.useComputed(() => {
+          const state = finalizationRequest.state.get();
+          if (state.status !== 'success' || state.value.status !== 'completed') return '—';
+          return state.value.lines
+            .map(
+              (line) =>
+                `${line.lineNo}. ${line.componentKey}: gross ${formatWon(line.grossKrw)}, cost ${formatWon(line.costKrw)}, tax ${formatWon(line.taxKrw)}, net ${formatWon(line.netKrw)}`,
+            )
+            .join('\n');
         });
         const gameReady = h.useComputed(() => {
           const name = snapshot.get()?.characterName;
@@ -1184,6 +1205,10 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         const ledgerOlderButton = el('button', { type: 'button' }, '이전 거래');
         const ledgerBody = el('tbody');
         const ledgerTable = createLedgerTable(ledgerBody, LEDGER_PAGE_SIZE);
+        const finalizationStatus = el('p', {
+          attrs: { role: 'status', 'aria-live': 'polite' },
+        });
+        const finalizationLines = el('pre');
 
         const stepButtons = (['day', 'week', 'month'] as const).map((unit) =>
           el('button', { type: 'button', dataset: { unit } }, stepLabel(unit)),
@@ -1301,6 +1326,7 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
             pauseButton,
           ),
           el('p', {}, '자동 진행 상태: ', autoStatusValue),
+          el('section', {}, el('h2', {}, '시즌 결산'), finalizationStatus, finalizationLines),
           el('section', {}, el('h2', {}, 'LLX 계좌별 보유'), llxPositionsValue),
           orderFieldset,
           el(
@@ -1622,6 +1648,8 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         h.bindText(treasury10yValue, () => treasury10yText.get());
         h.bindText(statusValue, () => statusText.get());
         h.bindText(autoStatusValue, () => autoStatusText.get());
+        h.bindText(finalizationStatus, () => finalizationStatusText.get());
+        h.bindText(finalizationLines, () => finalizationLinesText.get());
         h.bindText(militaryStatusValue, () => militaryStatusText.get());
         h.bindText(militaryServiceValue, () => militaryServiceText.get());
         h.bindText(militarySavingsValue, () => militarySavingsText.get());
@@ -2039,6 +2067,23 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           const state = ledgerRequest.state.get();
           ledgerTable.setTransactions(state.status === 'success' ? state.value.transactions : []);
         });
+        let requestedFinalizationRun: number | undefined;
+        let refreshedFinalizationTarget: string | undefined;
+        h.useEffect(() => {
+          const current = snapshot.get();
+          const state = finalizationRequest.state.get();
+          if (!hasCharacter(current)) return;
+          if (requestedFinalizationRun !== current.runRevision) {
+            requestedFinalizationRun = current.runRevision;
+            refreshedFinalizationTarget = undefined;
+            finalizationRequest.run();
+            return;
+          }
+          const refreshKey = pendingFinalizationRefreshKey(current, state);
+          if (!isNewFinalizationTarget(refreshKey, refreshedFinalizationTarget)) return;
+          refreshedFinalizationTarget = refreshKey;
+          finalizationRequest.run();
+        });
         h.useEffect(() => {
           const ready = gameReady.get();
           const cursor = historyCursor.get();
@@ -2085,6 +2130,47 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
       },
     };
   };
+}
+
+function finalizationStatusLabel(state: AsyncState<RunFinalization>): string {
+  if (state.status === 'idle' || state.status === 'loading') {
+    return '결산 정보를 확인하는 중입니다.';
+  }
+  if (state.status === 'error') {
+    return '현재 실행은 랭킹 결산 대상이 아니거나 결산 정보를 조회할 수 없습니다.';
+  }
+  return finalizationLabel(state.value);
+}
+
+function finalizationLabel(finalization: RunFinalization): string {
+  if (finalization.status === 'pending') {
+    return `목표 게임일 ${finalization.targetGameDay.toLocaleString('ko-KR')}일에 결산합니다.`;
+  }
+  if (finalization.status === 'failed') return `결산 실패: ${finalization.failureCode}`;
+  return `세후 순자산 ${formatWon(finalization.afterTaxNetWorthKrw)} · 도산 ${finalization.insolvencyDays.toLocaleString('ko-KR')}일 · 플레이어 명령 ${finalization.playerCommandCount.toLocaleString('ko-KR')}회`;
+}
+
+function pendingFinalizationRefreshKey(
+  snapshot: GameSnapshot,
+  state: AsyncState<RunFinalization>,
+): string | undefined {
+  if (state.status !== 'success') return undefined;
+  const finalization = state.value;
+  if (finalization.status !== 'pending') return undefined;
+  if (finalization.runRevision !== snapshot.runRevision) return undefined;
+  if (snapshot.gameDay < finalization.targetGameDay) return undefined;
+  return `${String(snapshot.runRevision)}:${String(finalization.targetGameDay)}`;
+}
+
+function hasCharacter(snapshot: GameSnapshot | undefined): snapshot is GameSnapshot {
+  return snapshot !== undefined && snapshot.characterName !== null;
+}
+
+function isNewFinalizationTarget(
+  candidate: string | undefined,
+  refreshed: string | undefined,
+): candidate is string {
+  return candidate !== undefined && candidate !== refreshed;
 }
 
 const moneyText = (amount: number | undefined): string =>

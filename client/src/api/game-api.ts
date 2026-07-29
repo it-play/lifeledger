@@ -97,6 +97,8 @@ import {
   type Preset,
   PresetListSchema,
   ResourceIdSchema,
+  type RunFinalization,
+  RunFinalizationSchema,
   type RunOptions,
   RunOptionsSchema,
   type RunRequestFailureCode,
@@ -196,6 +198,8 @@ export interface GameApi {
     limit?: number,
     signal?: AbortSignal,
   ): Promise<LeagueRankingPage>;
+  /** Reads the authenticated account's immutable ranked-run finalization. */
+  getRunFinalization(runRevision: number, signal?: AbortSignal): Promise<RunFinalization>;
   /** Evaluates one canonical point selection on the server. */
   previewPointBudget(
     request: PointBudgetPreviewRequest,
@@ -283,6 +287,7 @@ const goldProductCatalogDecoder = asDecoder(GoldProductCatalogSchema);
 const runOptionsDecoder = asDecoder(RunOptionsSchema);
 const seasonLeaguesDecoder = asDecoder(SeasonLeaguesSchema);
 const leagueRankingPageDecoder = asDecoder(LeagueRankingPageSchema);
+const runFinalizationDecoder = asDecoder(RunFinalizationSchema);
 
 /** Turns a 422 body into a field-to-message map, or gives up if the shape is unfamiliar. */
 function toFieldErrors(error: unknown): Record<string, string> | undefined {
@@ -385,6 +390,17 @@ export function createGameApi(deps: GameApiDeps): GameApi {
       return http.get(
         `/api/leagues/${id}/rankings${suffix}`,
         leagueRankingPageDecoder,
+        signal === undefined ? undefined : { signal },
+      );
+    },
+
+    getRunFinalization: (runRevision, signal) => {
+      if (!Number.isSafeInteger(runRevision) || runRevision < 0) {
+        return Promise.reject(new Error('run revision is invalid'));
+      }
+      return http.get(
+        `/api/runs/${String(runRevision)}/finalization`,
+        runFinalizationDecoder,
         signal === undefined ? undefined : { signal },
       );
     },
