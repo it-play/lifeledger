@@ -615,6 +615,10 @@ prepare/replay·composition 변경·withdraw·submit·배분·면책, strict API
 vendoring하고 연결마다 `TCP_NODELAY`를 설정해 우회했다. production 30일 진행은 366.319867초에서
 2.191241초로 줄었고 각 하루가 정확히 한 번씩 commit됐다. case 2는 day 1,855까지 `rebuilding`, exclusive
 경계 day 1,856에서 transition 한 번으로 `recovered`가 되었으며 서버 재시작 전후 다섯 API hash가 같았다.
+도산 runtime의 정책 호환성은 policy set key 자체가 아니라 봉인된 기준 규칙의 identity로 판정한다. 기준
+policy set에 직접 속한 규칙과 `policy_rule_clone_provenance.sealedExactClone`이 같은 기준 규칙을 가리키고
+domain·rule key·유효기간·parameters가 같은 봉인 규칙만 호환된다. 따라서 이후 기능을 합친 새 봉인 policy
+set이 기준 규칙을 exact-clone했다면 policy set key가 달라도 `policyUnavailable`로 닫지 않는다.
 M4-E1의 전체 운영 인수 결과는 [M4 생애](./m4-life.md) §13.18에 기록했다. M4-E2는 immutable 법인
 catalog/policy와 설립, 결정론적 월 손익, append-only 운영 설정·대표 급여, 연 결산 법인세, 배당 원천징수와
 M2 금융소득, bounded month history까지 server transaction으로 연결했다. production migration `51/51`,

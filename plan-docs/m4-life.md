@@ -2331,6 +2331,12 @@ M4-E1의 기준일은 **2026-07-28**이고 simulation date가 2026-02-01 전이�
 `policyUnavailable`로 닫는다. 첫 policy set은 기존 finance policy graph를 exact-clone한 뒤 아래 insolvency
 rule과 출처만 더한 `dev-unranked-kr-individual-insolvency-2026-v4`다.
 
+runtime 호환성의 기준은 policy set key가 아니라 이 봉인 규칙의 identity다. 현재 policy가 위 v4 규칙을
+직접 가지거나, 현재 규칙의 `policy_rule_clone_provenance`가 `sealedExactClone`으로 위 v4 원본을 가리키고
+양쪽 봉인 규칙의 domain·rule key·유효기간·parameters가 같을 때만 같은 정책으로 소비한다. 이후 기능을
+합친 policy set의 key가 달라도 이 증명이 있으면 호환되며, provenance가 없거나 규칙 내용이 다르면
+`policyUnavailable`로 닫는다.
+
 | 구분 | E1에 고정하는 값·판정 | provenance와 근거 |
 |------|------------------------|-------------------|
 | 자동 압류금지 현금성 재산 | 현금·압류금지 예금 사이 상호 공제를 전제로 개인별 합계 2,500,000원 | `LEGAL_STATUTE`, [민사집행법 시행령 §§2·7](https://www.law.go.kr/LSW/lsSideInfoP.do?docCls=jo&joBrNo=00&joNo=0002&lsiSeq=283025&urlMode=lsScJoRltInfoR), 2026-02-01 시행본 |
