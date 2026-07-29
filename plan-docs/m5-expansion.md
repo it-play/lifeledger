@@ -614,6 +614,53 @@ worker는 run당 한 번에 처리할 최대 day batch, 전체 동시 transactio
 제한한다. 설정은 성능값일 뿐 결과 의미를 바꾸면 안 된다. batch 크기 1과 큰 batch의 최종 원장 hash가
 같아야 한다. 배포 중 binary version이 시즌 manifest와 다르면 ranked run을 claim하지 않는다.
 
+### 6.4 M5-D 첫 offline authority 계약 (2026-07-29)
+
+첫 구현은 `m5d-offline-progress-v1`을 schema version 1의 sealed policy로 게시한다. development production에서
+기능을 빠르게 관찰하기 위한 값은 cadence 60초, absence window당 최대 90 game day, worker claim당 최대
+7 game day, progress lease 30초, online presence TTL 45초, heartbeat 15초, online intent TTL 30초다. 이 값은
+코드 상수가 아니라 policy canonical manifest의 일부이며 외부 플레이테스트 전 새 version으로 교체할 수 있다.
+이미 pin한 run의 policy 값은 수정하지 않는다.
+
+DB 경계는 다음과 같이 고정한다.
+
+- `offline_policy_version` — key/version/schema와 cadence·window cap·batch·lease·presence·intent 값을 가진
+  immutable sealed authority다. canonical JSON과 SHA-256을 함께 보존하고 update/delete를 거절한다.
+- `offline_policy_assignment` — `newSandboxRun` slot이 새 sandbox manifest에 pin할 policy를 revision과 함께
+  가리킨다. 기존 manifest의 nullable `offline_policy_version_id`를 소급 채우지 않는다.
+- `ranked_ruleset_release.offline_policy_version_id`가 null이면 그 release의 offline opt-in은 금지다. 이후 새
+  release만 policy ID·SHA를 canonical release manifest에 함께 pin할 수 있다. 현재 production season과 그
+  ranked run 6·7은 null을 유지한다.
+- `offline_progress_setting` — 현재 save/run의 opt-in, policy ID·SHA, `active|pausedBySystem`, absence window,
+  pending/processed/cancelled day, window accrued day, revision과 공개 오류 코드를 보존한다. row가 없거나
+  `enabled=false`면 기본 off다. 새 run은 이전 run의 setting·pending을 승계하지 않는다.
+- `offline_online_presence` — SSE connection마다 서버가 생성한 token hash와 DB-time expiry를 저장한다. open과
+  heartbeat는 expiry를 연장하고 close는 row를 지운다. 비정상 종료 row는 TTL 뒤 무효다. 유효 row가 하나라도
+  있으면 새 absence accrual을 열지 않는다.
+- `progress_lease` — save/run별 한 행에 `online|worker`, token hash, expiry, generation을 둔다. acquire 때만
+  generation을 올리고 renew는 유지한다. 모든 one-day commit은 같은 transaction에서 token·generation·미만료를
+  확인한 뒤 DB 시각으로 renew한다.
+- `offline_progress_attempt` — worker가 시도한 game day, lease generation, retry, `started|committed|failed`,
+  engine version과 stable error code를 append-only로 남긴다. 돈·OAuth 식별자·raw token은 기록하지 않는다.
+
+accrual은 setting row를 잠근 뒤 DB `CURRENT_TIMESTAMP(6)` 하나를 읽어 계산한다. 열린 window에서
+`floor((min(dbNow, accrualLimitAt) - accruedThrough) / cadence)`를 구하고, window 잔여 cap과 ranked 목표일까지
+남은 day로 자른다. `accruedThrough`는 실제 더한 day × cadence만큼만 이동한다. 음수 경과는 0이고 이미
+processed/cancelled된 day를 되살리지 않는다. opt-out은 같은 transaction에서 pending을 cancelled 누계로
+옮기고 window를 닫는다.
+
+온라인 수동·배속 진행은 먼저 `onlineIntentAt`을 DB 시각으로 기록하고 online lease를 얻는다. 유효 worker
+lease는 훔치지 않고 `progressBusy`를 반환한다. worker는 하루 commit마다 recent intent와 online presence를
+확인해 다음 day 전에 lease를 양보한다. API와 worker는 같은 `DailyPipeline`과 `SaveStore` one-day 경로를
+호출하며, lease 없는 legacy 진행 경로는 남기지 않는다.
+
+진행 관련 transaction의 잠금 순서는 `save → offline_progress_setting → progress_lease`로 고정한다. worker는
+후보를 non-locking으로 좁힌 뒤 `save ... FOR UPDATE SKIP LOCKED`를 먼저 얻고 동일 eligibility를 setting lock
+아래 다시 확인한다. API opt-in·presence·online intent와 실제 하루 commit도 같은 순서를 지켜 worker와 온라인
+요청이 서로 반대 순서로 기다리지 않게 한다. 영구 domain/policy 오류는 유효 worker lease를 다시 확인한 같은
+순서의 transaction에서 setting을 `pausedBySystem`으로 바꾸고 window를 닫는다. deadlock·lock timeout·연결
+오류는 setting을 멈추지 않고 attempt retry 번호에 따른 bounded backoff 뒤 다시 claim한다.
+
 ## 7. 법인 상세 경영
 
 M5는 M4 단순 법인을 다음 제한된 수직 슬라이스로 확장한다. 복잡한 회계 ERP나 주식회사의 모든 법률 행위는
