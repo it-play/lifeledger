@@ -2441,7 +2441,10 @@ claim별 배분액은 §4.2의 기존 대출 상환 allocator에 넣어 비용 �
    `loanInstallment` settlement를 취소한다.
 4. 면책 총액이 양수면 `insolvencyDischargedDebt`와 `insolvencyDischargeGain` 두 posting의 합이 0인
    `insolvencyDischarge` 원장 한 건을 만든다. principal·interest·fee split은 claim row에 보존한다.
-5. `save.debtKrw`, credit snapshot과 case 합계를 같은 transaction에서 다시 검증한다. case total은
+5. 계약 authority를 0으로 만들 때 `save.debtKrw`에서도 claim의
+   `remainingPrincipalKrw + accruedInterestKrw + accruedFeeKrw` 전체를 차감한다. 원금만 차감해 발생이자나
+   수수료가 projection에 남는 것을 허용하지 않는다. `save.debtKrw`, typed debt authority, credit snapshot과
+   case 합계를 같은 transaction에서 다시 검증하고 case total은
    `originalClaim = distributed + discharged`여야 한다.
 
 응답 유실 replay는 동일 case·transition·payment·ledger ID를 반환하고 돈이나 state revision을 다시

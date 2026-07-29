@@ -619,6 +619,9 @@ vendoring하고 연결마다 `TCP_NODELAY`를 설정해 우회했다. production
 policy set에 직접 속한 규칙과 `policy_rule_clone_provenance.sealedExactClone`이 같은 기준 규칙을 가리키고
 domain·rule key·유효기간·parameters가 같은 봉인 규칙만 호환된다. 따라서 이후 기능을 합친 새 봉인 policy
 set이 기준 규칙을 exact-clone했다면 policy set key가 달라도 `policyUnavailable`로 닫지 않는다.
+도산 제출이 계약 authority를 `discharged`로 만들 때 `save.debtKrw`에서는 claim의 원금뿐 아니라 발생이자와
+수수료까지 포함한 `totalClaimKrw` 전체를 차감한다. 차감 뒤 저장 projection은 active typed authority 합과
+같아야 하며, 발생이자가 0인 fixture에 기대어 원금만 차감하는 경로를 허용하지 않는다.
 M4-E1의 전체 운영 인수 결과는 [M4 생애](./m4-life.md) §13.18에 기록했다. M4-E2는 immutable 법인
 catalog/policy와 설립, 결정론적 월 손익, append-only 운영 설정·대표 급여, 연 결산 법인세, 배당 원천징수와
 M2 금융소득, bounded month history까지 server transaction으로 연결했다. production migration `51/51`,
