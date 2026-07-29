@@ -1,7 +1,7 @@
 # M5 확장 상세 스펙
 
 - 작성: 2026-07-26
-- 상태: M4 production 완료, **M5-A·M5-B production 완료, M5-C 시즌·리그 다음**
+- 상태: M4·M5-A·M5-B production 완료, **M5-C 권위·목표일 상한·결산 저장 경계 production 완료, 청산 planner 다음**
 - 상위 계획: [`development-plan.md` §2, §3, §4.2, §9, §11, §12](./development-plan.md)
 - 선행 마일스톤: M0~M4 전체, 특히 M3 커리어와 M4의 장기 결정론·도산·법인 기반
 
@@ -135,20 +135,50 @@ M5-A의 첫 세 구현 단계는 다음과 같이 고정한다.
   user의 session 0건을 확인했다. check·clippy·fmt와 publish validator·manifest의 작은 BDD만 실행했고
   DOM/network/DB 단위 테스트나 무관한 전체 회귀는 추가하지 않았다.
 
-다음 재개는 **M5-C 시즌·리그·랭킹의 첫 vertical slice**다. 먼저 `database-schema`·`migration-guide`·
-`api-design`·`security-checklist` 스킬과 이 문서 §2, §4.2, §5.1~§5.3, §8을 읽고 다음 순서로 진행한다.
+2026-07-29에 요청한 **M5-C 세 단계 기능 구현과 development production 인수**를 완료했다.
 
-1. migration `0054` 설계를 이 문서 §5에 먼저 기록한다. immutable ranking rule, season manifest와 상태 전이,
-   preset version/point budget version별 league definition, 공개 이름·참가·완주 상태의 exact key·index·FK를
-   확정한다. 현재 M5-B bundle은 의도적으로 unranked이므로 이를 ranked season에 억지로 연결하지 않는다.
-2. ranked 자격을 갖춘 exact authority set과 content bundle을 새 version으로 게시한 뒤 development season과
-   preset/custom league를 게시한다. `GET /api/run-options`와 `POST /api/runs`의 닫혀 있던 ranked 경로를 이
-   게시 authority에만 연다. season·league·market·policy·content·engine·목표 day가 모두 일치하지 않으면
-   시작 transaction을 실패시킨다.
-3. 목표 day 도달 시 실제 보유 상태를 바꾸지 않는 immutable `run_finalization`·liquidation line과 안정된
-   ranking 정렬을 구현하고 `GET /api/seasons/{id}/leagues`, `GET /api/leagues/{id}/rankings`,
-   `GET /api/runs/{id}/finalization`의 최소 server vertical slice를 연결한다. 순수 결산·동점 규칙만 작은 BDD로
-   검증하고 production migration·ranked start/replay·결산 재시도·공개 조회를 직접 인수한다.
+- `0054_m5c_season_league_ranking.sql`은 immutable ranked release·ranking rule, season 상태 전이,
+  preset 5개와 custom budget 1개의 league, ranked manifest authority를 추가했다. `b3e27e1`에서 ranked
+  preset/custom 시작을 exact season·league·release·rule pin에 연결했고 집계 타입은 `59ff5dd`에서
+  바로잡았다. production save 29의 ranked preset run 6과 custom run 7은 같은 command 재전송에서 동일
+  manifest로 replay됐고 둘 다 target game day 10,950과 release/rule v1을 고정했다.
+- `468cdec`은 스타일 없는 `/new` 화면에 활성 시즌, 상태, 목표 game day, 리그별 참가자·최소 인원·잠정 여부를
+  표시했다. `be9f26a`은 ranked 수동 전진을 남은 일수로 자르고 receipt에
+  `requestedDays · committedDays · truncatedDays`를 보존하며, 목표일의 새 요청은 거절하고 자동 진행은
+  pause하도록 했다. 기존 receipt는 cursor 차이로 호환 복원한다.
+- `0055_m5c_finalization_ranking.sql`과 `a1b341c`은 immutable `run_finalization`·`liquidation_line`, terminal
+  전이·합계 trigger, 전체 동점 tuple의 base64url keyset cursor, completed 결산만 읽는 공개
+  `GET /api/leagues/{id}/rankings`를 추가했다. 완전한 §5.2 planner 전에는 application이 completed row를
+  만들지 않으므로 현재 빈 잠정 랭킹은 의도한 결과다. 표시용 snapshot 순자산을 결산값으로 대체하지 않았다.
+- server의 관련 core/API 테스트와 check·clippy·fmt, client의 관련 API 테스트와 typecheck·lint·production
+  build를 통과했다. DOM·network·DB 단위 테스트나 무관한 전체 회귀는 추가하지 않았다. bundle에는 새
+  `시즌과 리그`, `목표 게임일`, `잠정 집계` 화면 문자열이 포함됐다.
+- main 배포 실행 `30425178154`는 6분 39초에 성공했다. production container는 healthy이고 migration
+  `54/54`, `55/55`가 성공 checksum으로 기록됐다. finalization table 2개와 관련 trigger 6개가 존재하며
+  ranked manifest 2개는 모두 eligible이고 authority pin이 일치했다. finalization·liquidation row는 아직
+  각각 0건이고 열린 transaction도 0건이다.
+- 내부와 public HTTP에서 league 1·8 랭킹은 `200`, `provisional=true`, 빈 items를 반환했고 잘못된 cursor는
+  `400 invalidCommand`, public health는 `200`이었다. 새 container 시작 이후 ERROR·panic·failed 로그는
+  없었다. 별도 MySQL/schema와 복구 dump를 만들지 않았고 raw credential·session token도 남기지 않았다.
+
+다음 재개는 **M5-C의 완전한 세후 청산 planner와 결산 생성 transaction**이다. 아래 순서를 바꾸거나
+snapshot 값을 임시 순위로 쓰지 않는다.
+
+1. 먼저 [`development-plan.md`](./development-plan.md)의 서버 권위·돈 정수 원칙과 이 문서 §5.2~§5.3,
+   §8을 다시 읽는다. 자산별 계산 권위는 [`m1-market-core.md`](./m1-market-core.md) §3·§8,
+   [`m2-accounts-tax.md`](./m2-accounts-tax.md) §3~§8·§11.2,
+   [`m4-life.md`](./m4-life.md) §4~§10을 참조한다.
+2. `database-schema`·`migration-guide`를 적용해 기존 finalization/line 경계를 먼저 대조하고, 순수 planner를
+   지갑·계좌·확정 수취채권 → 금융자산·비용·세금 → 부동산·담보·보증금·세금 → 법인 순자산가치·개인 귀속
+   세금 → 보험·복지 권리 → 대출·연체·세금·도산 채무 순으로 구현한다. 모든 금액은 정수와 checked i128
+   합계를 쓰며 component별 순수 규칙에만 작은 BDD를 둔다.
+3. 목표일의 모든 일일 정산이 끝난 같은 server transaction에서 source authority를 pin한 `planning` header,
+   canonical line, `completed` 또는 `failed` terminal 전이를 기록한다. 같은 source 재시도는 기존 terminal을
+   읽거나 같은 canonical hash로 수렴해야 하며 실제 보유 자산을 매도하거나 변경하지 않는다. 이때 목표일까지의
+   insolvency 일수와 player command 수를 함께 확정한다.
+4. `api-design`·`security-checklist`를 적용해 인증된 `GET /api/runs/{id}/finalization`과 client 결산 조회를
+   연결한 뒤, completed row가 실제 공개 ranking에 들어가고 keyset page가 안정적인지 production DB·HTTP로
+   인수한다. 표시 이름·moderation과 시각 스타일링은 그 다음 단계로 남긴다.
 
 새 `POST /api/runs`가 client에 연결되기 전에도 manifest 없는 run을 허용하지 않는다. 기존
 `POST /api/characters` v1/v2는 호환 기간 동안 **sandbox 전용 legacy start**로 해석하고, 기존 command
