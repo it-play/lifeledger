@@ -689,22 +689,17 @@ async fn submit_case(
         write_ledger_transaction(tx, &ledger).await?;
     }
 
-    let principal_reduction = runtime_claims.iter().try_fold(0_i64, |total, runtime| {
-        total
-            .checked_add(runtime.claim.principal_krw)
-            .context("insolvency principal reduction overflowed")
-    })?;
     let updated_save = sqlx::query(
         "UPDATE save
          SET cash_krw = cash_krw - ?, debt_krw = debt_krw - ?
          WHERE id = ? AND run_revision = ? AND cash_krw = ? AND debt_krw >= ?",
     )
     .bind(distribution.total_distributed_krw)
-    .bind(principal_reduction)
+    .bind(distribution.total_claim_krw)
     .bind(scope.save_id)
     .bind(scope.run_revision)
     .bind(scope.cash_krw)
-    .bind(principal_reduction)
+    .bind(distribution.total_claim_krw)
     .execute(&mut **tx)
     .await?;
     ensure!(
