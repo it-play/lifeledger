@@ -56,8 +56,8 @@ struct StatusRow {
     absence_started_at: Option<String>,
     accrued_through: Option<String>,
     accrual_limit_at: Option<String>,
-    window_accrued_days: u32,
-    pending_days: u32,
+    window_accrued_days: u64,
+    pending_days: u64,
     processed_days: u64,
     cancelled_pending_days: u64,
     revision: u64,
@@ -872,8 +872,10 @@ fn to_status(row: StatusRow) -> Result<OfflineProgressState> {
         absence_started_at: row.absence_started_at,
         accrued_through: row.accrued_through,
         accrual_limit_at: row.accrual_limit_at,
-        window_accrued_days: row.window_accrued_days,
-        pending_days: row.pending_days,
+        window_accrued_days: u32::try_from(row.window_accrued_days)
+            .context("offline window accrued day count exceeds u32")?,
+        pending_days: u32::try_from(row.pending_days)
+            .context("offline pending day count exceeds u32")?,
         processed_days: row.processed_days,
         cancelled_pending_days: row.cancelled_pending_days,
         revision: row.revision,
