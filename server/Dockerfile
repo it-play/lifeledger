@@ -10,9 +10,11 @@ RUN mkdir -p src/bin \
  && echo '' > src/lib.rs \
  && echo 'fn main() {}' > src/main.rs \
  && echo 'fn main() {}' > src/bin/offline-worker.rs \
+ && echo 'fn main() {}' > src/bin/ops-report.rs \
  && cargo build --release --locked \
  && rm -rf src target/release/lifeledger-server target/release/offline-worker \
-      target/release/deps/lifeledger_server* target/release/deps/offline_worker*
+      target/release/ops-report target/release/deps/lifeledger_server* \
+      target/release/deps/offline_worker* target/release/deps/ops_report*
 COPY build.rs ./build.rs
 COPY migrations ./migrations
 COPY src ./src
@@ -27,6 +29,7 @@ USER app
 WORKDIR /home/app
 COPY --from=builder /build/target/release/lifeledger-server /usr/local/bin/lifeledger-server
 COPY --from=builder /build/target/release/offline-worker /usr/local/bin/offline-worker
+COPY --from=builder /build/target/release/ops-report /usr/local/bin/ops-report
 ENV BIND_ADDR=0.0.0.0:8080
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

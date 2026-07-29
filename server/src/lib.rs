@@ -7,6 +7,7 @@ pub mod finance;
 pub mod life;
 pub mod market;
 pub mod offline;
+mod operations;
 mod routes;
 pub mod runs;
 mod state;
@@ -116,6 +117,11 @@ pub async fn run_api() -> anyhow::Result<()> {
 pub async fn run_offline_worker() -> anyhow::Result<()> {
     init_tracing();
     worker::run(connect_database().await?).await
+}
+
+pub async fn run_ops_report(require_clean_migrations: bool) -> anyhow::Result<()> {
+    init_tracing();
+    operations::run(connect_database().await?, require_clean_migrations).await
 }
 
 fn init_tracing() {

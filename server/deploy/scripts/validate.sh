@@ -15,6 +15,8 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
     echo "[validate] 정상 ($attempt 번째 시도)"
     curl -fsS "$HEALTH_URL"
     echo
+    echo "[validate] migration 상태 확인"
+    docker compose run --rm --no-deps --entrypoint ops-report server --check-migrations
     exit 0
   fi
   sleep 2

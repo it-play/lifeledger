@@ -1,0 +1,191 @@
+# LifeLedger production runbook
+
+This runbook covers the M5-F development-production environment. Commands run from
+server/deploy/ on the home server. They must not print app.env, DATABASE_URL, OAuth credentials,
+cookies, session tokens, user identifiers, character values, or money amounts.
+
+The first read-only check is always:
+
+~~~sh
+./scripts/observe.sh
+~~~
+
+The report contains only aggregate counts and stable alert codes. It does not run migrations or
+change database state. Do not create a separate database, clone, or recovery dump during the
+current development stage. Backup/restore rehearsal requires a separately approved retention
+location and deletion plan before external participants are invited.
+
+## Deployment verification
+
+1. Confirm the GitHub Server Deploy run completed successfully.
+2. Run docker compose ps and require both lifeledger-server and lifeledger-offline-worker to be
+   healthy.
+3. Run ./scripts/observe.sh.
+4. Require migrations.failedCount=0 and the expected latestSuccessfulVersion.
+5. Check logs from the new containers:
+
+   ~~~sh
+   docker compose logs --since 15m server offline-worker
+   ~~~
+
+6. Confirm no new ERROR, panic, migration failure, or restart loop. A non-empty alert list is
+   investigated below; it is not deleted or hidden to make validation pass.
+
+## Migration failure
+
+### Confirm
+
+- Keep the previously healthy API serving until the failed rollout is understood.
+- Inspect the failed deployment log and the new server container startup log.
+- Read _sqlx_migrations through the production database console and identify only the failed
+  version, checksum, and success flag. Do not print the database URL or unrelated rows.
+- Inspect which objects from that exact migration were created before the failure.
+
+### Mitigate
+
+- Stop the newly failing server container if it is restart-looping. Do not stop MySQL or delete
+  existing immutable bundles and runs.
+- Fix the migration source. Never edit the checksum of a migration that completed successfully.
+- When MySQL DDL left partial objects, remove only objects proven to belong to the failed version,
+  in reverse dependency order, and remove only that failed _sqlx_migrations row.
+
+### Recover
+
+- Commit and push the correction through the normal Server Deploy workflow.
+- Let API startup apply the migration. Do not apply an uncommitted replacement by hand.
+
+### Verify
+
+- Run ./scripts/observe.sh; require failed migration count zero and the expected latest version.
+- Check API/worker health, startup logs, immutable catalog counts, existing run counts, and open
+  InnoDB transactions.
+
+## Worker backlog or paused progress
+
+### Confirm
+
+- Read offlineProgress.pendingRunCount, pendingDayCount, oldestAccrualAgeSeconds, pausedRunCount,
+  and the recent committed/failed counts.
+- Check worker health and logs. Use stable error codes; do not inspect player payloads.
+- Confirm the active worker image engine version matches the pinned offline policy.
+
+### Mitigate
+
+- Leave online commands authoritative. Do not increase a run's pending days or edit game day.
+- If the worker is unhealthy, restart only offline-worker.
+- If failures are a permanent domain/policy error, keep the setting pausedBySystem until the
+  underlying versioned rule is fixed. Do not clear the error merely to resume throughput.
+
+### Recover
+
+- Deploy the compatible worker image and allow normal lease acquisition to resume from the last
+  committed day.
+- Change poll/batch configuration only after a measured baseline; never bypass one-day commits.
+
+### Verify
+
+- Pending days decrease, recent committed count increases, failed count stops increasing, and
+  manual/online progress remains available.
+- A paused setting is resumed only through its typed control path after the cause is removed.
+
+## Stuck or expired worker lease
+
+### Confirm
+
+- Check activeWorkerLeaseCount and expiredWorkerLeaseCount.
+- Confirm no live worker owns the reported generation before considering cleanup.
+- Compare DB UTC time, lease expiry, worker logs, and container process state.
+
+### Mitigate and recover
+
+- Restart an unhealthy worker and let expiry fencing reject the old holder.
+- Do not rewrite a live lease, generation, game day, command receipt, or ledger row.
+- An expired lease row may remain as audit state; a new holder replaces it only through the
+  normal acquisition transaction.
+
+### Verify
+
+- The new worker commits with a higher generation, duplicate day/receipt counts remain zero, and
+  the expired lease alert clears after normal acquisition.
+
+## Season lock and provisional ranking
+
+### Confirm
+
+- Check season status counts, ranked run count, and finalization completed/failed counts.
+- A provisional empty ranking is expected when minimum participants or completed finalizations
+  are absent.
+- For a suspected integrity fault, identify the affected sealed season/release/rule hashes
+  without changing them.
+
+### Mitigate and recover
+
+- Move an affected season only through the permitted active or registrationOpen to locked
+  transition and close new ranked starts before changing any assignment.
+- Never mutate a sealed bundle, finalization, or ranking evidence in place.
+- Publish a corrected version/season. Existing unsupported runs remain in maintenance state.
+
+### Verify
+
+- New starts cannot enter the locked season, existing manifests keep their original hashes, and
+  rankings read only completed immutable finalizations with stable cursor ordering.
+
+## OAuth provider outage
+
+### Confirm
+
+- Check provider-specific callback failures without logging authorization codes, tokens, email,
+  or cookies.
+- Verify /api/health independently. One provider outage must not be mistaken for API failure.
+
+### Mitigate and recover
+
+- Disable a provider by removing both its client ID and secret from the deployment secret, then
+  redeploy. Never leave only one credential configured.
+- Keep existing sessions subject to their normal expiry; do not manufacture a bypass session.
+- Restore both credentials and the registered callback origin, then redeploy.
+
+### Verify
+
+- The login screen exposes only fully configured providers and callback failure logs contain no
+  credentials or user profile data.
+
+## Database recovery
+
+### Confirm
+
+- Declare the exact incident scope and recovery point before authorizing any restore.
+- Lock ranked season registration if integrity or ordering may be affected.
+
+### Mitigate and recover
+
+- Do not create an ad-hoc dump under the repository or deployment directory.
+- Use only the separately approved encrypted backup location and retention policy.
+- Restore into the approved target, verify migration checksums and immutable hashes, then switch
+  API/worker connectivity through the deployment secret. Never overwrite production based on an
+  unverified copy.
+
+### Verify
+
+- Run the sanitized report, health checks, immutable manifest/bundle hash checks, ledger balance
+  checks, command replay checks, and finalization/ranking checks before reopening a season.
+
+## Privacy or deletion request
+
+### Confirm
+
+- Authenticate the requester through the supported account path. Do not request real asset,
+  income, health, or identity documents.
+- Identify the account scope without copying raw session tokens or OAuth profiles into tickets.
+
+### Mitigate and recover
+
+- Revoke sessions first. Keep immutable game evidence only when the published retention policy
+  explicitly requires it; otherwise use the approved account deletion procedure.
+- Aggregate operations reports and logs must remain free of user/save/run identifiers, character
+  values, command IDs, and money amounts.
+
+### Verify
+
+- Confirm sessions are gone, public/private APIs no longer expose the account, and operational
+  logs contain no newly introduced personal data.
