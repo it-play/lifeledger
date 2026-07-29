@@ -67,6 +67,7 @@ import {
   MilitarySavingsProductsResponseSchema,
   MilitaryServiceResponseSchema,
   MilitaryServiceStartRequestSchema,
+  OfflineProgressSchema,
   PensionAccountSummarySchema,
   PensionWithdrawalRequestSchema,
   PensionWithdrawalResultSchema,
@@ -4004,6 +4005,63 @@ describe('주거 M4-C3 매수와 주택담보대출 protocol 계약', () => {
     });
   });
 });
+
+describe('오프라인 진행 상태 protocol 계약', () => {
+  describe('맥락: policy가 고정된 실행 상태를 받는 경우', () => {
+    it('given opt-in과 worker lease 상태, when 검증하면, then u64 문자열을 보존한다', () => {
+      const result = OfflineProgressSchema.safeParse(givenOfflineProgress());
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('맥락: availability와 policy가 어긋난 경우', () => {
+    it('given available false와 policy 객체, when 검증하면, then 계약 위반으로 거절한다', () => {
+      const result = OfflineProgressSchema.safeParse({
+        ...givenOfflineProgress(),
+        available: false,
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+});
+
+function givenOfflineProgress() {
+  return {
+    runRevision: 8,
+    available: true,
+    policy: {
+      id: '1',
+      canonicalSha256: 'a'.repeat(64),
+      engineVersion: 'm5a-dev-v1',
+      cadenceSeconds: 60,
+      absenceWindowCapDays: 90,
+      maxWorkerBatchDays: 7,
+      leaseSeconds: 30,
+      presenceTtlSeconds: 45,
+      heartbeatSeconds: 15,
+      onlineIntentTtlSeconds: 30,
+    },
+    enabled: true,
+    status: 'active',
+    absenceStartedAt: '2026-07-29T00:00:00.000000Z',
+    accruedThrough: '2026-07-29T00:01:00.000000Z',
+    accrualLimitAt: '2026-07-29T01:30:00.000000Z',
+    windowAccruedDays: 1,
+    pendingDays: 1,
+    processedDays: '18446744073709551615',
+    cancelledPendingDays: '0',
+    revision: '2',
+    lastErrorCode: null,
+    online: false,
+    lease: {
+      holderKind: 'worker',
+      generation: '1',
+      expiresAt: '2026-07-29T00:02:00.000000Z',
+    },
+  };
+}
 
 function givenActiveLease() {
   return {

@@ -7024,6 +7024,7 @@ export const GameCommandFailureCodeSchema = z.enum([
   'characterRequired',
   'idempotencyConflict',
   'busy',
+  'progressBusy',
   'modeUnavailable',
 ]);
 
@@ -10003,6 +10004,92 @@ export const RunFinalizationSchema = z.discriminatedUnion('status', [
   }).strict(),
 ]);
 
+const UnsignedDecimalSchema = z
+  .string()
+  .regex(/^(0|[1-9][0-9]{0,19})$/)
+  .refine((value) => BigInt(value) <= 18_446_744_073_709_551_615n, 'value exceeds u64');
+
+export const OfflinePolicySchema = z
+  .object({
+    id: ResourceIdSchema,
+    canonicalSha256: Sha256Schema,
+    engineVersion: z.string().min(1).max(64),
+    cadenceSeconds: z.number().int().positive(),
+    absenceWindowCapDays: z.number().int().positive(),
+    maxWorkerBatchDays: z.number().int().positive(),
+    leaseSeconds: z.number().int().positive(),
+    presenceTtlSeconds: z.number().int().positive(),
+    heartbeatSeconds: z.number().int().positive(),
+    onlineIntentTtlSeconds: z.number().int().positive(),
+  })
+  .strict();
+
+export const ProgressLeaseSchema = z
+  .object({
+    holderKind: z.enum(['online', 'worker']),
+    generation: UnsignedDecimalSchema,
+    expiresAt: z.string().min(1),
+  })
+  .strict();
+
+export const OfflineProgressSchema = z
+  .object({
+    runRevision: z.number().int().nonnegative(),
+    available: z.boolean(),
+    policy: OfflinePolicySchema.nullable(),
+    enabled: z.boolean(),
+    status: z.enum(['active', 'pausedBySystem']),
+    absenceStartedAt: z.string().min(1).nullable(),
+    accruedThrough: z.string().min(1).nullable(),
+    accrualLimitAt: z.string().min(1).nullable(),
+    windowAccruedDays: z.number().int().nonnegative(),
+    pendingDays: z.number().int().nonnegative(),
+    processedDays: UnsignedDecimalSchema,
+    cancelledPendingDays: UnsignedDecimalSchema,
+    revision: UnsignedDecimalSchema,
+    lastErrorCode: z.string().min(1).max(64).nullable(),
+    online: z.boolean(),
+    lease: ProgressLeaseSchema.nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.available !== (value.policy !== null)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['available'],
+        message: 'offline policy availability is inconsistent',
+      });
+    }
+    if (!value.available && value.enabled) {
+      context.addIssue({
+        code: 'custom',
+        path: ['enabled'],
+        message: 'offline progress cannot be enabled without a policy',
+      });
+    }
+  });
+
+export const OfflineProgressUpdateRequestSchema = z
+  .object({
+    expectedRevision: UnsignedDecimalSchema,
+    enabled: z.boolean(),
+  })
+  .strict();
+
+export const OfflineProgressFailureCodeSchema = z.enum([
+  'invalidCommand',
+  'characterRequired',
+  'policyUnavailable',
+  'revisionConflict',
+]);
+
+export const OfflineProgressFailureSchema = z
+  .object({
+    code: OfflineProgressFailureCodeSchema,
+    message: z.string().min(1),
+  })
+  .strict();
+
 const RunStartCommandFields = {
   commandId: CanonicalUuidSchema,
   expectedRunRevision: z.number().int().nonnegative(),
@@ -10673,6 +10760,12 @@ export type LeagueRankingItem = z.infer<typeof LeagueRankingItemSchema>;
 export type LeagueRankingPage = z.infer<typeof LeagueRankingPageSchema>;
 export type RunFinalizationLine = z.infer<typeof RunFinalizationLineSchema>;
 export type RunFinalization = z.infer<typeof RunFinalizationSchema>;
+export type OfflinePolicy = z.infer<typeof OfflinePolicySchema>;
+export type ProgressLease = z.infer<typeof ProgressLeaseSchema>;
+export type OfflineProgress = z.infer<typeof OfflineProgressSchema>;
+export type OfflineProgressUpdateRequest = z.infer<typeof OfflineProgressUpdateRequestSchema>;
+export type OfflineProgressFailureCode = z.infer<typeof OfflineProgressFailureCodeSchema>;
+export type OfflineProgressFailure = z.infer<typeof OfflineProgressFailureSchema>;
 export type RankedPresetRunStartDraft = z.infer<typeof RankedPresetRunStartDraftSchema>;
 export type RankedCustomRunStartDraft = z.infer<typeof RankedCustomRunStartDraftSchema>;
 export type SandboxRunStartDraft = z.infer<typeof SandboxRunStartDraftSchema>;

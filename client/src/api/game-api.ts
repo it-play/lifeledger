@@ -76,6 +76,12 @@ import {
   type MarketHistory,
   MarketHistoryDaysSchema,
   MarketHistorySchema,
+  type OfflineProgress,
+  type OfflineProgressFailureCode,
+  OfflineProgressFailureSchema,
+  OfflineProgressSchema,
+  type OfflineProgressUpdateRequest,
+  OfflineProgressUpdateRequestSchema,
   type PensionStartRequest,
   PensionStartRequestSchema,
   type PensionStartResponse,
@@ -156,6 +162,17 @@ export class RunRequestError extends Error {
   }
 }
 
+/** A validated opt-in rejection for the current run's offline policy. */
+export class OfflineProgressError extends Error {
+  constructor(
+    readonly code: OfflineProgressFailureCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'OfflineProgressError';
+  }
+}
+
 /** A validated portfolio rejection, independent of the HTTP status chosen by the server. */
 export class PortfolioOrderError extends Error {
   constructor(
@@ -200,6 +217,13 @@ export interface GameApi {
   ): Promise<LeagueRankingPage>;
   /** Reads the authenticated account's immutable ranked-run finalization. */
   getRunFinalization(runRevision: number, signal?: AbortSignal): Promise<RunFinalization>;
+  /** Reads the current run's pinned offline-progress policy and live worker state. */
+  getOfflineProgress(signal?: AbortSignal): Promise<OfflineProgress>;
+  /** Changes opt-in with an exact revision guard. */
+  setOfflineProgress(
+    request: OfflineProgressUpdateRequest,
+    signal?: AbortSignal,
+  ): Promise<OfflineProgress>;
   /** Evaluates one canonical point selection on the server. */
   previewPointBudget(
     request: PointBudgetPreviewRequest,
@@ -288,6 +312,7 @@ const runOptionsDecoder = asDecoder(RunOptionsSchema);
 const seasonLeaguesDecoder = asDecoder(SeasonLeaguesSchema);
 const leagueRankingPageDecoder = asDecoder(LeagueRankingPageSchema);
 const runFinalizationDecoder = asDecoder(RunFinalizationSchema);
+const offlineProgressDecoder = asDecoder(OfflineProgressSchema);
 
 /** Turns a 422 body into a field-to-message map, or gives up if the shape is unfamiliar. */
 function toFieldErrors(error: unknown): Record<string, string> | undefined {
@@ -312,6 +337,14 @@ function toRunRequestError(error: unknown): RunRequestError | undefined {
   if (!(error instanceof HttpError)) return undefined;
   const parsed = RunRequestFailureSchema.safeParse(error.body);
   return parsed.success ? new RunRequestError(parsed.data.code) : undefined;
+}
+
+function toOfflineProgressError(error: unknown): OfflineProgressError | undefined {
+  if (!(error instanceof HttpError)) return undefined;
+  const parsed = OfflineProgressFailureSchema.safeParse(error.body);
+  return parsed.success
+    ? new OfflineProgressError(parsed.data.code, parsed.data.message)
+    : undefined;
 }
 
 function toPortfolioOrderError(error: unknown): PortfolioOrderError | undefined {
@@ -403,6 +436,29 @@ export function createGameApi(deps: GameApiDeps): GameApi {
         runFinalizationDecoder,
         signal === undefined ? undefined : { signal },
       );
+    },
+
+    getOfflineProgress: (signal) =>
+      http.get(
+        '/api/offline-progress/status',
+        offlineProgressDecoder,
+        signal === undefined ? undefined : { signal },
+      ),
+
+    async setOfflineProgress(request, signal) {
+      const body = OfflineProgressUpdateRequestSchema.parse(request);
+      try {
+        return await http.put(
+          '/api/offline-progress',
+          body,
+          offlineProgressDecoder,
+          signal === undefined ? undefined : { signal },
+        );
+      } catch (error) {
+        const domainError = toOfflineProgressError(error);
+        if (domainError !== undefined) throw domainError;
+        throw error;
+      }
     },
 
     async previewPointBudget(request, signal) {

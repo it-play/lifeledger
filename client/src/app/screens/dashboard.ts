@@ -46,6 +46,7 @@ import {
   type LlxDistributionEntitlement,
   MarketHistoryDaysSchema,
   type MarketHistoryPoint,
+  type OfflineProgress,
   type PendingSettlementSummary,
   type PensionAccountSummary,
   type PensionStartDraft,
@@ -66,6 +67,7 @@ import {
   FinanceCommandError,
   type GameApi,
   GameCommandError,
+  OfflineProgressError,
   PortfolioOrderError,
 } from '../../api/game-api.js';
 import { asFormValidator } from '../../api/zod-adapters.js';
@@ -491,6 +493,26 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           }
           return api.getRunFinalization(runRevision, signal);
         });
+        const offlineProgress = h.useSignal<OfflineProgress | undefined>(undefined);
+        const offlineProgressRequest = h.useAsync(async (signal) => {
+          const status = await api.getOfflineProgress(signal);
+          offlineProgress.set(status);
+          return status;
+        });
+        const offlineProgressDesired = h.useSignal<boolean | undefined>(undefined);
+        const offlineProgressUpdate = h.useAsync(async (signal) => {
+          const current = offlineProgress.peek();
+          const enabled = offlineProgressDesired.peek();
+          if (current === undefined || enabled === undefined) {
+            throw new Error('offline progress status is unavailable');
+          }
+          const updated = await api.setOfflineProgress(
+            { expectedRevision: current.revision, enabled },
+            signal,
+          );
+          offlineProgress.set(updated);
+          return updated;
+        });
         const refreshLatestLedger = h.useDebounced(() => {
           ledgerBefore.set(undefined);
           ledgerRequest.run();
@@ -594,6 +616,23 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
                 `${line.lineNo}. ${line.componentKey}: gross ${formatWon(line.grossKrw)}, cost ${formatWon(line.costKrw)}, tax ${formatWon(line.taxKrw)}, net ${formatWon(line.netKrw)}`,
             )
             .join('\n');
+        });
+        const offlineProgressStatusText = h.useComputed(() => {
+          return offlineProgressStatusTextOf(
+            offlineProgress.get(),
+            offlineProgressRequest.state.get(),
+          );
+        });
+        const offlineProgressButtonText = h.useComputed(() =>
+          offlineProgress.get()?.enabled === true ? '오프라인 진행 끄기' : '오프라인 진행 켜기',
+        );
+        const offlineProgressBlocked = h.useComputed(() => {
+          const status = offlineProgress.get();
+          return (
+            status === undefined ||
+            !status.available ||
+            offlineProgressUpdate.state.get().status === 'loading'
+          );
         });
         const gameReady = h.useComputed(() => {
           const name = snapshot.get()?.characterName;
@@ -1209,6 +1248,10 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           attrs: { role: 'status', 'aria-live': 'polite' },
         });
         const finalizationLines = el('pre');
+        const offlineProgressStatus = el('p', {
+          attrs: { role: 'status', 'aria-live': 'polite' },
+        });
+        const offlineProgressButton = el('button', { type: 'button' });
 
         const stepButtons = (['day', 'week', 'month'] as const).map((unit) =>
           el('button', { type: 'button', dataset: { unit } }, stepLabel(unit)),
@@ -1327,6 +1370,18 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           ),
           el('p', {}, '자동 진행 상태: ', autoStatusValue),
           el('section', {}, el('h2', {}, '시즌 결산'), finalizationStatus, finalizationLines),
+          el(
+            'section',
+            {},
+            el('h2', {}, '오프라인 진행'),
+            el(
+              'p',
+              {},
+              '명시적으로 켠 현재 실행만 서버에서 진행합니다. 접속 중에는 온라인 진행이 우선합니다.',
+            ),
+            offlineProgressStatus,
+            offlineProgressButton,
+          ),
           el('section', {}, el('h2', {}, 'LLX 계좌별 보유'), llxPositionsValue),
           orderFieldset,
           el(
@@ -1650,6 +1705,9 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
         h.bindText(autoStatusValue, () => autoStatusText.get());
         h.bindText(finalizationStatus, () => finalizationStatusText.get());
         h.bindText(finalizationLines, () => finalizationLinesText.get());
+        h.bindText(offlineProgressStatus, () => offlineProgressStatusText.get());
+        h.bindText(offlineProgressButton, () => offlineProgressButtonText.get());
+        h.bindAttribute(offlineProgressButton, 'disabled', () => offlineProgressBlocked.get());
         h.bindText(militaryStatusValue, () => militaryStatusText.get());
         h.bindText(militaryServiceValue, () => militaryServiceText.get());
         h.bindText(militarySavingsValue, () => militarySavingsText.get());
@@ -2084,6 +2142,25 @@ export function createDashboardView(deps: DashboardDeps): ViewFactory {
           refreshedFinalizationTarget = refreshKey;
           finalizationRequest.run();
         });
+        let requestedOfflineProgressRun: number | undefined;
+        h.useEffect(() => {
+          const current = snapshot.get();
+          if (!hasCharacter(current)) return;
+          if (requestedOfflineProgressRun === current.runRevision) return;
+          requestedOfflineProgressRun = current.runRevision;
+          offlineProgress.set(undefined);
+          offlineProgressDesired.set(undefined);
+          offlineProgressRequest.run();
+        });
+        h.useWatch(offlineProgressUpdate.state, (state) => {
+          reportOfflineProgressUpdate(state, toasts, () => offlineProgressRequest.run());
+        });
+        h.useEventListener(offlineProgressButton, 'click', () => {
+          const current = offlineProgress.peek();
+          if (current === undefined || !current.available) return;
+          offlineProgressDesired.set(!current.enabled);
+          offlineProgressUpdate.run();
+        });
         h.useEffect(() => {
           const ready = gameReady.get();
           const cursor = historyCursor.get();
@@ -2140,6 +2217,72 @@ function finalizationStatusLabel(state: AsyncState<RunFinalization>): string {
     return '현재 실행은 랭킹 결산 대상이 아니거나 결산 정보를 조회할 수 없습니다.';
   }
   return finalizationLabel(state.value);
+}
+
+function offlineProgressStatusTextOf(
+  status: OfflineProgress | undefined,
+  request: AsyncState<OfflineProgress>,
+): string {
+  if (status === undefined) {
+    return request.status === 'error'
+      ? '오프라인 진행 상태를 불러오지 못했습니다.'
+      : '오프라인 진행 상태를 확인하는 중입니다.';
+  }
+  if (!status.available || status.policy === null) {
+    return '현재 실행에는 오프라인 진행 정책이 고정되어 있지 않습니다. 새 샌드박스 실행부터 사용할 수 있습니다.';
+  }
+  return offlineProgressDetailsText(status, status.policy);
+}
+
+function offlineProgressDetailsText(
+  status: OfflineProgress,
+  policy: NonNullable<OfflineProgress['policy']>,
+): string {
+  return [
+    status.enabled ? '사용 중' : '사용 안 함',
+    offlineSystemStatusText(status),
+    status.online ? '온라인' : '오프라인',
+    `대기 ${status.pendingDays.toLocaleString('ko-KR')}일`,
+    `처리 ${BigInt(status.processedDays).toLocaleString('ko-KR')}일`,
+    `취소 ${BigInt(status.cancelledPendingDays).toLocaleString('ko-KR')}일`,
+    `누적 창 ${status.windowAccruedDays.toLocaleString('ko-KR')}/${policy.absenceWindowCapDays.toLocaleString('ko-KR')}일`,
+    `${policy.cadenceSeconds.toLocaleString('ko-KR')}초당 1일`,
+    offlineLeaseText(status),
+  ].join(' · ');
+}
+
+function offlineSystemStatusText(status: OfflineProgress): string {
+  return status.status === 'pausedBySystem'
+    ? `시스템 일시정지 (${status.lastErrorCode ?? '원인 미상'})`
+    : '정상';
+}
+
+function offlineLeaseText(status: OfflineProgress): string {
+  if (status.lease === null) return 'lease 없음';
+  const holder = status.lease.holderKind === 'worker' ? '워커' : '온라인';
+  return `${holder} lease #${status.lease.generation}`;
+}
+
+function reportOfflineProgressUpdate(
+  state: AsyncState<OfflineProgress>,
+  toasts: ToastQueue,
+  refresh: () => void,
+): void {
+  if (state.status === 'success') {
+    const message = state.value.enabled
+      ? '현재 실행의 오프라인 진행을 켰습니다.'
+      : '현재 실행의 오프라인 진행을 끄고 대기 작업을 취소했습니다.';
+    toasts.show(message, { tone: 'success' });
+    return;
+  }
+  if (state.status !== 'error') return;
+  const error = state.error;
+  const message =
+    error instanceof OfflineProgressError
+      ? error.message
+      : '오프라인 진행 설정을 변경하지 못했습니다.';
+  toasts.show(message, { tone: 'error' });
+  if (error instanceof OfflineProgressError && error.code === 'revisionConflict') refresh();
 }
 
 function finalizationLabel(finalization: RunFinalization): string {
@@ -3713,7 +3856,8 @@ async function advance(
     snapshots.applyIfAhead(response.snapshot);
   } catch (error) {
     if (error instanceof GameCommandError) {
-      retries.clear(request);
+      if (error.code === 'progressBusy') retries.retain(request);
+      else retries.clear(request);
       toasts.show(error.message, { tone: 'error' });
     } else {
       retries.retain(request);
