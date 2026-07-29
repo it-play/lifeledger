@@ -154,6 +154,13 @@ group에 속한 option 중 정확히 하나가 선택돼야 한다는 별도 제
 같은 fact를 서로 다른 값으로 설정하는 조합은 catalog 조건이 빠졌더라도 거절한다. preview와 start는 같은
 point evaluator와 effect materializer를 사용한다.
 
+point budget schema v1의 effect 적용 전 base draft는 engine contract로 고정한다. `name=커스텀 실행`, age 25,
+gender other, military completed, region capitalArea, background independent, education highSchool,
+careerYears 0, certifications 0, startingCashKrw 0, studentLoanKrw 0, creditLoanKrw 0, health normal,
+dependents 0이다. v1에서 effect가 수정할 수 있는 field는 이 draft의 이름과 정수·enum field뿐이며 unknown
+path나 값 type은 catalog 오류다. base를 바꾸면 engine version과 point budget schema/version을 함께 올려
+기존 manifest의 결과를 보존한다.
+
 임의 수식이나 서버 코드는 예산 데이터에 넣지 않는다. 캐릭터 정합성은 기존 §3 규칙을 먼저 검사하고,
 그 다음 option ID 오름차순으로 point ledger를 합산한다. positive·negative delta를 모두 i64에서 더하되
 중간·최종 범위를 검증한다. `spentPoints <= totalPoints`면 유효하고 남은 point는 버린다. 미사용 point를
@@ -367,6 +374,20 @@ strict API는 M4 공통 command/cursor와 unknown-field 거절을 유지한다.
 | `PUT /api/offline-progress` | opt-in/out와 setting revision |
 | `GET /api/offline-progress/status` | accrued/processed day, lease와 공개 오류 상태 |
 | `GET/POST /api/corporations/{id}/operations` | 월 운영계획·고객계약·인력 |
+
+M5-A의 `POST /api/runs` v1은 `mode`로 구분하는 strict tagged request다. 세 variant는
+`commandId · expectedRunRevision · expectedStateRevision · expectedGameDay`만 공통으로 가진다.
+
+- `rankedPreset`은 `characterPresetVersionId`만 추가로 받는다.
+- `rankedCustom`은 `pointBudgetVersionId`와 `(optionId, quantity)` selection만 추가로 받는다.
+- `sandbox`는 기존 v2 character profile과 최대 두 개의 canonical starting loan만 받는다.
+- variant에 속하지 않는 필드와 unknown field는 `400 invalidCommand`다. active season이 없는 동안 두 ranked
+  variant는 version 존재 여부나 내부 상태를 노출하지 않고 `409 modeUnavailable`로 닫는다.
+- explicit sandbox의 immutable manifest는 selections를 빈 배열로 저장하고
+  `rankingEligible=false · rankingIneligibilityReason=sandboxMode`를 기록한다. legacy
+  `POST /api/characters`의 `legacyStartEndpoint`와 구분한다.
+- 성공 응답은 `mode`, DB가 생성한 `manifestSha256`, 기존 start receipt와 최신 game snapshot을 반환한다.
+  응답 조립 실패 뒤 같은 command를 재시도해도 같은 manifest hash와 run revision을 반환해야 한다.
 
 기능 화면은 스타일링 없이 모드 비교, 프리셋 선택, point 사용 내역과 remaining, sandbox 고지, 시즌/리그
 상태, 30년 목표 진행률, 결산 line, 랭킹, offline opt-in·catch-up 상태, 법인 운영계획·계약·직원·현금흐름을
