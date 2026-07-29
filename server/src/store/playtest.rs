@@ -293,13 +293,15 @@ impl PlaytestStore for MySqlPlaytestStore {
             ));
         }
 
-        let active_count: u64 = sqlx::query_scalar(
+        let active_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM playtest_feedback
              WHERE user_id = ? AND scope = 'feedbackSubmission' AND status = 'active'",
         )
         .bind(user_id)
         .fetch_one(&mut *transaction)
         .await?;
+        let active_count = u64::try_from(active_count)
+            .context("active playtest feedback count cannot be negative")?;
         if active_count >= MAXIMUM_ACTIVE_FEEDBACK {
             transaction.rollback().await?;
             return Ok(PlaytestStoreResult::Rejected(
