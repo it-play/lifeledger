@@ -273,7 +273,8 @@ SET NEW.budget_key = IF(
                   SELECT 1 FROM point_budget_option_tier AS tier
                   WHERE tier.point_budget_option_id = option_row.id
               )
-        ),
+        )
+    ),
     NEW.budget_key,
     IF(
         OLD.status = 'sealed'
