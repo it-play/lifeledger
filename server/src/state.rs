@@ -53,7 +53,8 @@ use crate::store::{
     BusinessContractStatusState, BusinessLoanProductState, BusinessMarketingBandState,
     BusinessMonthState, BusinessMonthlyPlanState, BusinessOperationReceipt,
     BusinessOperationResultState, BusinessOperationsAvailabilityState, BusinessOperationsState,
-    BusinessPositionState, BusinessPositionStatusState, CancelCareerActivityCommand,
+    BusinessPositionState, BusinessPositionStatusState, BusinessWorkingCapitalLoanState,
+    BusinessWorkingCapitalLoanStatusState, CancelCareerActivityCommand,
     CancelInsuranceContractCommand, CancelPropertySaleOrderCommand, CareerActivitiesState,
     CareerActivityCatalogState, CareerActivityState, CareerApplicationReceipt,
     CareerApplicationState, CareerApplicationsPageState, CareerArtifactPageQuery,
@@ -2119,6 +2120,14 @@ pub enum BusinessPositionStatusSnapshot {
     Terminated,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessWorkingCapitalLoanStatusSnapshot {
+    Active,
+    Matured,
+    Repaid,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BusinessMarketingBandSnapshot {
@@ -2143,6 +2152,27 @@ pub struct BusinessLoanProductSnapshot {
     pub principal_step_krw: i64,
     pub monthly_interest_rate_ppm: u32,
     pub term_months: u16,
+    pub personal_guarantee: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessWorkingCapitalLoanSnapshot {
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub id: ResourceId,
+    #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+    pub product_id: ResourceId,
+    pub product_key: String,
+    pub display_name: String,
+    pub status: BusinessWorkingCapitalLoanStatusSnapshot,
+    pub original_principal_krw: i64,
+    pub outstanding_principal_krw: i64,
+    pub monthly_interest_rate_ppm: u32,
+    pub term_months: u16,
+    pub originated_year: u16,
+    pub originated_month: u8,
+    pub maturity_year: u16,
+    pub maturity_month: u8,
     pub personal_guarantee: bool,
 }
 
@@ -2209,6 +2239,7 @@ pub struct BusinessMonthSnapshot {
     pub marketing_cost_krw: i64,
     pub employee_cost_krw: i64,
     pub failed_contract_penalty_krw: i64,
+    pub loan_interest_cost_krw: i64,
     pub completed_contract_count: u16,
     pub failed_contract_count: u16,
     pub active_employee_count: u16,
@@ -2234,6 +2265,8 @@ pub struct BusinessOperationsResponse {
     pub marketing_bands: Vec<BusinessMarketingBandSnapshot>,
     #[schema(max_items = 8)]
     pub loan_products: Vec<BusinessLoanProductSnapshot>,
+    #[schema(max_items = 8)]
+    pub working_capital_loans: Vec<BusinessWorkingCapitalLoanSnapshot>,
     #[schema(max_items = 50)]
     pub contracts: Vec<BusinessContractSnapshot>,
     #[schema(max_items = 32)]
@@ -2251,11 +2284,51 @@ pub struct BusinessOperationsResponse {
     rename_all_fields = "camelCase"
 )]
 pub enum BusinessOperationResultSnapshot {
-    AcceptContract { contract: BusinessContractSnapshot },
-    CancelContract { contract: BusinessContractSnapshot },
-    HirePosition { position: BusinessPositionSnapshot },
-    TerminatePosition { position: BusinessPositionSnapshot },
-    SetMonthlyPlan { plan: BusinessMonthlyPlanSnapshot },
+    AcceptContract {
+        contract: BusinessContractSnapshot,
+    },
+    CancelContract {
+        contract: BusinessContractSnapshot,
+    },
+    HirePosition {
+        position: BusinessPositionSnapshot,
+    },
+    TerminatePosition {
+        position: BusinessPositionSnapshot,
+    },
+    SetMonthlyPlan {
+        plan: BusinessMonthlyPlanSnapshot,
+    },
+    CapitalContribution {
+        #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+        contribution_id: ResourceId,
+        amount_krw: i64,
+        corporation_cash_after_krw: i64,
+        contributed_capital_after_krw: i64,
+        wallet_cash_after_krw: i64,
+        #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+        corporation_ledger_transaction_id: ResourceId,
+        #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+        personal_ledger_transaction_id: ResourceId,
+    },
+    DrawWorkingCapitalLoan {
+        loan: BusinessWorkingCapitalLoanSnapshot,
+    },
+    RepayWorkingCapitalLoan {
+        loan: BusinessWorkingCapitalLoanSnapshot,
+    },
+    Dissolve {
+        #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+        dissolution_id: ResourceId,
+        distribution_krw: i64,
+        capital_basis_krw: i64,
+        realized_gain_loss_krw: i64,
+        wallet_cash_after_krw: i64,
+        #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+        corporation_ledger_transaction_id: ResourceId,
+        #[schema(value_type = String, pattern = "^[1-9][0-9]*$")]
+        personal_ledger_transaction_id: ResourceId,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -13121,6 +13194,7 @@ fn to_business_operations_response(
     ensure!(
         state.marketing_bands.len() <= 8
             && state.loan_products.len() <= 8
+            && state.working_capital_loans.len() <= 8
             && state.contracts.len() <= 50
             && state.positions.len() <= 32
             && (has_authority
@@ -13141,6 +13215,7 @@ fn to_business_operations_response(
             state.revision == 0
                 && state.marketing_bands.is_empty()
                 && state.loan_products.is_empty()
+                && state.working_capital_loans.is_empty()
                 && state.contracts.is_empty()
                 && state.positions.is_empty()
                 && state.plan.is_none()
@@ -13172,6 +13247,11 @@ fn to_business_operations_response(
             .loan_products
             .into_iter()
             .map(to_business_loan_product_snapshot)
+            .collect::<Result<Vec<_>>>()?,
+        working_capital_loans: state
+            .working_capital_loans
+            .into_iter()
+            .map(to_business_working_capital_loan_snapshot)
             .collect::<Result<Vec<_>>>()?,
         contracts: state
             .contracts
@@ -13235,6 +13315,50 @@ fn to_business_operation_response(
                 plan: to_business_monthly_plan_snapshot(plan)?,
             }
         }
+        BusinessOperationResultState::CapitalContribution {
+            contribution_id,
+            amount_krw,
+            corporation_cash_after_krw,
+            contributed_capital_after_krw,
+            wallet_cash_after_krw,
+            corporation_ledger_transaction_id,
+            personal_ledger_transaction_id,
+        } => BusinessOperationResultSnapshot::CapitalContribution {
+            contribution_id,
+            amount_krw,
+            corporation_cash_after_krw,
+            contributed_capital_after_krw,
+            wallet_cash_after_krw,
+            corporation_ledger_transaction_id,
+            personal_ledger_transaction_id,
+        },
+        BusinessOperationResultState::DrawWorkingCapitalLoan { loan } => {
+            BusinessOperationResultSnapshot::DrawWorkingCapitalLoan {
+                loan: to_business_working_capital_loan_snapshot(loan)?,
+            }
+        }
+        BusinessOperationResultState::RepayWorkingCapitalLoan { loan } => {
+            BusinessOperationResultSnapshot::RepayWorkingCapitalLoan {
+                loan: to_business_working_capital_loan_snapshot(loan)?,
+            }
+        }
+        BusinessOperationResultState::Dissolve {
+            dissolution_id,
+            distribution_krw,
+            capital_basis_krw,
+            realized_gain_loss_krw,
+            wallet_cash_after_krw,
+            corporation_ledger_transaction_id,
+            personal_ledger_transaction_id,
+        } => BusinessOperationResultSnapshot::Dissolve {
+            dissolution_id,
+            distribution_krw,
+            capital_basis_krw,
+            realized_gain_loss_krw,
+            wallet_cash_after_krw,
+            corporation_ledger_transaction_id,
+            personal_ledger_transaction_id,
+        },
     };
     Ok(BusinessOperationResponse {
         result,
@@ -13286,6 +13410,49 @@ fn to_business_loan_product_snapshot(
         principal_step_krw: state.principal_step_krw,
         monthly_interest_rate_ppm: state.monthly_interest_rate_ppm,
         term_months: state.term_months,
+        personal_guarantee: state.personal_guarantee,
+    })
+}
+
+fn to_business_working_capital_loan_snapshot(
+    state: BusinessWorkingCapitalLoanState,
+) -> Result<BusinessWorkingCapitalLoanSnapshot> {
+    ensure!(
+        !state.product_key.trim().is_empty()
+            && !state.display_name.trim().is_empty()
+            && state.original_principal_krw > 0
+            && state.outstanding_principal_krw >= 0
+            && state.outstanding_principal_krw <= state.original_principal_krw
+            && state.monthly_interest_rate_ppm <= 1_000_000
+            && state.term_months > 0
+            && (1..=12).contains(&state.originated_month)
+            && (1..=12).contains(&state.maturity_month),
+        "working capital loan is invalid"
+    );
+    Ok(BusinessWorkingCapitalLoanSnapshot {
+        id: state.id,
+        product_id: state.product_id,
+        product_key: state.product_key,
+        display_name: state.display_name,
+        status: match state.status {
+            BusinessWorkingCapitalLoanStatusState::Active => {
+                BusinessWorkingCapitalLoanStatusSnapshot::Active
+            }
+            BusinessWorkingCapitalLoanStatusState::Matured => {
+                BusinessWorkingCapitalLoanStatusSnapshot::Matured
+            }
+            BusinessWorkingCapitalLoanStatusState::Repaid => {
+                BusinessWorkingCapitalLoanStatusSnapshot::Repaid
+            }
+        },
+        original_principal_krw: state.original_principal_krw,
+        outstanding_principal_krw: state.outstanding_principal_krw,
+        monthly_interest_rate_ppm: state.monthly_interest_rate_ppm,
+        term_months: state.term_months,
+        originated_year: state.originated_year,
+        originated_month: state.originated_month,
+        maturity_year: state.maturity_year,
+        maturity_month: state.maturity_month,
         personal_guarantee: state.personal_guarantee,
     })
 }
@@ -13399,6 +13566,7 @@ fn to_business_month_snapshot(state: BusinessMonthState) -> Result<BusinessMonth
         marketing_cost_krw: state.marketing_cost_krw,
         employee_cost_krw: state.employee_cost_krw,
         failed_contract_penalty_krw: state.failed_contract_penalty_krw,
+        loan_interest_cost_krw: state.loan_interest_cost_krw,
         completed_contract_count: state.completed_contract_count,
         failed_contract_count: state.failed_contract_count,
         active_employee_count: state.active_employee_count,

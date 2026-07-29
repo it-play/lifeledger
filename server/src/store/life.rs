@@ -415,7 +415,8 @@ impl LifeStore for MySqlLifeStore {
         user_id: u64,
         command: &ManageBusinessOperationsCommand,
     ) -> Result<LifeStoreResult<BusinessOperationReceipt>> {
-        manage_corporation_operations(&self.pool, user_id, command).await
+        manage_corporation_operations(&self.pool, self.finance_rules.as_ref(), user_id, command)
+            .await
     }
 
     async fn update_corporation_settings(

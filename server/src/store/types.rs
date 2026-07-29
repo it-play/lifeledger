@@ -2092,6 +2092,33 @@ pub struct BusinessLoanProductState {
     pub personal_guarantee: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BusinessWorkingCapitalLoanStatusState {
+    Active,
+    Matured,
+    Repaid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BusinessWorkingCapitalLoanState {
+    pub id: ResourceId,
+    pub product_id: ResourceId,
+    pub product_key: String,
+    pub display_name: String,
+    pub status: BusinessWorkingCapitalLoanStatusState,
+    pub original_principal_krw: i64,
+    pub outstanding_principal_krw: i64,
+    pub monthly_interest_rate_ppm: u32,
+    pub term_months: u16,
+    pub originated_year: u16,
+    pub originated_month: u8,
+    pub maturity_year: u16,
+    pub maturity_month: u8,
+    pub personal_guarantee: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BusinessContractState {
@@ -2147,6 +2174,7 @@ pub struct BusinessMonthState {
     pub marketing_cost_krw: i64,
     pub employee_cost_krw: i64,
     pub failed_contract_penalty_krw: i64,
+    pub loan_interest_cost_krw: i64,
     pub completed_contract_count: u16,
     pub failed_contract_count: u16,
     pub active_employee_count: u16,
@@ -2165,6 +2193,7 @@ pub struct BusinessOperationsState {
     pub next_operating_month: Option<u8>,
     pub marketing_bands: Vec<BusinessMarketingBandState>,
     pub loan_products: Vec<BusinessLoanProductState>,
+    pub working_capital_loans: Vec<BusinessWorkingCapitalLoanState>,
     pub contracts: Vec<BusinessContractState>,
     pub positions: Vec<BusinessPositionState>,
     pub plan: Option<BusinessMonthlyPlanState>,
@@ -2190,6 +2219,18 @@ pub enum BusinessOperationAction {
         cash_buffer_krw: i64,
         contract_priority_ids: Vec<ResourceId>,
     },
+    CapitalContribution {
+        amount_krw: i64,
+    },
+    DrawWorkingCapitalLoan {
+        loan_product_id: ResourceId,
+        principal_krw: i64,
+    },
+    RepayWorkingCapitalLoan {
+        loan_id: ResourceId,
+        principal_krw: i64,
+    },
+    Dissolve,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2204,11 +2245,45 @@ pub struct ManageBusinessOperationsCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
 pub enum BusinessOperationResultState {
-    AcceptContract { contract: BusinessContractState },
-    CancelContract { contract: BusinessContractState },
-    HirePosition { position: BusinessPositionState },
-    TerminatePosition { position: BusinessPositionState },
-    SetMonthlyPlan { plan: BusinessMonthlyPlanState },
+    AcceptContract {
+        contract: BusinessContractState,
+    },
+    CancelContract {
+        contract: BusinessContractState,
+    },
+    HirePosition {
+        position: BusinessPositionState,
+    },
+    TerminatePosition {
+        position: BusinessPositionState,
+    },
+    SetMonthlyPlan {
+        plan: BusinessMonthlyPlanState,
+    },
+    CapitalContribution {
+        contribution_id: ResourceId,
+        amount_krw: i64,
+        corporation_cash_after_krw: i64,
+        contributed_capital_after_krw: i64,
+        wallet_cash_after_krw: i64,
+        corporation_ledger_transaction_id: ResourceId,
+        personal_ledger_transaction_id: ResourceId,
+    },
+    DrawWorkingCapitalLoan {
+        loan: BusinessWorkingCapitalLoanState,
+    },
+    RepayWorkingCapitalLoan {
+        loan: BusinessWorkingCapitalLoanState,
+    },
+    Dissolve {
+        dissolution_id: ResourceId,
+        distribution_krw: i64,
+        capital_basis_krw: i64,
+        realized_gain_loss_krw: i64,
+        wallet_cash_after_krw: i64,
+        corporation_ledger_transaction_id: ResourceId,
+        personal_ledger_transaction_id: ResourceId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

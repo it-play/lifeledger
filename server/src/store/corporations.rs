@@ -1406,6 +1406,7 @@ fn compose_business_operating_plan(
         .checked_add(business.plan.employee_gross_wage_krw)
         .and_then(|amount| amount.checked_add(business.plan.employee_employer_cost_krw))
         .and_then(|amount| amount.checked_add(business.plan.failed_contract_penalty_krw))
+        .and_then(|amount| amount.checked_add(business.loan_interest_cost_krw))
         .context("business fixed operating cost overflowed")?;
     base.revenue_krw = base
         .revenue_krw

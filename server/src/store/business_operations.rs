@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail, ensure};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{MySql, MySqlPool, Transaction};
+use sqlx::{AssertSqlSafe, MySql, MySqlPool, Transaction};
 use time::{Date, Duration};
 
 use super::mysql::{
@@ -14,10 +15,14 @@ use super::types::{
     BusinessMarketingBandState, BusinessMonthState, BusinessMonthlyPlanState,
     BusinessOperationAction, BusinessOperationReceipt, BusinessOperationResultState,
     BusinessOperationsAvailabilityState, BusinessOperationsState, BusinessPositionState,
-    BusinessPositionStatusState, CorporationReadResult, LifeFailureCode, LifeStoreResult,
+    BusinessPositionStatusState, BusinessWorkingCapitalLoanState,
+    BusinessWorkingCapitalLoanStatusState, CorporationReadResult, LifeFailureCode, LifeStoreResult,
     ManageBusinessOperationsCommand,
 };
-use crate::finance::{CommandCursor, ResourceId};
+use crate::finance::{
+    CommandCursor, FinanceRules, LedgerAccountCode, LedgerPosting, LedgerSource, LedgerSourceKind,
+    LedgerTransaction, LedgerTransactionDraft, ResourceId, RunId, RunPolicyContext,
+};
 use crate::life::{
     BusinessContractMonthInput, BusinessContractMonthOutcome, BusinessEmployeeMonthInput,
     BusinessMonthInput, BusinessMonthPlan, BusinessOperationsRules,
@@ -31,8 +36,16 @@ struct OperationScopeRow {
     run_revision: u32,
     state_revision: u64,
     game_day: u32,
+    wallet_cash_krw: i64,
+    policy_set_id: u64,
     corporation_id: u64,
     corporation_status: String,
+    corporation_cash_krw: i64,
+    contributed_capital_krw: i64,
+    retained_earnings_krw: i64,
+    operating_payable_krw: i64,
+    corporate_tax_payable_krw: i64,
+    distributable_profit_krw: i64,
     business_catalog_version_id: Option<u64>,
     business_catalog_sha256: Option<String>,
 }
@@ -114,6 +127,24 @@ struct LoanProductRow {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+struct WorkingCapitalLoanRow {
+    id: u64,
+    loan_product_id: u64,
+    product_key: String,
+    display_name: String,
+    status: String,
+    original_principal_krw: i64,
+    outstanding_principal_krw: i64,
+    monthly_interest_rate_ppm: u32,
+    term_months: u16,
+    originated_year: u16,
+    originated_month: u8,
+    maturity_year: u16,
+    maturity_month: u8,
+    personal_guarantee: bool,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
 struct PlanRow {
     id: u64,
     effective_year: u16,
@@ -138,6 +169,7 @@ struct BusinessMonthRow {
     employee_gross_wage_krw: i64,
     employee_employer_cost_krw: i64,
     failed_contract_penalty_krw: i64,
+    loan_interest_cost_krw: i64,
     completed_contract_count: u16,
     failed_contract_count: u16,
     active_employee_count: u16,
@@ -190,6 +222,7 @@ pub(super) struct PreparedBusinessMonth {
     operating_month: u8,
     hired_position_ids: Vec<u64>,
     accepted_contract_ids: Vec<u64>,
+    pub loan_interest_cost_krw: i64,
     pub plan: BusinessMonthPlan,
 }
 
@@ -409,6 +442,31 @@ pub(super) async fn prepare_business_month_in_tx(
         (profile.effective_year, profile.effective_month) == (operating_year, operating_month),
         "business profile is not aligned with the operating month"
     );
+    let loan_interest_rows: Vec<(i64, u32)> = sqlx::query_as(
+        "SELECT outstanding_principal_krw, monthly_interest_rate_ppm
+         FROM corporation_working_capital_loan
+         WHERE save_id = ? AND run_revision = ? AND corporation_id = ?
+           AND status IN ('active', 'matured')
+         ORDER BY id FOR UPDATE",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(corporation_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let loan_interest_cost_krw = loan_interest_rows.into_iter().try_fold(
+        0_i64,
+        |total, (outstanding_principal_krw, monthly_interest_rate_ppm)| {
+            let interest = i128::from(outstanding_principal_krw)
+                .checked_mul(i128::from(monthly_interest_rate_ppm))
+                .context("working capital interest overflowed")?
+                / 1_000_000;
+            let interest = i64::try_from(interest)?;
+            total
+                .checked_add(interest)
+                .context("working capital interest total overflowed")
+        },
+    )?;
     let selected_plan: Option<MonthlyPlanRow> = sqlx::query_as(
         "SELECT plan.id, marketing.monthly_cost_krw, marketing.offer_slots,
                 plan.cash_buffer_krw,
@@ -581,6 +639,7 @@ pub(super) async fn prepare_business_month_in_tx(
             .filter(|row| row.status == "accepted")
             .map(|row| row.id)
             .collect(),
+        loan_interest_cost_krw,
         plan,
     }))
 }
@@ -603,10 +662,11 @@ pub(super) async fn apply_business_month_in_tx(
               employee_capacity_units, total_capacity_units, used_capacity_units,
               marketing_cost_krw, employee_gross_wage_krw, employee_employer_cost_krw,
               contract_revenue_krw, contract_variable_cost_krw, failed_contract_penalty_krw,
+              loan_interest_cost_krw,
               receivable_opening_krw, receivable_created_krw, receivable_collected_krw,
               receivable_closing_krw, completed_contract_count, failed_contract_count,
               active_employee_count, cash_buffer_krw, applied_game_day)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                  0, ?, ?, 0, ?, ?, ?, ?, ?)",
     )
     .bind(save_id)
@@ -628,6 +688,7 @@ pub(super) async fn apply_business_month_in_tx(
     .bind(plan.contract_revenue_krw)
     .bind(plan.contract_variable_cost_krw)
     .bind(plan.failed_contract_penalty_krw)
+    .bind(prepared.loan_interest_cost_krw)
     .bind(plan.receivable_created_krw)
     .bind(plan.receivable_collected_krw)
     .bind(plan.completed_contract_count)
@@ -635,6 +696,21 @@ pub(super) async fn apply_business_month_in_tx(
     .bind(plan.active_employee_count)
     .bind(plan.cash_buffer_krw)
     .bind(target_game_day)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE corporation_working_capital_loan
+         SET status = 'matured'
+         WHERE save_id = ? AND run_revision = ? AND corporation_id = ? AND status = 'active'
+           AND (maturity_year < ? OR (maturity_year = ? AND maturity_month <= ?))",
+    )
+    .bind(save_id)
+    .bind(run_revision)
+    .bind(corporation_id)
+    .bind(prepared.operating_year)
+    .bind(prepared.operating_year)
+    .bind(prepared.operating_month)
     .execute(&mut **tx)
     .await?;
 
@@ -823,11 +899,12 @@ pub(super) async fn read_corporation_operations(
 
 pub(super) async fn manage_corporation_operations(
     pool: &MySqlPool,
+    finance_rules: &dyn FinanceRules,
     user_id: u64,
     command: &ManageBusinessOperationsCommand,
 ) -> Result<LifeStoreResult<BusinessOperationReceipt>> {
     for _ in 0..MAX_TRANSACTION_ATTEMPTS {
-        match manage_once(pool, user_id, command).await {
+        match manage_once(pool, finance_rules, user_id, command).await {
             Ok(result) => return Ok(result),
             Err(error) if super::housing::is_retryable_database_error(&error) => continue,
             Err(error) => return Err(error),
@@ -838,6 +915,7 @@ pub(super) async fn manage_corporation_operations(
 
 async fn manage_once(
     pool: &MySqlPool,
+    finance_rules: &dyn FinanceRules,
     user_id: u64,
     command: &ManageBusinessOperationsCommand,
 ) -> Result<LifeStoreResult<BusinessOperationReceipt>> {
@@ -869,7 +947,9 @@ async fn manage_once(
         }
         CommandIdentityState::Missing => {}
     }
-    if scope.corporation_status != "active" || !has_current_cursor(&scope, command.cursor) {
+    if !operation_status_allowed(&scope.corporation_status, &command.action)
+        || !has_current_cursor(&scope, command.cursor)
+    {
         tx.commit().await?;
         return Ok(LifeStoreResult::Rejected(
             LifeFailureCode::CorporationStateConflict,
@@ -887,13 +967,18 @@ async fn manage_once(
             LifeFailureCode::CorporationStateConflict,
         ));
     }
-    let Some(result) = apply_operation_action(&mut tx, &scope, &profile, command).await? else {
-        tx.commit().await?;
+    write_command_identity(&mut tx, scope.save_id, &identity).await?;
+    let Some(result) =
+        apply_operation_action(&mut tx, finance_rules, &scope, &profile, command).await?
+    else {
+        tx.rollback().await?;
         return Ok(LifeStoreResult::Rejected(
             LifeFailureCode::CorporationStateConflict,
         ));
     };
-    write_command_identity(&mut tx, scope.save_id, &identity).await?;
+    if matches!(&command.action, BusinessOperationAction::Dissolve) {
+        insert_dissolution_transition(&mut tx, &scope, command).await?;
+    }
     let revision = profile
         .control_revision
         .checked_add(1)
@@ -961,6 +1046,7 @@ async fn manage_once(
 
 async fn apply_operation_action(
     tx: &mut Transaction<'_, MySql>,
+    finance_rules: &dyn FinanceRules,
     scope: &OperationScopeRow,
     profile: &BusinessProfileRow,
     command: &ManageBusinessOperationsCommand,
@@ -1014,8 +1100,922 @@ async fn apply_operation_action(
             };
             BusinessOperationResultState::SetMonthlyPlan { plan }
         }
+        BusinessOperationAction::CapitalContribution { amount_krw } => {
+            let Some(result) =
+                capital_contribution(tx, finance_rules, scope, command, *amount_krw).await?
+            else {
+                return Ok(None);
+            };
+            result
+        }
+        BusinessOperationAction::DrawWorkingCapitalLoan {
+            loan_product_id,
+            principal_krw,
+        } => {
+            let Some(loan) = draw_working_capital_loan(
+                tx,
+                scope,
+                profile,
+                command,
+                *loan_product_id,
+                *principal_krw,
+            )
+            .await?
+            else {
+                return Ok(None);
+            };
+            BusinessOperationResultState::DrawWorkingCapitalLoan { loan }
+        }
+        BusinessOperationAction::RepayWorkingCapitalLoan {
+            loan_id,
+            principal_krw,
+        } => {
+            let Some(loan) =
+                repay_working_capital_loan(tx, scope, command, *loan_id, *principal_krw).await?
+            else {
+                return Ok(None);
+            };
+            BusinessOperationResultState::RepayWorkingCapitalLoan { loan }
+        }
+        BusinessOperationAction::Dissolve => {
+            let Some(result) = dissolve_corporation(tx, finance_rules, scope, command).await?
+            else {
+                return Ok(None);
+            };
+            result
+        }
     };
     Ok(Some(result))
+}
+
+async fn capital_contribution(
+    tx: &mut Transaction<'_, MySql>,
+    finance_rules: &dyn FinanceRules,
+    scope: &OperationScopeRow,
+    command: &ManageBusinessOperationsCommand,
+    amount_krw: i64,
+) -> Result<Option<BusinessOperationResultState>> {
+    if amount_krw <= 0 || scope.wallet_cash_krw < amount_krw {
+        return Ok(None);
+    }
+    let wallet_after = scope
+        .wallet_cash_krw
+        .checked_sub(amount_krw)
+        .context("capital contribution wallet underflowed")?;
+    let cash_after = checked_money_add(scope.corporation_cash_krw, amount_krw)?;
+    let contributed_after = checked_money_add(scope.contributed_capital_krw, amount_krw)?;
+    let inserted = sqlx::query(
+        "INSERT INTO corporation_capital_contribution
+             (save_id, run_revision, corporation_id, command_id, amount_krw,
+              wallet_before_krw, wallet_after_krw, cash_before_krw, cash_after_krw,
+              contributed_capital_before_krw, contributed_capital_after_krw,
+              applied_game_day, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing')",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .bind(command.command_id.as_str())
+    .bind(amount_krw)
+    .bind(scope.wallet_cash_krw)
+    .bind(wallet_after)
+    .bind(scope.corporation_cash_krw)
+    .bind(cash_after)
+    .bind(scope.contributed_capital_krw)
+    .bind(contributed_after)
+    .bind(scope.game_day)
+    .execute(&mut **tx)
+    .await?;
+    let contribution_id = inserted.last_insert_id();
+    let personal = finance_rules
+        .create_ledger_transaction(LedgerTransactionDraft {
+            policy: finance_policy(scope),
+            source: LedgerSource {
+                kind: LedgerSourceKind::CorporationCapitalContribution,
+                source_id: contribution_id.to_string(),
+            },
+            game_day: scope.game_day,
+            description: "법인 추가 출자".to_owned(),
+            postings: vec![
+                LedgerPosting {
+                    account_code: LedgerAccountCode::CorporationInvestmentAsset,
+                    financial_account_id: None,
+                    amount_krw,
+                },
+                LedgerPosting {
+                    account_code: LedgerAccountCode::Wallet,
+                    financial_account_id: None,
+                    amount_krw: amount_krw
+                        .checked_neg()
+                        .context("capital contribution negation overflowed")?,
+                },
+            ],
+        })
+        .context("capital contribution personal ledger is invalid")?;
+    let personal_ledger_id =
+        write_personal_finance_ledger(tx, &personal, scope.corporation_id).await?;
+    let corporation_ledger_id = write_corporation_finance_ledger(
+        tx,
+        scope,
+        "capitalContribution",
+        command.command_id.as_str(),
+        "capitalContribution",
+        contribution_id,
+        &[
+            ("corporationCash", amount_krw),
+            (
+                "contributedCapital",
+                amount_krw
+                    .checked_neg()
+                    .context("capital contribution ledger overflowed")?,
+            ),
+        ],
+    )
+    .await?;
+    let updated_save = sqlx::query(
+        "UPDATE save SET cash_krw = ? WHERE id = ? AND run_revision = ? AND cash_krw = ?",
+    )
+    .bind(wallet_after)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.wallet_cash_krw)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        updated_save.rows_affected() == 1,
+        "capital contribution wallet changed"
+    );
+    let updated_corporation = sqlx::query(
+        "UPDATE corporation SET cash_krw = ?, contributed_capital_krw = ?
+         WHERE id = ? AND save_id = ? AND run_revision = ?
+           AND cash_krw = ? AND contributed_capital_krw = ?",
+    )
+    .bind(cash_after)
+    .bind(contributed_after)
+    .bind(scope.corporation_id)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_cash_krw)
+    .bind(scope.contributed_capital_krw)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        updated_corporation.rows_affected() == 1,
+        "capital contribution corporation changed"
+    );
+    apply_capital_contribution(
+        tx,
+        contribution_id,
+        corporation_ledger_id,
+        personal_ledger_id,
+    )
+    .await?;
+    Ok(Some(BusinessOperationResultState::CapitalContribution {
+        contribution_id: ResourceId::from_u64(contribution_id),
+        amount_krw,
+        corporation_cash_after_krw: cash_after,
+        contributed_capital_after_krw: contributed_after,
+        wallet_cash_after_krw: wallet_after,
+        corporation_ledger_transaction_id: ResourceId::from_u64(corporation_ledger_id),
+        personal_ledger_transaction_id: ResourceId::from_u64(personal_ledger_id),
+    }))
+}
+
+async fn draw_working_capital_loan(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &OperationScopeRow,
+    profile: &BusinessProfileRow,
+    command: &ManageBusinessOperationsCommand,
+    loan_product_id: ResourceId,
+    principal_krw: i64,
+) -> Result<Option<BusinessWorkingCapitalLoanState>> {
+    let product: Option<LoanProductRow> = sqlx::query_as(
+        "SELECT id, product_key, display_name, minimum_principal_krw,
+                maximum_principal_krw, principal_step_krw, monthly_interest_rate_ppm,
+                term_months, personal_guarantee
+         FROM business_loan_product
+         WHERE business_catalog_version_id = ? AND id = ? FOR SHARE",
+    )
+    .bind(profile.business_catalog_version_id)
+    .bind(loan_product_id.get())
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(product) = product else {
+        return Ok(None);
+    };
+    if principal_krw < product.minimum_principal_krw
+        || principal_krw > product.maximum_principal_krw
+        || principal_krw % product.principal_step_krw != 0
+        || product.personal_guarantee
+    {
+        return Ok(None);
+    }
+    let existing: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM corporation_working_capital_loan
+         WHERE save_id = ? AND run_revision = ? AND corporation_id = ?
+           AND status IN ('active', 'matured')",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if existing != 0 {
+        return Ok(None);
+    }
+    let cash_after = checked_money_add(scope.corporation_cash_krw, principal_krw)?;
+    let (maturity_year, maturity_month) = add_months(
+        profile.effective_year,
+        profile.effective_month,
+        product.term_months,
+    )?;
+    let inserted = sqlx::query(
+        "INSERT INTO corporation_working_capital_loan
+             (save_id, run_revision, corporation_id, business_profile_id,
+              business_catalog_version_id, loan_product_id, command_id,
+              original_principal_krw, outstanding_principal_krw,
+              monthly_interest_rate_ppm, term_months,
+              originated_year, originated_month, maturity_year, maturity_month,
+              personal_guarantee, cash_before_krw, cash_after_krw,
+              originated_game_day, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing')",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .bind(profile.id)
+    .bind(profile.business_catalog_version_id)
+    .bind(product.id)
+    .bind(command.command_id.as_str())
+    .bind(principal_krw)
+    .bind(principal_krw)
+    .bind(product.monthly_interest_rate_ppm)
+    .bind(product.term_months)
+    .bind(profile.effective_year)
+    .bind(profile.effective_month)
+    .bind(maturity_year)
+    .bind(maturity_month)
+    .bind(product.personal_guarantee)
+    .bind(scope.corporation_cash_krw)
+    .bind(cash_after)
+    .bind(scope.game_day)
+    .execute(&mut **tx)
+    .await?;
+    let loan_id = inserted.last_insert_id();
+    let ledger_id = write_corporation_finance_ledger(
+        tx,
+        scope,
+        "workingCapitalLoanDraw",
+        command.command_id.as_str(),
+        "workingCapitalLoan",
+        loan_id,
+        &[
+            ("corporationCash", principal_krw),
+            (
+                "workingCapitalLoanLiability",
+                principal_krw
+                    .checked_neg()
+                    .context("loan draw ledger overflowed")?,
+            ),
+        ],
+    )
+    .await?;
+    update_corporation_cash(tx, scope, cash_after).await?;
+    let applied = sqlx::query(
+        "UPDATE corporation_working_capital_loan
+         SET status = 'active', corporation_ledger_transaction_id = ?, applied_at = CURRENT_TIMESTAMP(3)
+         WHERE id = ? AND status = 'preparing' AND corporation_ledger_transaction_id IS NULL",
+    )
+    .bind(ledger_id)
+    .bind(loan_id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        applied.rows_affected() == 1,
+        "working capital loan apply failed"
+    );
+    read_working_capital_loan(tx, scope, loan_id, false).await
+}
+
+async fn repay_working_capital_loan(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &OperationScopeRow,
+    command: &ManageBusinessOperationsCommand,
+    loan_id: ResourceId,
+    principal_krw: i64,
+) -> Result<Option<BusinessWorkingCapitalLoanState>> {
+    let Some(loan) = read_working_capital_loan_row(tx, scope, loan_id.get(), true).await? else {
+        return Ok(None);
+    };
+    if !matches!(loan.status.as_str(), "active" | "matured")
+        || principal_krw <= 0
+        || principal_krw > loan.outstanding_principal_krw
+        || principal_krw > scope.corporation_cash_krw
+    {
+        return Ok(None);
+    }
+    let outstanding_after = loan
+        .outstanding_principal_krw
+        .checked_sub(principal_krw)
+        .context("loan repayment underflowed")?;
+    let cash_after = scope
+        .corporation_cash_krw
+        .checked_sub(principal_krw)
+        .context("loan repayment cash underflowed")?;
+    let inserted = sqlx::query(
+        "INSERT INTO corporation_working_capital_loan_repayment
+             (save_id, run_revision, corporation_id, loan_id, command_id,
+              principal_krw, outstanding_before_krw, outstanding_after_krw,
+              cash_before_krw, cash_after_krw, applied_game_day, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing')",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .bind(loan.id)
+    .bind(command.command_id.as_str())
+    .bind(principal_krw)
+    .bind(loan.outstanding_principal_krw)
+    .bind(outstanding_after)
+    .bind(scope.corporation_cash_krw)
+    .bind(cash_after)
+    .bind(scope.game_day)
+    .execute(&mut **tx)
+    .await?;
+    let repayment_id = inserted.last_insert_id();
+    let ledger_id = write_corporation_finance_ledger(
+        tx,
+        scope,
+        "workingCapitalLoanRepayment",
+        command.command_id.as_str(),
+        "workingCapitalLoanRepayment",
+        repayment_id,
+        &[
+            ("workingCapitalLoanLiability", principal_krw),
+            (
+                "corporationCash",
+                principal_krw
+                    .checked_neg()
+                    .context("loan repayment ledger overflowed")?,
+            ),
+        ],
+    )
+    .await?;
+    update_corporation_cash(tx, scope, cash_after).await?;
+    let status = if outstanding_after == 0 {
+        "repaid"
+    } else {
+        loan.status.as_str()
+    };
+    let updated_loan = sqlx::query(
+        "UPDATE corporation_working_capital_loan
+         SET outstanding_principal_krw = ?, status = ?
+         WHERE id = ? AND outstanding_principal_krw = ? AND status = ?",
+    )
+    .bind(outstanding_after)
+    .bind(status)
+    .bind(loan.id)
+    .bind(loan.outstanding_principal_krw)
+    .bind(&loan.status)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        updated_loan.rows_affected() == 1,
+        "working capital loan changed"
+    );
+    let applied = sqlx::query(
+        "UPDATE corporation_working_capital_loan_repayment
+         SET status = 'applied', corporation_ledger_transaction_id = ?, applied_at = CURRENT_TIMESTAMP(3)
+         WHERE id = ? AND status = 'preparing' AND corporation_ledger_transaction_id IS NULL",
+    )
+    .bind(ledger_id)
+    .bind(repayment_id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(applied.rows_affected() == 1, "loan repayment apply failed");
+    read_working_capital_loan(tx, scope, loan.id, false).await
+}
+
+async fn dissolve_corporation(
+    tx: &mut Transaction<'_, MySql>,
+    finance_rules: &dyn FinanceRules,
+    scope: &OperationScopeRow,
+    command: &ManageBusinessOperationsCommand,
+) -> Result<Option<BusinessOperationResultState>> {
+    if scope.operating_payable_krw != 0 || scope.corporate_tax_payable_krw != 0 {
+        return Ok(None);
+    }
+    let blockers: i64 = sqlx::query_scalar(
+        "SELECT
+            (SELECT COUNT(*) FROM corporation_customer_contract
+             WHERE save_id = ? AND run_revision = ? AND corporation_id = ?
+               AND status IN ('offered', 'accepted', 'active'))
+          + (SELECT COUNT(*) FROM corporation_staff_position
+             WHERE save_id = ? AND run_revision = ? AND corporation_id = ?
+               AND status IN ('hired', 'active'))
+          + (SELECT COUNT(*) FROM corporation_working_capital_loan
+             WHERE save_id = ? AND run_revision = ? AND corporation_id = ?
+               AND outstanding_principal_krw > 0)",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if blockers != 0 {
+        return Ok(None);
+    }
+    let distribution_krw = scope.corporation_cash_krw;
+    let capital_basis_krw = scope.contributed_capital_krw;
+    let realized_gain_loss_krw = capital_basis_krw
+        .checked_sub(distribution_krw)
+        .context("corporation liquidation gain/loss overflowed")?;
+    if capital_basis_krw
+        .checked_add(scope.retained_earnings_krw)
+        .context("corporation liquidation equity overflowed")?
+        != distribution_krw
+    {
+        return Ok(None);
+    }
+    let wallet_after = checked_money_add(scope.wallet_cash_krw, distribution_krw)?;
+    let inserted = sqlx::query(
+        "INSERT INTO corporation_dissolution
+             (save_id, run_revision, corporation_id, command_id,
+              distribution_krw, capital_basis_krw, realized_gain_loss_krw,
+              wallet_before_krw, wallet_after_krw, cash_before_krw,
+              contributed_capital_before_krw, retained_earnings_before_krw,
+              distributable_profit_before_krw, applied_game_day, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing')",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .bind(command.command_id.as_str())
+    .bind(distribution_krw)
+    .bind(capital_basis_krw)
+    .bind(realized_gain_loss_krw)
+    .bind(scope.wallet_cash_krw)
+    .bind(wallet_after)
+    .bind(distribution_krw)
+    .bind(capital_basis_krw)
+    .bind(scope.retained_earnings_krw)
+    .bind(scope.distributable_profit_krw)
+    .bind(scope.game_day)
+    .execute(&mut **tx)
+    .await?;
+    let dissolution_id = inserted.last_insert_id();
+    let mut personal_postings = Vec::with_capacity(3);
+    push_ledger_posting(
+        &mut personal_postings,
+        LedgerAccountCode::Wallet,
+        distribution_krw,
+    );
+    push_ledger_posting(
+        &mut personal_postings,
+        LedgerAccountCode::CorporationInvestmentAsset,
+        capital_basis_krw
+            .checked_neg()
+            .context("corporation liquidation basis overflowed")?,
+    );
+    push_ledger_posting(
+        &mut personal_postings,
+        LedgerAccountCode::RealizedGainLoss,
+        realized_gain_loss_krw,
+    );
+    let personal = finance_rules
+        .create_ledger_transaction(LedgerTransactionDraft {
+            policy: finance_policy(scope),
+            source: LedgerSource {
+                kind: LedgerSourceKind::CorporationLiquidation,
+                source_id: dissolution_id.to_string(),
+            },
+            game_day: scope.game_day,
+            description: "법인 해산 잔여재산 분배".to_owned(),
+            postings: personal_postings,
+        })
+        .context("corporation liquidation personal ledger is invalid")?;
+    let personal_ledger_id =
+        write_personal_finance_ledger(tx, &personal, scope.corporation_id).await?;
+    let mut corporation_postings = Vec::with_capacity(3);
+    push_corporation_posting(
+        &mut corporation_postings,
+        "corporationCash",
+        -distribution_krw,
+    );
+    push_corporation_posting(
+        &mut corporation_postings,
+        "contributedCapital",
+        capital_basis_krw,
+    );
+    push_corporation_posting(
+        &mut corporation_postings,
+        "retainedEarnings",
+        scope.retained_earnings_krw,
+    );
+    let corporation_ledger_id = write_corporation_finance_ledger(
+        tx,
+        scope,
+        "liquidation",
+        command.command_id.as_str(),
+        "dissolution",
+        dissolution_id,
+        &corporation_postings,
+    )
+    .await?;
+    let updated_save = sqlx::query(
+        "UPDATE save SET cash_krw = ? WHERE id = ? AND run_revision = ? AND cash_krw = ?",
+    )
+    .bind(wallet_after)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.wallet_cash_krw)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        updated_save.rows_affected() == 1,
+        "corporation liquidation wallet changed"
+    );
+    let dissolved = sqlx::query(
+        "UPDATE corporation
+         SET status = 'dissolved', cash_krw = 0, contributed_capital_krw = 0,
+             retained_earnings_krw = 0, distributable_profit_krw = 0
+         WHERE id = ? AND save_id = ? AND run_revision = ? AND status = ?
+           AND cash_krw = ? AND contributed_capital_krw = ? AND retained_earnings_krw = ?",
+    )
+    .bind(scope.corporation_id)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(&scope.corporation_status)
+    .bind(distribution_krw)
+    .bind(capital_basis_krw)
+    .bind(scope.retained_earnings_krw)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        dissolved.rows_affected() == 1,
+        "corporation dissolution failed"
+    );
+    let applied = sqlx::query(
+        "UPDATE corporation_dissolution
+         SET status = 'applied', corporation_ledger_transaction_id = ?,
+             personal_ledger_transaction_id = ?, applied_at = CURRENT_TIMESTAMP(3)
+         WHERE id = ? AND status = 'preparing'",
+    )
+    .bind(corporation_ledger_id)
+    .bind(personal_ledger_id)
+    .bind(dissolution_id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        applied.rows_affected() == 1,
+        "corporation dissolution apply failed"
+    );
+    Ok(Some(BusinessOperationResultState::Dissolve {
+        dissolution_id: ResourceId::from_u64(dissolution_id),
+        distribution_krw,
+        capital_basis_krw,
+        realized_gain_loss_krw,
+        wallet_cash_after_krw: wallet_after,
+        corporation_ledger_transaction_id: ResourceId::from_u64(corporation_ledger_id),
+        personal_ledger_transaction_id: ResourceId::from_u64(personal_ledger_id),
+    }))
+}
+
+fn finance_policy(scope: &OperationScopeRow) -> RunPolicyContext {
+    RunPolicyContext {
+        run: RunId {
+            save_id: ResourceId::from_u64(scope.save_id),
+            run_revision: scope.run_revision,
+        },
+        policy_set_id: ResourceId::from_u64(scope.policy_set_id),
+    }
+}
+
+async fn insert_dissolution_transition(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &OperationScopeRow,
+    command: &ManageBusinessOperationsCommand,
+) -> Result<()> {
+    let transition_no: u16 = sqlx::query_scalar(
+        "SELECT CAST(COALESCE(MAX(transition_no), 0) + 1 AS UNSIGNED)
+         FROM corporation_transition WHERE save_id = ? AND run_revision = ? AND corporation_id = ?",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO corporation_transition
+             (save_id, run_revision, corporation_id, transition_no, from_status, to_status,
+              command_id, transition_game_day, transition_reason)
+         VALUES (?, ?, ?, ?, ?, 'dissolved', ?, ?, 'playerDissolved')",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
+    .bind(transition_no)
+    .bind(&scope.corporation_status)
+    .bind(command.command_id.as_str())
+    .bind(scope.game_day)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+fn push_ledger_posting(
+    postings: &mut Vec<LedgerPosting>,
+    account_code: LedgerAccountCode,
+    amount_krw: i64,
+) {
+    if amount_krw != 0 {
+        postings.push(LedgerPosting {
+            account_code,
+            financial_account_id: None,
+            amount_krw,
+        });
+    }
+}
+
+fn push_corporation_posting(
+    postings: &mut Vec<(&'static str, i64)>,
+    account_code: &'static str,
+    amount_krw: i64,
+) {
+    if amount_krw != 0 {
+        postings.push((account_code, amount_krw));
+    }
+}
+
+async fn write_personal_finance_ledger(
+    tx: &mut Transaction<'_, MySql>,
+    ledger: &LedgerTransaction,
+    corporation_id: u64,
+) -> Result<u64> {
+    let policy = ledger.policy();
+    let inserted = sqlx::query(
+        "INSERT INTO ledger_transaction
+             (save_id, run_revision, game_day, policy_set_id, source_kind, source_id, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(policy.run.save_id.get())
+    .bind(policy.run.run_revision)
+    .bind(ledger.game_day())
+    .bind(policy.policy_set_id.get())
+    .bind(to_db_str(&ledger.source().kind)?)
+    .bind(&ledger.source().source_id)
+    .bind(ledger.description())
+    .execute(&mut **tx)
+    .await?;
+    let ledger_id = inserted.last_insert_id();
+    for (index, posting) in ledger.postings().iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO ledger_posting
+                 (save_id, run_revision, ledger_transaction_id, posting_order,
+                  account_code, financial_account_id, corporation_id, amount_krw)
+             VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+        )
+        .bind(policy.run.save_id.get())
+        .bind(policy.run.run_revision)
+        .bind(ledger_id)
+        .bind(u16::try_from(index + 1)?)
+        .bind(to_db_str(&posting.account_code)?)
+        .bind(corporation_id)
+        .bind(posting.amount_krw)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(ledger_id)
+}
+
+async fn write_corporation_finance_ledger(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &OperationScopeRow,
+    transaction_kind: &str,
+    correlation_id: &str,
+    authority_kind: &str,
+    authority_id: u64,
+    postings: &[(&str, i64)],
+) -> Result<u64> {
+    let sql = match authority_kind {
+        "capitalContribution" => {
+            "INSERT INTO corporation_ledger_transaction
+                 (save_id, run_revision, corporation_id, game_day, transaction_kind,
+                  correlation_id, corporation_capital_contribution_id, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?, '법인 추가 출자')"
+        }
+        "workingCapitalLoan" => {
+            "INSERT INTO corporation_ledger_transaction
+                 (save_id, run_revision, corporation_id, game_day, transaction_kind,
+                  correlation_id, working_capital_loan_id, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?, '법인 운전자금 대출 실행')"
+        }
+        "workingCapitalLoanRepayment" => {
+            "INSERT INTO corporation_ledger_transaction
+                 (save_id, run_revision, corporation_id, game_day, transaction_kind,
+                  correlation_id, working_capital_loan_repayment_id, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?, '법인 운전자금 대출 상환')"
+        }
+        "dissolution" => {
+            "INSERT INTO corporation_ledger_transaction
+                 (save_id, run_revision, corporation_id, game_day, transaction_kind,
+                  correlation_id, corporation_dissolution_id, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?, '법인 해산 정산')"
+        }
+        _ => bail!("unsupported corporation finance authority"),
+    };
+    let inserted = sqlx::query(sql)
+        .bind(scope.save_id)
+        .bind(scope.run_revision)
+        .bind(scope.corporation_id)
+        .bind(scope.game_day)
+        .bind(transaction_kind)
+        .bind(correlation_id)
+        .bind(authority_id)
+        .execute(&mut **tx)
+        .await?;
+    let ledger_id = inserted.last_insert_id();
+    for (index, (account_code, amount_krw)) in postings.iter().enumerate() {
+        ensure!(*amount_krw != 0, "zero corporation finance posting");
+        sqlx::query(
+            "INSERT INTO corporation_ledger_posting
+                 (save_id, run_revision, corporation_id,
+                  corporation_ledger_transaction_id, posting_order, account_code, amount_krw)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(scope.save_id)
+        .bind(scope.run_revision)
+        .bind(scope.corporation_id)
+        .bind(ledger_id)
+        .bind(u16::try_from(index + 1)?)
+        .bind(*account_code)
+        .bind(*amount_krw)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(ledger_id)
+}
+
+async fn apply_capital_contribution(
+    tx: &mut Transaction<'_, MySql>,
+    contribution_id: u64,
+    corporation_ledger_id: u64,
+    personal_ledger_id: u64,
+) -> Result<()> {
+    let applied = sqlx::query(
+        "UPDATE corporation_capital_contribution
+         SET status = 'applied', corporation_ledger_transaction_id = ?,
+             personal_ledger_transaction_id = ?, applied_at = CURRENT_TIMESTAMP(3)
+         WHERE id = ? AND status = 'preparing'
+           AND corporation_ledger_transaction_id IS NULL
+           AND personal_ledger_transaction_id IS NULL",
+    )
+    .bind(corporation_ledger_id)
+    .bind(personal_ledger_id)
+    .bind(contribution_id)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(
+        applied.rows_affected() == 1,
+        "capital contribution apply failed"
+    );
+    Ok(())
+}
+
+async fn update_corporation_cash(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &OperationScopeRow,
+    cash_after_krw: i64,
+) -> Result<()> {
+    let updated = sqlx::query(
+        "UPDATE corporation SET cash_krw = ?
+         WHERE id = ? AND save_id = ? AND run_revision = ? AND cash_krw = ?",
+    )
+    .bind(cash_after_krw)
+    .bind(scope.corporation_id)
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_cash_krw)
+    .execute(&mut **tx)
+    .await?;
+    ensure!(updated.rows_affected() == 1, "corporation cash changed");
+    Ok(())
+}
+
+async fn read_working_capital_loan_row(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &OperationScopeRow,
+    loan_id: u64,
+    lock: bool,
+) -> Result<Option<WorkingCapitalLoanRow>> {
+    let query = format!(
+        "SELECT loan.id, loan.loan_product_id, product.product_key, product.display_name,
+                loan.status, loan.original_principal_krw, loan.outstanding_principal_krw,
+                loan.monthly_interest_rate_ppm, loan.term_months,
+                loan.originated_year, loan.originated_month,
+                loan.maturity_year, loan.maturity_month, loan.personal_guarantee
+         FROM corporation_working_capital_loan AS loan
+         INNER JOIN business_loan_product AS product
+            ON product.business_catalog_version_id = loan.business_catalog_version_id
+           AND product.id = loan.loan_product_id
+         WHERE loan.save_id = ? AND loan.run_revision = ? AND loan.corporation_id = ?
+           AND loan.id = ?{}",
+        if lock { " FOR UPDATE" } else { "" }
+    );
+    sqlx::query_as::<_, WorkingCapitalLoanRow>(AssertSqlSafe(query.as_str()))
+        .bind(scope.save_id)
+        .bind(scope.run_revision)
+        .bind(scope.corporation_id)
+        .bind(loan_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Into::into)
+}
+
+async fn read_working_capital_loan(
+    tx: &mut Transaction<'_, MySql>,
+    scope: &OperationScopeRow,
+    loan_id: u64,
+    lock: bool,
+) -> Result<Option<BusinessWorkingCapitalLoanState>> {
+    read_working_capital_loan_row(tx, scope, loan_id, lock)
+        .await?
+        .map(working_capital_loan_state)
+        .transpose()
+}
+
+fn working_capital_loan_state(
+    row: WorkingCapitalLoanRow,
+) -> Result<BusinessWorkingCapitalLoanState> {
+    let status = match row.status.as_str() {
+        "active" => BusinessWorkingCapitalLoanStatusState::Active,
+        "matured" => BusinessWorkingCapitalLoanStatusState::Matured,
+        "repaid" => BusinessWorkingCapitalLoanStatusState::Repaid,
+        _ => bail!("unknown working capital loan status"),
+    };
+    Ok(BusinessWorkingCapitalLoanState {
+        id: ResourceId::from_u64(row.id),
+        product_id: ResourceId::from_u64(row.loan_product_id),
+        product_key: row.product_key,
+        display_name: row.display_name,
+        status,
+        original_principal_krw: row.original_principal_krw,
+        outstanding_principal_krw: row.outstanding_principal_krw,
+        monthly_interest_rate_ppm: row.monthly_interest_rate_ppm,
+        term_months: row.term_months,
+        originated_year: row.originated_year,
+        originated_month: row.originated_month,
+        maturity_year: row.maturity_year,
+        maturity_month: row.maturity_month,
+        personal_guarantee: row.personal_guarantee,
+    })
+}
+
+fn checked_money_add(left: i64, right: i64) -> Result<i64> {
+    let result = i128::from(left)
+        .checked_add(i128::from(right))
+        .context("money addition overflowed")?;
+    ensure!(
+        (0..=9_007_199_254_740_991_i128).contains(&result),
+        "money result is outside public bounds"
+    );
+    i64::try_from(result).map_err(Into::into)
+}
+
+fn add_months(year: u16, month: u8, months: u16) -> Result<(u16, u8)> {
+    ensure!((1..=12).contains(&month), "invalid source month");
+    let absolute = u32::from(year)
+        .checked_mul(12)
+        .and_then(|value| value.checked_add(u32::from(month - 1)))
+        .and_then(|value| value.checked_add(u32::from(months)))
+        .context("working capital maturity overflowed")?;
+    let maturity_year = u16::try_from(absolute / 12)?;
+    let maturity_month = u8::try_from((absolute % 12) + 1)?;
+    ensure!(maturity_year > 0, "invalid maturity year");
+    Ok((maturity_year, maturity_month))
+}
+
+fn operation_status_allowed(status: &str, action: &BusinessOperationAction) -> bool {
+    match action {
+        BusinessOperationAction::RepayWorkingCapitalLoan { .. } => {
+            matches!(status, "active" | "insolvent")
+        }
+        BusinessOperationAction::Dissolve => {
+            matches!(status, "active" | "dormant" | "insolvent")
+        }
+        _ => status == "active",
+    }
+}
+
+fn to_db_str<T: Serialize>(value: &T) -> Result<String> {
+    let json = serde_json::to_string(value)?;
+    Ok(json.trim_matches('"').to_owned())
 }
 
 async fn accept_contract(
@@ -1385,6 +2385,7 @@ async fn read_operations_state(
             next_operating_month: None,
             marketing_bands: Vec::new(),
             loan_products: Vec::new(),
+            working_capital_loans: Vec::new(),
             contracts: Vec::new(),
             positions: Vec::new(),
             plan: None,
@@ -1412,6 +2413,25 @@ async fn read_operations_state(
          FROM business_loan_product WHERE business_catalog_version_id = ? ORDER BY id",
     )
     .bind(profile.business_catalog_version_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let working_capital_loan_rows: Vec<WorkingCapitalLoanRow> = sqlx::query_as(
+        "SELECT loan.id, loan.loan_product_id, product.product_key, product.display_name,
+                loan.status, loan.original_principal_krw, loan.outstanding_principal_krw,
+                loan.monthly_interest_rate_ppm, loan.term_months,
+                loan.originated_year, loan.originated_month,
+                loan.maturity_year, loan.maturity_month, loan.personal_guarantee
+         FROM corporation_working_capital_loan AS loan
+         INNER JOIN business_loan_product AS product
+            ON product.business_catalog_version_id = loan.business_catalog_version_id
+           AND product.id = loan.loan_product_id
+         WHERE loan.save_id = ? AND loan.run_revision = ? AND loan.corporation_id = ?
+           AND loan.status IN ('active', 'matured', 'repaid')
+         ORDER BY loan.id DESC LIMIT 8",
+    )
+    .bind(scope.save_id)
+    .bind(scope.run_revision)
+    .bind(scope.corporation_id)
     .fetch_all(&mut **tx)
     .await?;
     let contract_rows: Vec<ContractRow> = sqlx::query_as(
@@ -1460,6 +2480,7 @@ async fn read_operations_state(
                 used_capacity_units, contract_revenue_krw, contract_variable_cost_krw,
                 marketing_cost_krw, employee_gross_wage_krw,
                 employee_employer_cost_krw, failed_contract_penalty_krw,
+                loan_interest_cost_krw,
                 completed_contract_count, failed_contract_count,
                 active_employee_count, applied_game_day
          FROM corporation_business_month
@@ -1481,6 +2502,10 @@ async fn read_operations_state(
         next_operating_month: Some(profile.effective_month),
         marketing_bands: marketing_rows.into_iter().map(marketing_state).collect(),
         loan_products: loan_rows.into_iter().map(loan_product_state).collect(),
+        working_capital_loans: working_capital_loan_rows
+            .into_iter()
+            .map(working_capital_loan_state)
+            .collect::<Result<Vec<_>>>()?,
         contracts: contract_rows
             .into_iter()
             .map(contract_state)
@@ -1503,25 +2528,39 @@ async fn read_scope(
     let query = if lock {
         sqlx::query_as::<_, OperationScopeRow>(
             "SELECT save.id AS save_id, save.run_revision, save.state_revision, save.game_day,
+                save.cash_krw AS wallet_cash_krw, bundle.policy_set_id,
                 corporation.id AS corporation_id, corporation.status AS corporation_status,
+                corporation.cash_krw AS corporation_cash_krw,
+                corporation.contributed_capital_krw, corporation.retained_earnings_krw,
+                corporation.operating_payable_krw, corporation.corporate_tax_payable_krw,
+                corporation.distributable_profit_krw,
                 manifest.business_catalog_version_id, manifest.business_catalog_sha256
          FROM save
          INNER JOIN corporation ON corporation.save_id = save.id
             AND corporation.run_revision = save.run_revision AND corporation.id = ?
          INNER JOIN run_manifest AS manifest ON manifest.save_id = save.id
             AND manifest.run_revision = save.run_revision
+         INNER JOIN run_rule_bundle AS bundle ON bundle.save_id = save.id
+            AND bundle.run_revision = save.run_revision
          WHERE save.user_id = ? FOR UPDATE",
         )
     } else {
         sqlx::query_as::<_, OperationScopeRow>(
             "SELECT save.id AS save_id, save.run_revision, save.state_revision, save.game_day,
+                save.cash_krw AS wallet_cash_krw, bundle.policy_set_id,
                 corporation.id AS corporation_id, corporation.status AS corporation_status,
+                corporation.cash_krw AS corporation_cash_krw,
+                corporation.contributed_capital_krw, corporation.retained_earnings_krw,
+                corporation.operating_payable_krw, corporation.corporate_tax_payable_krw,
+                corporation.distributable_profit_krw,
                 manifest.business_catalog_version_id, manifest.business_catalog_sha256
          FROM save
          INNER JOIN corporation ON corporation.save_id = save.id
             AND corporation.run_revision = save.run_revision AND corporation.id = ?
          INNER JOIN run_manifest AS manifest ON manifest.save_id = save.id
             AND manifest.run_revision = save.run_revision
+         INNER JOIN run_rule_bundle AS bundle ON bundle.save_id = save.id
+            AND bundle.run_revision = save.run_revision
          WHERE save.user_id = ?",
         )
     };
@@ -1725,6 +2764,10 @@ fn action_kind(action: &BusinessOperationAction) -> &'static str {
         BusinessOperationAction::HirePosition { .. } => "hirePosition",
         BusinessOperationAction::TerminatePosition { .. } => "terminatePosition",
         BusinessOperationAction::SetMonthlyPlan { .. } => "setMonthlyPlan",
+        BusinessOperationAction::CapitalContribution { .. } => "capitalContribution",
+        BusinessOperationAction::DrawWorkingCapitalLoan { .. } => "drawWorkingCapitalLoan",
+        BusinessOperationAction::RepayWorkingCapitalLoan { .. } => "repayWorkingCapitalLoan",
+        BusinessOperationAction::Dissolve => "dissolveCorporation",
     }
 }
 
@@ -1752,6 +2795,21 @@ fn operation_fingerprint(command: &ManageBusinessOperationsCommand) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        BusinessOperationAction::CapitalContribution { amount_krw } => {
+            format!("amountKrw={amount_krw}")
+        }
+        BusinessOperationAction::DrawWorkingCapitalLoan {
+            loan_product_id,
+            principal_krw,
+        } => format!(
+            "loanProductId={}\nprincipalKrw={principal_krw}",
+            loan_product_id.get()
+        ),
+        BusinessOperationAction::RepayWorkingCapitalLoan {
+            loan_id,
+            principal_krw,
+        } => format!("loanId={}\nprincipalKrw={principal_krw}", loan_id.get()),
+        BusinessOperationAction::Dissolve => "dissolve=true".to_owned(),
     };
     let canonical = format!(
         "lifeledger.corporation.operation.v1\nkind={}\ncorporationId={}\nexpectedRevision={}\nrunRevision={}\nstateRevision={}\ngameDay={}\n{}",
@@ -1857,6 +2915,7 @@ fn business_month_state(row: BusinessMonthRow) -> Result<BusinessMonthState> {
             .checked_add(row.employee_employer_cost_krw)
             .context("business month employee cost overflowed")?,
         failed_contract_penalty_krw: row.failed_contract_penalty_krw,
+        loan_interest_cost_krw: row.loan_interest_cost_krw,
         completed_contract_count: row.completed_contract_count,
         failed_contract_count: row.failed_contract_count,
         active_employee_count: row.active_employee_count,

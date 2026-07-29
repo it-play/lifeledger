@@ -57,6 +57,7 @@ use crate::state::{
     BusinessMonthSnapshot, BusinessMonthlyPlanSnapshot, BusinessOperationResponse,
     BusinessOperationResultSnapshot, BusinessOperationsAvailabilitySnapshot,
     BusinessOperationsResponse, BusinessPositionSnapshot, BusinessPositionStatusSnapshot,
+    BusinessWorkingCapitalLoanSnapshot, BusinessWorkingCapitalLoanStatusSnapshot,
     CareerActivitiesResponse, CareerActivityCatalogSnapshot, CareerActivityHistorySnapshot,
     CareerActivityResponse, CareerActivityResultSnapshot, CareerActivitySnapshot,
     CareerApplicationResponse, CareerApplicationResultSnapshot, CareerApplicationSnapshot,
@@ -634,6 +635,8 @@ const MAX_JSON_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
         BusinessPositionStatusSnapshot,
         BusinessMarketingBandSnapshot,
         BusinessLoanProductSnapshot,
+        BusinessWorkingCapitalLoanStatusSnapshot,
+        BusinessWorkingCapitalLoanSnapshot,
         BusinessContractSnapshot,
         BusinessPositionSnapshot,
         BusinessMonthlyPlanSnapshot,
@@ -4370,6 +4373,39 @@ enum CorporationOperationRequest {
         #[schema(max_items = 50, value_type = Vec<String>)]
         contract_priority_ids: Vec<String>,
     },
+    CapitalContribution {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        amount_krw: i64,
+    },
+    DrawWorkingCapitalLoan {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        loan_product_id: String,
+        principal_krw: i64,
+    },
+    RepayWorkingCapitalLoan {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+        loan_id: String,
+        principal_krw: i64,
+    },
+    Dissolve {
+        command_id: String,
+        expected_run_revision: u32,
+        expected_state_revision: u64,
+        expected_game_day: u32,
+        expected_revision: u64,
+    },
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -4567,6 +4603,90 @@ fn corporation_operation_command(
                 },
             )
         }
+        CorporationOperationRequest::CapitalContribution {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            amount_krw,
+        } => {
+            if !(1..=MAX_JSON_SAFE_INTEGER as i64).contains(&amount_krw) {
+                return Err(LifeFailureCode::InvalidCommand);
+            }
+            (
+                command_id,
+                expected_run_revision,
+                expected_state_revision,
+                expected_game_day,
+                expected_revision,
+                BusinessOperationAction::CapitalContribution { amount_krw },
+            )
+        }
+        CorporationOperationRequest::DrawWorkingCapitalLoan {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            loan_product_id,
+            principal_krw,
+        } => {
+            if !(1..=MAX_JSON_SAFE_INTEGER as i64).contains(&principal_krw) {
+                return Err(LifeFailureCode::InvalidCommand);
+            }
+            (
+                command_id,
+                expected_run_revision,
+                expected_state_revision,
+                expected_game_day,
+                expected_revision,
+                BusinessOperationAction::DrawWorkingCapitalLoan {
+                    loan_product_id: ResourceId::parse(&loan_product_id)
+                        .map_err(|_| LifeFailureCode::InvalidCommand)?,
+                    principal_krw,
+                },
+            )
+        }
+        CorporationOperationRequest::RepayWorkingCapitalLoan {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            loan_id,
+            principal_krw,
+        } => {
+            if !(1..=MAX_JSON_SAFE_INTEGER as i64).contains(&principal_krw) {
+                return Err(LifeFailureCode::InvalidCommand);
+            }
+            (
+                command_id,
+                expected_run_revision,
+                expected_state_revision,
+                expected_game_day,
+                expected_revision,
+                BusinessOperationAction::RepayWorkingCapitalLoan {
+                    loan_id: ResourceId::parse(&loan_id)
+                        .map_err(|_| LifeFailureCode::InvalidCommand)?,
+                    principal_krw,
+                },
+            )
+        }
+        CorporationOperationRequest::Dissolve {
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+        } => (
+            command_id,
+            expected_run_revision,
+            expected_state_revision,
+            expected_game_day,
+            expected_revision,
+            BusinessOperationAction::Dissolve,
+        ),
     };
     if revision == 0 || revision > MAX_JSON_SAFE_INTEGER {
         return Err(LifeFailureCode::InvalidCommand);
