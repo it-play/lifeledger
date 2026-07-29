@@ -867,6 +867,33 @@ DB backup 실패에 둔다. 단순 이용자 행동 analytics는 명시적 플�
 운영 runbook은 migration 실패, worker backlog, stuck lease, season lock, ranking provisional, OAuth 장애,
 DB 복구, 개인정보 요청의 확인·완화·복구·사후 검증 절차를 적는다.
 
+### 9.3 M5-F 첫 운영 수직 슬라이스 (2026-07-29)
+
+M5-F는 스타일링이나 외부 SaaS 대시보드 도입보다, 현재 단일 홈서버에서 같은 기준으로 상태를 읽고 장애를
+판단할 수 있는 운영 권위를 먼저 만든다. 첫 세 단계는 다음 순서로 진행한다.
+
+1. **읽기 전용 운영 리포트** — API와 같은 image에 `ops-report` binary를 포함한다. 이 binary는 migration을
+   실행하거나 DB를 변경하지 않고 `DATABASE_URL`로 현재 production DB를 읽어 schema 1 JSON 한 건을
+   출력한다. 출력은 생성 시각·engine version, migration 최신/실패 수, offline enabled/pending/paused 수와
+   pending day 합계·oldest accrual age, worker lease active/expired 수, 최근 1시간 worker committed/failed 수,
+   season 상태별 수, ranked run·finalization completed/failed 수만 포함한다. user/save/run ID, command ID,
+   캐릭터 값, 원 단위 금액, token과 DB URL은 절대 출력하지 않는다.
+2. **배포 관측·runbook** — `deploy/scripts/observe.sh`는 API/worker container health와 `ops-report`를 한 번
+   수집한다. `validate.sh`는 startup migration 실패가 0인지까지 확인하되 backlog나 domain failure 때문에
+   이미 성공한 배포를 자동 rollback하지 않는다. runbook은 migration 실패, worker backlog·stuck lease,
+   season lock, provisional ranking, OAuth 장애, DB 복구와 개인정보 요청을 `확인 → 완화 → 복구 → 사후 검증`
+   순서로 기록한다. 현재 사용자 지시에 따라 별도 MySQL, clone, 복구 dump를 만들지 않으며 backup/restore
+   rehearsal은 외부 참가자 gate 전에 별도 승인과 보존 정책을 정한 뒤 수행한다.
+3. **플레이테스트 gate** — 운영 리포트와 runbook rehearsal 뒤 명시적 동의·철회가 있는 익명 피드백 경계와
+   재현 가능한 manifest/finalization hash 제출을 구현한다. 실제 외부 참가자 모집, analytics 활성화, season
+   상태 변경은 코드 배포만으로 간주하지 않고 사용자 승인과 고지문 확인 뒤 수행한다.
+
+`ops-report`의 경고는 stable code 목록으로 계산하되 첫 version은 관측만 한다. migration 실패,
+`pausedBySystem`, 만료 뒤 남은 worker lease, 최근 finalization 실패는 각각 별도 code다. queue age와 처리량의
+숫자 threshold는 production baseline을 기록한 다음 release config로 올리며, 코드에 임의 상수를 박아
+정상 backlog를 장애로 단정하지 않는다. 배포 hook은 새 API와 worker가 healthy이고 migration 실패가 0인지만
+release gate로 사용한다.
+
 ## 10. 테스트와 검증
 
 ### 10.1 순수 규칙·protocol
