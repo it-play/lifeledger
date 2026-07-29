@@ -1024,6 +1024,38 @@ run/feedback은 `404`로 owner 존재 여부를 숨긴다. 이 API는 game comma
 - server는 핵심 동의·본문 정규화 BDD 5건, fmt와 check만 실행했다. client는 typecheck·lint·build로 계약과
   조립을 확인했다. 프로젝트 정책에 따라 DOM·network·DB 단위 테스트와 무관한 전체 회귀는 추가하지 않았다.
 
+### 9.5 M5 release closure 계약 (2026-07-30)
+
+외부 모집 전까지 승인 없이 닫을 수 있는 privacy·운영 공백은 다음 계약으로 고정한다. 시각 스타일링은 이
+계약의 범위가 아니며, 기능과 삭제 가능성을 먼저 제공한다.
+
+1. **고정 보존 기간** — `feedbackSubmission` policy v2는 활성 피드백 본문의 최대 보존 기간을 생성 시각부터
+   90일로 고정한다. 새 동의는 v2를 명시적으로 받아야 하고 v1 동의를 소급 인정하지 않는다. 별도 analytics는
+   계속 `disabled`다. offline worker는 60초 이내 주기로 만료 대상을 찾고 `expired` tombstone으로 전이하며,
+   category·severity·본문·run revision·manifest/finalization hash를 한 statement에서 null로 지운다. 공개 UUID,
+   owner, 생성 시각과 만료 처리 시각만 계정 삭제 전까지 남는다. owner API는 active 행만 반환한다.
+2. **계정 삭제** — 인증된 owner는 `DELETE /api/auth/account`에 strict body
+   `{ "confirmation": "deleteAccount" }`를 보내 계정과 모든 session·save·consent·feedback을 FK cascade로
+   영구 삭제한다. 서버는 같은 계정의 진행 lock 아래 자동 진행을 멈추고 삭제를 수행한 뒤 runtime cache와
+   session cookie를 제거한다. 클라이언트는 결과가 되돌릴 수 없고 게임 기록·피드백도 함께 삭제된다는 한국어
+   확인을 거친다. 운영자가 이메일·OAuth profile·게임 내용을 받아 대신 삭제하지 않는다.
+3. **관측** — `ops-report` schema 2는 PII 없이 active feedback 수, 만료 처리 누계와 아직 active인 만료 대상
+   수를 추가한다. 만료 대상이 남아 있으면 stable `expiredFeedbackRetention` 경고를 반환한다. 이 경고는 worker
+   재시작과 정상 purge로 복구하며 본문을 읽거나 수동 SQL로 지우지 않는다.
+4. **문의·고지** — 스타일 없는 화면에서 알려진 문제, 캐릭터와 자산은 허구라는 점, 단순화한 투자·법률·보험
+   모델은 조언이 아니라는 점, analytics 미수집, 90일 피드백 보존, 개별 삭제·동의 철회·계정 삭제 경로를 함께
+   노출한다. 장애·삭제 문의의 공개 경로는 `https://github.com/it-play/lifeledger/issues`로 고정하되 ticket에
+   이메일·session token·실제 금융정보·피드백 본문을 쓰지 말라고 안내한다.
+5. **현재 recovery 정책** — 사용자가 없는 development production에는 backup artifact나 복구 dump를 만들지
+   않는다. 이 단계의 recovery는 immutable migration과 배포 image로 빈 DB를 재구축하는 것이며 기존 개발
+   데이터 유실을 허용한다. 이것을 backup/restore rehearsal로 표현하지 않는다. 실제 외부 참가자를 받기 전에
+   데이터를 보존하려면 암호화 위치·보존 기간·삭제 계획을 새로 승인하고 §9.1의 backup/restore gate를 다시
+   활성화해야 한다.
+
+이 계약의 기능 인수는 policy v2 재동의, 만료 tombstone, strict 계정 삭제와 cascade, 운영 경고, 공개 고지
+화면을 production에서 확인하면 완료한다. smoke용 계정은 별도로 만들고 삭제하여 기존 QA 계정을 손상시키지
+않으며 raw session token·OAuth profile·본문을 문서나 로그에 남기지 않는다.
+
 ## 10. 테스트와 검증
 
 ### 10.1 순수 규칙·protocol

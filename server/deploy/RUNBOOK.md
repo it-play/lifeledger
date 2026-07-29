@@ -10,10 +10,12 @@ The first read-only check is always:
 ./scripts/observe.sh
 ~~~
 
-The report contains only aggregate counts and stable alert codes. It does not run migrations or
+The schema 2 report contains only aggregate counts and stable alert codes. It does not run migrations or
 change database state. Do not create a separate database, clone, or recovery dump during the
-current development stage. Backup/restore rehearsal requires a separately approved retention
-location and deletion plan before external participants are invited.
+current development stage. With no external participants, recovery means rebuilding an empty
+database from immutable migrations and accepting loss of development data. This is not a
+backup/restore rehearsal. Preserving external participant data later requires a separately approved
+encrypted location, retention period, and deletion plan.
 
 ## Deployment verification
 
@@ -204,6 +206,29 @@ location and deletion plan before external participants are invited.
   copy remains. Consent withdrawal does not delete the account; approved account deletion uses
   the foreign-key cascade described below.
 
+## Expired playtest feedback retention
+
+### Confirm
+
+- Read only feedbackRetention.activeCount, expiredCount, overdueActiveCount and the stable
+  expiredFeedbackRetention alert from ops-report. Do not query or print owner IDs, public UUIDs,
+  category, severity, message, or run hashes.
+- Confirm the offline worker is healthy. It checks the sealed policy retention value at most once
+  every 60 seconds; policy v2 fixes the maximum at 90 days.
+
+### Mitigate and recover
+
+- Restart only offline-worker when the retention pass is not running. Do not edit created_at,
+  policy manifests, consent events, or feedback content by hand.
+- Let the application store transition overdue active rows to expired tombstones. The transition
+  clears category, severity, message, run revision, manifest hash, and finalization hash together.
+
+### Verify
+
+- Require overdueActiveCount=0 and the alert to clear. expiredCount may remain as content-free
+  deletion evidence until its owner deletes the account.
+- Confirm the worker log reports only the aggregate purged count and never an owner or feedback ID.
+
 ## Privacy or deletion request
 
 ### Confirm
@@ -214,12 +239,28 @@ location and deletion plan before external participants are invited.
 
 ### Mitigate and recover
 
-- Revoke sessions first. Keep immutable game evidence only when the published retention policy
-  explicitly requires it; otherwise use the approved account deletion procedure.
+- The owner uses the dashboard's double confirmation, which sends
+  `DELETE /api/auth/account` with the exact `{"confirmation":"deleteAccount"}` body.
+- The server pauses that account's automatic progress under its save operation lock, deletes the
+  `user` row, lets FK cascades delete every session, save, consent event, and feedback row, removes
+  the runtime cache entry, and clears the session cookie. Do not run manual DELETE statements.
 - Aggregate operations reports and logs must remain free of user/save/run identifiers, character
   values, command IDs, and money amounts.
 
 ### Verify
 
-- Confirm sessions are gone, public/private APIs no longer expose the account, and operational
-  logs contain no newly introduced personal data.
+- Confirm the response is 204, the old cookie receives 401, and aggregate counts show no orphaned
+  rows. A smoke test creates a disposable account and deletes only that account; it never uses the
+  standing QA account.
+- Confirm operational logs contain no newly introduced personal data. The deletion is permanent;
+  the current no-backup development policy provides no recovery path.
+
+## Public notice and incident contact
+
+- The dashboard is the release notice authority visible to a signed-in participant. It states that
+  all assets and characters are fictional, investment/legal/insurance models are simplified and
+  are not advice, analytics is disabled, feedback retention is at most 90 days, and deletion paths
+  are available.
+- Known issues, outage reports, and deletion questions use
+  https://github.com/it-play/lifeledger/issues. The reporter must not include an email address,
+  session token, actual financial information, or feedback message content.
